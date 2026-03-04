@@ -1322,7 +1322,7 @@
             const [loading, setLoading] = useState(true);
             const [sortBy, setSortBy] = useState('expense_date');
             const [sortOrder, setSortOrder] = useState('desc');
-            const [filterProperty, setFilterProperty] = useState([]);
+            const [filterProperty, setFilterProperty] = useState('all');
             const [filterCategories, setFilterCategories] = useState([]);
             const [dateFilter, setDateFilter] = useState('all');
             const [customDateStart, setCustomDateStart] = useState('');
@@ -1365,7 +1365,7 @@
             const filteredExpenses = useMemo(() => {
                 let filtered = expenses.filter(e => {
                     // Property filter
-                    if (filterProperty.length > 0 && !filterProperty.includes(e.property_name)) {
+                    if (filterProperty !== 'all' && e.property_id !== parseInt(filterProperty)) {
                         return false;
                     }
                     // Category filter
@@ -1437,12 +1437,12 @@
                             <div className="table-controls">
                                 <div className="filter-group">
                                     <span className="filter-label">Filter:</span>
-                                    <MultiSelect
-                                        label="Properties"
-                                        options={allPropertyNames}
-                                        selected={filterProperty}
-                                        onChange={setFilterProperty}
-                                    />
+                                    <select value={filterProperty} onChange={(e) => setFilterProperty(e.target.value)}>
+                                        <option value="all">All Properties</option>
+                                        {properties.map(p => (
+                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                    </select>
                                     <MultiSelect
                                         label="Categories"
                                         options={allCategories}
@@ -1545,7 +1545,7 @@
             const [loading, setLoading] = useState(true);
             const [sortBy, setSortBy] = useState('income_date');
             const [sortOrder, setSortOrder] = useState('desc');
-            const [filterProperty, setFilterProperty] = useState([]);
+            const [filterProperty, setFilterProperty] = useState('all');
             const [filterTypes, setFilterTypes] = useState([]);
             const [dateFilter, setDateFilter] = useState('all');
             const [customDateStart, setCustomDateStart] = useState('');
@@ -1588,7 +1588,7 @@
             const filteredIncome = useMemo(() => {
                 let filtered = income.filter(i => {
                     // Property filter
-                    if (filterProperty.length > 0 && !filterProperty.includes(i.property_name)) {
+                    if (filterProperty !== 'all' && i.property_id !== parseInt(filterProperty)) {
                         return false;
                     }
                     // Type filter
@@ -1660,12 +1660,12 @@
                             <div className="table-controls">
                                 <div className="filter-group">
                                     <span className="filter-label">Filter:</span>
-                                    <MultiSelect
-                                        label="Properties"
-                                        options={allPropertyNames}
-                                        selected={filterProperty}
-                                        onChange={setFilterProperty}
-                                    />
+                                    <select value={filterProperty} onChange={(e) => setFilterProperty(e.target.value)}>
+                                        <option value="all">All Properties</option>
+                                        {properties.map(p => (
+                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                    </select>
                                     <MultiSelect
                                         label="Types"
                                         options={allTypes}
