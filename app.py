@@ -122,11 +122,10 @@ def get_properties():
         cursor = conn.cursor()
         cursor.execute(select_from_properties() + ' ORDER BY created_at DESC')
         properties = [row_to_dict(row) for row in cursor.fetchall()]
-        app.logger.info(properties)
+        # app.logger.info(properties)
         conn.close()
         return jsonify(properties), 200
     except Exception as e:
-        app.logger.info("we are here")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/properties/<int:property_id>', methods=['GET'])
