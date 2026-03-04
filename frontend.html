@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real Estate Analytics - Flask Backend</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.5.0/umd/Recharts.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.5.0/umd/Recharts.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -660,10 +661,18 @@
                     const formatted = data.map(p => ({
                         id: p.id,
                         name: p.name,
+                        province: p.province,
+                        city: p.city,
                         address: p.address,
+                        postalCode: p.postal_code,
+                        parking: p.parking,
                         purchasePrice: p.purchase_price,
+                        marketPrice: p.market_price,
+                        loanAmount: p.loan_amount,
+                        possDate: p.poss_date,
                         monthlyRent: p.monthly_rent,
-                        expenses: p.expenses
+                        expenses: p.expenses,
+                        income: p.income
                     }));
                     
                     setProperties(formatted);
@@ -679,10 +688,16 @@
                 try {
                     const payload = {
                         name: property.name,
+                        province: property.province,
+                        city: property.city,
                         address: property.address,
+                        postalCode: property.postalCode,
+                        parking: property.parking,
                         purchasePrice: property.purchasePrice,
-                        monthlyRent: property.monthlyRent,
-                        expenses: property.expenses
+                        marketPrice: property.marketPrice,
+                        loanAmount: property.loanAmount,
+                        possDate: property.possDate,
+                        monthlyRent: property.monthlyRent
                     };
 
                     const url = property.id 
@@ -733,16 +748,7 @@
                     
                     const data = await response.json();
                     
-                    // Convert to frontend format
-                    const formatted = data.map(p => ({
-                        name: p.name,
-                        address: p.address,
-                        purchasePrice: p.purchase_price,
-                        monthlyRent: p.monthly_rent,
-                        expenses: p.expenses
-                    }));
-                    
-                    const dataStr = JSON.stringify(formatted, null, 2);
+                    const dataStr = JSON.stringify(data, null, 2);
                     const dataBlob = new Blob([dataStr], { type: 'application/json' });
                     const url = URL.createObjectURL(dataBlob);
                     const link = document.createElement('a');
@@ -790,10 +796,8 @@
             };
 
             const stats = useMemo(() => {
-                const totalRevenue = properties.reduce((sum, p) => sum + p.monthlyRent, 0);
-                const totalExpenses = properties.reduce((sum, p) => 
-                    sum + p.expenses.reduce((expSum, e) => expSum + e.amount, 0), 0
-                );
+                const totalRevenue = properties.reduce((sum, p) => sum + p.income, 0);
+                const totalExpenses = properties.reduce((sum, p) => sum + p.expenses, 0);
                 const netProfit = totalRevenue - totalExpenses;
                 const totalValue = properties.reduce((sum, p) => sum + p.purchasePrice, 0);
 
@@ -808,18 +812,20 @@
 
             const propertyChartData = properties.map(p => ({
                 name: p.name.split(' ')[0],
-                Revenue: p.monthlyRent,
-                Expenses: p.expenses.reduce((sum, e) => sum + e.amount, 0),
-                Profit: p.monthlyRent - p.expenses.reduce((sum, e) => sum + e.amount, 0)
+                Revenue: p.income,
+                Expenses: p.expenses,
+                Profit: p.income - p.expenses
             }));
 
             const expenseBreakdown = useMemo(() => {
                 const breakdown = {};
+                /*
                 properties.forEach(p => {
                     p.expenses.forEach(e => {
                         breakdown[e.type] = (breakdown[e.type] || 0) + e.amount;
                     });
                 });
+                */
                 return Object.entries(breakdown).map(([name, value]) => ({ name, value }));
             }, [properties]);
 
@@ -1026,8 +1032,9 @@
         }
 
         function PropertyItem({ property, onEdit, onDelete }) {
-            const totalExpenses = property.expenses.reduce((sum, e) => sum + e.amount, 0);
-            const netIncome = property.monthlyRent - totalExpenses;
+            // const totalExpenses = property.expenses.reduce((sum, e) => sum + e.amount, 0);
+            const totalExpenses = property.expenses;
+            const netIncome = property.income - totalExpenses;
 
             return (
                 <div className="property-item">
@@ -1068,9 +1075,16 @@
         function PropertyModal({ property, onSave, onClose }) {
             const [formData, setFormData] = useState(property || {
                 name: '',
+                province: '',
+                city: '',
                 address: '',
+                postalCode: '',
+                parking: '',
                 purchasePrice: 0,
+                marketPrice: 0,
+                loanAmount: 0,
                 monthlyRent: 0,
+                possDate: '',
                 expenses: []
             });
 
@@ -1116,14 +1130,58 @@
                                 />
                             </div>
 
-                            <div className="form-group">
-                                <label>Address</label>
-                                <input
-                                    type="text"
-                                    value={formData.address}
-                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                    required
-                                />
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Province</label>
+                                    <input
+                                        type="text"
+                                        value={formData.province}
+                                        onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>City</label>
+                                    <input
+                                        type="text"
+                                        value={formData.city}
+                                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Postal Code</label>
+                                    <input
+                                        type="text"
+                                        value={formData.postalCode}
+                                        onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Address</label>
+                                    <input
+                                        type="text"
+                                        value={formData.address}
+                                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Parking</label>
+                                    <input
+                                        type="text"
+                                        value={formData.parking}
+                                        onChange={(e) => setFormData({ ...formData, parking: e.target.value })}
+                                        required
+                                    />
+                                </div>
                             </div>
 
                             <div className="form-row">
@@ -1138,6 +1196,28 @@
                                 </div>
 
                                 <div className="form-group">
+                                    <label>Market Price</label>
+                                    <input
+                                        type="number"
+                                        value={formData.marketPrice}
+                                        onChange={(e) => setFormData({ ...formData, marketPrice: parseFloat(e.target.value) || 0 })}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Loan Amount</label>
+                                    <input
+                                        type="number"
+                                        value={formData.loanAmount}
+                                        onChange={(e) => setFormData({ ...formData, loanAmount: parseFloat(e.target.value) || 0 })}
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
                                     <label>Monthly Rent</label>
                                     <input
                                         type="number"
@@ -1146,6 +1226,16 @@
                                         required
                                     />
                                 </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Possession Date</label>
+                                <input
+                                    type="text"
+                                    value={formData.possDate}
+                                    onChange={(e) => setFormData({ ...formData, possDate: e.target.value })}
+                                    required
+                                />
                             </div>
 
                             <div className="form-group">
@@ -1203,7 +1293,8 @@
             );
         }
 
-        ReactDOM.render(<App />, document.getElementById('root'));
+        // ReactDOM.render(<App />, document.getElementById('root'));  // react 17
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>

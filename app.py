@@ -27,14 +27,49 @@ def init_db():
         CREATE TABLE IF NOT EXISTS properties (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            province TEXT NOT NULL,
+            city TEXT NOT NULL,
             address TEXT NOT NULL,
+            postal_code TEXT NOT NULL,
+            parking TEXT,
             purchase_price REAL NOT NULL,
+            market_price REAL NOT NULL,
+            loan_amount REAL NOT NULL,
             monthly_rent REAL NOT NULL,
-            expenses TEXT NOT NULL,
+            poss_date TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Create table for expenses
+    cursor.execute('''
+                   CREATE TABLE IF NOT EXISTS expenses (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       property_id INTEGER NOT NULL,
+                       expense_date TEXT NOT NULL,
+                       expense_type TEXT NOT NULL,
+                       expense_category TEXT NOT NULL,
+                       amount REAL NOT NULL,
+                       description TEXT,
+                       FOREIGN KEY (property_id) REFERENCES properties(id)
+                       ON DELETE CASCADE
+                       )
+                   ''')
+
+    # Create table for expenses
+    cursor.execute('''
+                   CREATE TABLE IF NOT EXISTS income (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       property_id INTEGER NOT NULL,
+                       income_date TEXT NOT NULL,
+                       income_type TEXT NOT NULL,
+                       amount REAL NOT NULL,
+                       description TEXT,
+                       FOREIGN KEY (property_id) REFERENCES properties(id)
+                       ON DELETE CASCADE
+                       )
+                   ''')
     
     conn.commit()
     conn.close()
@@ -47,8 +82,29 @@ init_db()
 def row_to_dict(row):
     """Convert SQLite Row to dictionary"""
     d = dict(row)
-    d['expenses'] = json.loads(d['expenses'])
+    # d['expenses'] = json.loads(d['expenses'])
     return d
+
+# helper for get SQL request for all property fields
+def select_from_properties():
+    return '''SELECT
+                  p.id,
+                  p.name,
+                  p.province,
+                  p.city,
+                  p.address,
+                  p.postal_code,
+                  p.parking,
+                  p.purchase_price,
+                  p.market_price,
+                  p.loan_amount,
+                  p.poss_date,
+                  p.monthly_rent,
+                  IFNULL((SELECT SUM(amount) FROM expenses WHERE property_id = p.id), 0) AS expenses,
+                  IFNULL((SELECT SUM(amount) FROM income WHERE property_id = p.id), 0) AS income
+               FROM
+                  properties p
+            '''
 
 # API Routes
 
@@ -58,11 +114,13 @@ def get_properties():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM properties ORDER BY created_at DESC')
+        cursor.execute(select_from_properties() + ' ORDER BY created_at DESC')
         properties = [row_to_dict(row) for row in cursor.fetchall()]
+        app.logger.info(properties)
         conn.close()
         return jsonify(properties), 200
     except Exception as e:
+        app.logger.info("we are here")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/properties/<int:property_id>', methods=['GET'])
@@ -71,7 +129,8 @@ def get_property(property_id):
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM properties WHERE id = ?', (property_id,))
+        cursor.execute(select_from_properties() + ' WHERE p.id = ?',
+                       (property_id,))
         row = cursor.fetchone()
         conn.close()
         
@@ -89,7 +148,17 @@ def create_property():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['name', 'address', 'purchasePrice', 'monthlyRent', 'expenses']
+        required_fields = ['name',
+                           'province',
+                           'city',
+                           'address',
+                           'postalCode',
+                           'parking',
+                           'purchasePrice',
+                           'marketPrice',
+                           'loanAmount',
+                           'possDate',
+                           'monthlyRent']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
@@ -97,14 +166,22 @@ def create_property():
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO properties (name, address, purchase_price, monthly_rent, expenses)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO properties (name, province, city, address, postal_code,
+                                    parking, purchase_price, market_price,
+                                    loan_amount, poss_date, monthly_rent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['name'],
+            data['province'],
+            data['city'],
             data['address'],
+            data['postalCode'],
+            data['parking'],
             data['purchasePrice'],
-            data['monthlyRent'],
-            json.dumps(data['expenses'])
+            data['marketPrice'],
+            data['loanAmount'],
+            data['possDate'],
+            data['monthlyRent']
         ))
         
         property_id = cursor.lastrowid
@@ -113,6 +190,8 @@ def create_property():
         # Fetch the newly created property
         cursor.execute('SELECT * FROM properties WHERE id = ?', (property_id,))
         new_property = row_to_dict(cursor.fetchone())
+        new_property['expenses'] = 0
+        new_property['income'] = 0
         conn.close()
         
         return jsonify(new_property), 201
@@ -137,22 +216,32 @@ def update_property(property_id):
         # Update property
         cursor.execute('''
             UPDATE properties 
-            SET name = ?, address = ?, purchase_price = ?, monthly_rent = ?, 
-                expenses = ?, updated_at = CURRENT_TIMESTAMP
+            SET name = ?, province = ?, city = ?, address = ?,
+                postal_code = ?, parking = ?, purchase_price = ?,
+                market_price = ?, loan_amount = ?, poss_date = ?,
+                monthly_rent = ?, 
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (
             data['name'],
+            data['province'],
+            data['city'],
             data['address'],
+            data['postalCode'],
+            data['parking'],
             data['purchasePrice'],
+            data['marketPrice'],
+            data['loanAmount'],
+            data['possDate'],
             data['monthlyRent'],
-            json.dumps(data['expenses']),
             property_id
         ))
         
         conn.commit()
         
         # Fetch the updated property
-        cursor.execute('SELECT * FROM properties WHERE id = ?', (property_id,))
+        cursor.execute(select_from_properties() + ' WHERE id = ?',
+                       (property_id,))
         updated_property = row_to_dict(cursor.fetchone())
         conn.close()
         
@@ -188,18 +277,15 @@ def get_statistics():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM properties')
+        cursor.execute(select_from_properties())
         properties = [row_to_dict(row) for row in cursor.fetchall()]
         conn.close()
         
         # Calculate statistics
-        total_revenue = sum(p['monthly_rent'] for p in properties)
-        total_expenses = sum(
-            sum(e['amount'] for e in p['expenses']) 
-            for p in properties
-        )
+        total_revenue = sum(p['income'] for p in properties)
+        total_expenses = sum(p['income'] for p in properties)
         net_profit = total_revenue - total_expenses
-        total_value = sum(p['purchase_price'] for p in properties)
+        total_value = sum(p['market_price'] for p in properties)
         
         stats = {
             'propertyCount': len(properties),
@@ -227,23 +313,49 @@ def import_data():
         cursor = conn.cursor()
         
         # Clear existing data (optional - remove if you want to append)
+        cursor.execute('DELETE FROM expenses')
+        cursor.execute('DELETE FROM income')
         cursor.execute('DELETE FROM properties')
-        
-        # Insert new data
+        conn.commit()
+
+        # Helper to insert dynamically
+        def insert_dynamic(table_name, row_data):
+            # Get columns from the database table
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            columns = [col["name"] for col in cursor.fetchall()]
+
+            # Keep only keys that exist in the table
+            filtered_data = {k: row_data[k] for k in row_data if k in columns}
+
+            # Build query dynamically
+            col_names = ", ".join(filtered_data.keys())
+            placeholders = ", ".join("?" for _ in filtered_data)
+            values = tuple(filtered_data.values())
+
+            cursor.execute(f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})", values)
+
+            # Insert properties and nested records
+
         imported_count = 0
-        for property_data in data:
-            cursor.execute('''
-                INSERT INTO properties (name, address, purchase_price, monthly_rent, expenses)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (
-                property_data.get('name', ''),
-                property_data.get('address', ''),
-                property_data.get('purchasePrice', 0),
-                property_data.get('monthlyRent', 0),
-                json.dumps(property_data.get('expenses', []))
-            ))
+        for prop in data:
+            # Extract nested lists if present
+            expenses = prop.pop("expenses", [])
+            income = prop.pop("income", [])
+
+            # Insert property
+            insert_dynamic("properties", prop)
+            property_id = prop.get("id")  # preserve original ID
+
+            # Insert expenses
+            for e in expenses:
+                insert_dynamic("expenses", e)
+
+            # Insert income
+            for i in income:
+                insert_dynamic("income", i)
+
             imported_count += 1
-        
+
         conn.commit()
         conn.close()
         
@@ -260,11 +372,31 @@ def export_data():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM properties')
-        properties = [row_to_dict(row) for row in cursor.fetchall()]
+        cursor.execute("SELECT * FROM properties")
+        properties = cursor.fetchall()
+
+        result = []
+
+        for p in properties:
+            prop_dict = dict(p)  # automatically maps column names to values
+
+            # Fetch expenses for this property
+            cursor.execute("SELECT * FROM expenses WHERE property_id = ?", (p["id"],))
+            expenses = [dict(row) for row in cursor.fetchall()]
+
+            # Fetch income for this property
+            cursor.execute("SELECT * FROM income WHERE property_id = ?", (p["id"],))
+            income = [dict(row) for row in cursor.fetchall()]
+
+            # Add nested lists
+            prop_dict["expenses"] = expenses
+            prop_dict["income"] = income
+
+            result.append(prop_dict)
+
         conn.close()
         
-        return jsonify(properties), 200
+        return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
