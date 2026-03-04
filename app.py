@@ -60,7 +60,7 @@ def init_db():
                        )
                    ''')
 
-    # Create table for expenses
+    # Create table for income
     cursor.execute('''
                    CREATE TABLE IF NOT EXISTS income (
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +71,21 @@ def init_db():
                        description TEXT,
                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       FOREIGN KEY (property_id) REFERENCES properties(id)
+                       ON DELETE CASCADE
+                       )
+                   ''')
+
+    # Create events table for tracking property changes
+    cursor.execute('''
+                   CREATE TABLE IF NOT EXISTS events (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       property_id INTEGER NOT NULL,
+                       column_name TEXT NOT NULL,
+                       old_value TEXT,
+                       new_value TEXT,
+                       description TEXT,
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        FOREIGN KEY (property_id) REFERENCES properties(id)
                        ON DELETE CASCADE
                        )
@@ -208,18 +223,53 @@ def create_property():
 
 @app.route('/api/properties/<int:property_id>', methods=['PUT'])
 def update_property(property_id):
-    """Update an existing property"""
+    """Update an existing property and track changes"""
     try:
         data = request.get_json()
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Check if property exists
+        # Get current property values
         cursor.execute('SELECT * FROM properties WHERE id = ?', (property_id,))
-        if not cursor.fetchone():
+        old_property = cursor.fetchone()
+        if not old_property:
             conn.close()
             return jsonify({'error': 'Property not found'}), 404
+        
+        old_property = dict(old_property)
+        
+        # Track changes in events table
+        field_mapping = {
+            'name': data['name'],
+            'province': data['province'],
+            'city': data['city'],
+            'address': data['address'],
+            'postal_code': data['postalCode'],
+            'parking': data['parking'],
+            'purchase_price': data['purchasePrice'],
+            'market_price': data['marketPrice'],
+            'loan_amount': data['loanAmount'],
+            'poss_date': data['possDate'],
+            'monthly_rent': data['monthlyRent'],
+            'status': data['status']
+        }
+        
+        for column, new_value in field_mapping.items():
+            old_value = old_property[column]
+            # Convert to same type for comparison
+            if isinstance(new_value, (int, float)):
+                old_value = float(old_value) if old_value else 0
+                new_value = float(new_value) if new_value else 0
+            else:
+                old_value = str(old_value) if old_value else ''
+                new_value = str(new_value) if new_value else ''
+            
+            if old_value != new_value:
+                cursor.execute('''
+                    INSERT INTO events (property_id, column_name, old_value, new_value, description)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (property_id, column, str(old_value), str(new_value), ''))
         
         # Update property
         cursor.execute('''
@@ -249,7 +299,7 @@ def update_property(property_id):
         conn.commit()
         
         # Fetch the updated property
-        cursor.execute(select_from_properties() + ' WHERE id = ?',
+        cursor.execute(select_from_properties() + ' WHERE p.id = ?',
                        (property_id,))
         updated_property = row_to_dict(cursor.fetchone())
         conn.close()
@@ -630,6 +680,85 @@ def delete_income(income_id):
         conn.close()
         
         return jsonify({'message': 'Income deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/events', methods=['GET'])
+def get_events():
+    """Get all events or events for a specific property"""
+    try:
+        property_id = request.args.get('property_id')
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        if property_id:
+            cursor.execute('''
+                SELECT e.*, p.name as property_name 
+                FROM events e
+                LEFT JOIN properties p ON e.property_id = p.id
+                WHERE e.property_id = ?
+                ORDER BY e.created_at DESC
+            ''', (property_id,))
+        else:
+            cursor.execute('''
+                SELECT e.*, p.name as property_name 
+                FROM events e
+                LEFT JOIN properties p ON e.property_id = p.id
+                ORDER BY e.created_at DESC
+            ''')
+        
+        events = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(events), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/events/<int:event_id>', methods=['PUT'])
+def update_event(event_id):
+    """Update an event (mainly for adding/editing description)"""
+    try:
+        data = request.get_json()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM events WHERE id = ?', (event_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Event not found'}), 404
+        
+        cursor.execute('''
+            UPDATE events 
+            SET description = ?
+            WHERE id = ?
+        ''', (data.get('description', ''), event_id))
+        
+        conn.commit()
+        cursor.execute('SELECT * FROM events WHERE id = ?', (event_id,))
+        updated_event = dict(cursor.fetchone())
+        conn.close()
+        
+        return jsonify(updated_event), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/events/<int:event_id>', methods=['DELETE'])
+def delete_event(event_id):
+    """Delete an event"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM events WHERE id = ?', (event_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Event not found'}), 404
+        
+        cursor.execute('DELETE FROM events WHERE id = ?', (event_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Event deleted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
