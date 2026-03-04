@@ -671,8 +671,10 @@
                         loanAmount: p.loan_amount,
                         possDate: p.poss_date,
                         monthlyRent: p.monthly_rent,
-                        expenses: p.expenses,
-                        income: p.income
+                        status: p.status,
+                        totalExpenses: p.total_expenses,
+                        totalIncome: p.total_income,
+                        expenses: []
                     }));
                     
                     setProperties(formatted);
@@ -697,7 +699,8 @@
                         marketPrice: property.marketPrice,
                         loanAmount: property.loanAmount,
                         possDate: property.possDate,
-                        monthlyRent: property.monthlyRent
+                        monthlyRent: property.monthlyRent,
+                        status: property.status
                     };
 
                     const url = property.id 
@@ -796,25 +799,28 @@
             };
 
             const stats = useMemo(() => {
-                const totalRevenue = properties.reduce((sum, p) => sum + p.income, 0);
-                const totalExpenses = properties.reduce((sum, p) => sum + p.expenses, 0);
+                const totalRevenue = properties.reduce((sum, p) => sum + p.totalIncome, 0);
+                const totalExpenses = properties.reduce((sum, p) => sum + p.totalExpenses, 0);
                 const netProfit = totalRevenue - totalExpenses;
-                const totalValue = properties.reduce((sum, p) => sum + p.purchasePrice, 0);
+                const totalValue = properties.reduce((sum, p) => sum + p.marketPrice, 0);
+                const totalDebt = properties.reduce((sum, p) => sum + p.loanAmount, 0);
+                const totalEquity = totalValue - totalDebt
 
                 return {
                     totalRevenue,
                     totalExpenses,
                     netProfit,
                     totalValue,
+                    totalEquity,
                     propertyCount: properties.length
                 };
             }, [properties]);
 
             const propertyChartData = properties.map(p => ({
                 name: p.name.split(' ')[0],
-                Revenue: p.income,
-                Expenses: p.expenses,
-                Profit: p.income - p.expenses
+                Revenue: p.totalIncome,
+                Expenses: p.totalExpenses,
+                Profit: p.totalIncome - p.totalExpenses
             }));
 
             const expenseBreakdown = useMemo(() => {
@@ -896,6 +902,10 @@
                         <div className="stat-card">
                             <div className="stat-label">Portfolio Value</div>
                             <div className="stat-value">${stats.totalValue.toLocaleString()}</div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-label">Total Equity</div>
+                            <div className="stat-value">${stats.totalEquity.toLocaleString()}</div>
                         </div>
                         <div className="stat-card">
                             <div className="stat-label">Monthly Revenue</div>
@@ -1033,8 +1043,8 @@
 
         function PropertyItem({ property, onEdit, onDelete }) {
             // const totalExpenses = property.expenses.reduce((sum, e) => sum + e.amount, 0);
-            const totalExpenses = property.expenses;
-            const netIncome = property.income - totalExpenses;
+            const totalExpenses = property.totalExpenses;
+            const netIncome = property.totalIncome - totalExpenses;
 
             return (
                 <div className="property-item">
@@ -1085,6 +1095,7 @@
                 loanAmount: 0,
                 monthlyRent: 0,
                 possDate: '',
+                status: '',
                 expenses: []
             });
 
@@ -1208,6 +1219,15 @@
 
                             <div className="form-row">
                                 <div className="form-group">
+                                <label>Possession Date</label>
+                                <input
+                                    type="text"
+                                    value={formData.possDate}
+                                    onChange={(e) => setFormData({ ...formData, possDate: e.target.value })}
+                                    required
+                                />
+                                </div>
+                                <div className="form-group">
                                     <label>Loan Amount</label>
                                     <input
                                         type="number"
@@ -1216,7 +1236,18 @@
                                         required
                                     />
                                 </div>
+                            </div>
 
+                            <div className="form-row">
+                                <div className="form-group">
+                                <label>Status</label>
+                                <input
+                                    type="text"
+                                    value={formData.status}
+                                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                                    required
+                                />
+                                </div>
                                 <div className="form-group">
                                     <label>Monthly Rent</label>
                                     <input
@@ -1226,16 +1257,6 @@
                                         required
                                     />
                                 </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Possession Date</label>
-                                <input
-                                    type="text"
-                                    value={formData.possDate}
-                                    onChange={(e) => setFormData({ ...formData, possDate: e.target.value })}
-                                    required
-                                />
                             </div>
 
                             <div className="form-group">
@@ -1274,7 +1295,7 @@
                                         className="btn btn-secondary btn-small"
                                         onClick={handleAddExpense}
                                     >
-                                        <span>Add</span>
+                                    <span>Add</span>
                                     </button>
                                 </div>
                             </div>

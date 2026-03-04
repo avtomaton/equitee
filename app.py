@@ -37,6 +37,7 @@ def init_db():
             loan_amount REAL NOT NULL,
             monthly_rent REAL NOT NULL,
             poss_date TEXT NOT NULL,
+            status TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -48,10 +49,12 @@ def init_db():
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                        property_id INTEGER NOT NULL,
                        expense_date TEXT NOT NULL,
+                       amount REAL NOT NULL,
                        expense_type TEXT NOT NULL,
                        expense_category TEXT NOT NULL,
-                       amount REAL NOT NULL,
                        description TEXT,
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        FOREIGN KEY (property_id) REFERENCES properties(id)
                        ON DELETE CASCADE
                        )
@@ -63,9 +66,11 @@ def init_db():
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                        property_id INTEGER NOT NULL,
                        income_date TEXT NOT NULL,
-                       income_type TEXT NOT NULL,
                        amount REAL NOT NULL,
+                       income_type TEXT NOT NULL,
                        description TEXT,
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        FOREIGN KEY (property_id) REFERENCES properties(id)
                        ON DELETE CASCADE
                        )
@@ -99,9 +104,10 @@ def select_from_properties():
                   p.market_price,
                   p.loan_amount,
                   p.poss_date,
+                  p.status,
                   p.monthly_rent,
-                  IFNULL((SELECT SUM(amount) FROM expenses WHERE property_id = p.id), 0) AS expenses,
-                  IFNULL((SELECT SUM(amount) FROM income WHERE property_id = p.id), 0) AS income
+                  IFNULL((SELECT SUM(amount) FROM expenses WHERE property_id = p.id), 0) AS total_expenses,
+                  IFNULL((SELECT SUM(amount) FROM income WHERE property_id = p.id), 0) AS total_income
                FROM
                   properties p
             '''
@@ -158,7 +164,8 @@ def create_property():
                            'marketPrice',
                            'loanAmount',
                            'possDate',
-                           'monthlyRent']
+                           'monthlyRent',
+                           'status']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
@@ -168,8 +175,9 @@ def create_property():
         cursor.execute('''
             INSERT INTO properties (name, province, city, address, postal_code,
                                     parking, purchase_price, market_price,
-                                    loan_amount, poss_date, monthly_rent)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    loan_amount, poss_date, monthly_rent,
+                                    status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['name'],
             data['province'],
@@ -181,7 +189,8 @@ def create_property():
             data['marketPrice'],
             data['loanAmount'],
             data['possDate'],
-            data['monthlyRent']
+            data['monthlyRent'],
+            data['status']
         ))
         
         property_id = cursor.lastrowid
@@ -190,8 +199,8 @@ def create_property():
         # Fetch the newly created property
         cursor.execute('SELECT * FROM properties WHERE id = ?', (property_id,))
         new_property = row_to_dict(cursor.fetchone())
-        new_property['expenses'] = 0
-        new_property['income'] = 0
+        new_property['total_expenses'] = 0
+        new_property['total_income'] = 0
         conn.close()
         
         return jsonify(new_property), 201
@@ -219,7 +228,7 @@ def update_property(property_id):
             SET name = ?, province = ?, city = ?, address = ?,
                 postal_code = ?, parking = ?, purchase_price = ?,
                 market_price = ?, loan_amount = ?, poss_date = ?,
-                monthly_rent = ?, 
+                monthly_rent = ?, status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (
@@ -234,6 +243,7 @@ def update_property(property_id):
             data['loanAmount'],
             data['possDate'],
             data['monthlyRent'],
+            data['status'],
             property_id
         ))
         
@@ -282,8 +292,8 @@ def get_statistics():
         conn.close()
         
         # Calculate statistics
-        total_revenue = sum(p['income'] for p in properties)
-        total_expenses = sum(p['income'] for p in properties)
+        total_revenue = sum(p['total_income'] for p in properties)
+        total_expenses = sum(p['total_expenses'] for p in properties)
         net_profit = total_revenue - total_expenses
         total_value = sum(p['market_price'] for p in properties)
         
