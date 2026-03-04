@@ -409,6 +409,230 @@ def export_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/expenses', methods=['GET'])
+def get_expenses():
+    """Get all expenses or expenses for a specific property"""
+    try:
+        property_id = request.args.get('property_id')
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        if property_id:
+            cursor.execute('SELECT * FROM expenses WHERE property_id = ? ORDER BY expense_date DESC', (property_id,))
+        else:
+            cursor.execute('SELECT * FROM expenses ORDER BY expense_date DESC')
+        
+        expenses = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(expenses), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/expenses', methods=['POST'])
+def create_expense():
+    """Create a new expense"""
+    try:
+        data = request.get_json()
+        
+        required_fields = ['propertyId', 'expenseDate', 'amount', 'expenseType', 'expenseCategory']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO expenses (property_id, expense_date, amount, expense_type, expense_category, description)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            data['propertyId'],
+            data['expenseDate'],
+            data['amount'],
+            data['expenseType'],
+            data['expenseCategory'],
+            data.get('description', '')
+        ))
+        
+        expense_id = cursor.lastrowid
+        conn.commit()
+        
+        cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+        new_expense = dict(cursor.fetchone())
+        conn.close()
+        
+        return jsonify(new_expense), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/expenses/<int:expense_id>', methods=['PUT'])
+def update_expense(expense_id):
+    """Update an existing expense"""
+    try:
+        data = request.get_json()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Expense not found'}), 404
+        
+        cursor.execute('''
+            UPDATE expenses 
+            SET property_id = ?, expense_date = ?, amount = ?, expense_type = ?,
+                expense_category = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data['propertyId'],
+            data['expenseDate'],
+            data['amount'],
+            data['expenseType'],
+            data['expenseCategory'],
+            data.get('description', ''),
+            expense_id
+        ))
+        
+        conn.commit()
+        cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+        updated_expense = dict(cursor.fetchone())
+        conn.close()
+        
+        return jsonify(updated_expense), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/expenses/<int:expense_id>', methods=['DELETE'])
+def delete_expense(expense_id):
+    """Delete an expense"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Expense not found'}), 404
+        
+        cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Expense deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/income', methods=['GET'])
+def get_income():
+    """Get all income or income for a specific property"""
+    try:
+        property_id = request.args.get('property_id')
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        if property_id:
+            cursor.execute('SELECT * FROM income WHERE property_id = ? ORDER BY income_date DESC', (property_id,))
+        else:
+            cursor.execute('SELECT * FROM income ORDER BY income_date DESC')
+        
+        income = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(income), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/income', methods=['POST'])
+def create_income():
+    """Create a new income entry"""
+    try:
+        data = request.get_json()
+        
+        required_fields = ['propertyId', 'incomeDate', 'amount', 'incomeType']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO income (property_id, income_date, amount, income_type, description)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            data['propertyId'],
+            data['incomeDate'],
+            data['amount'],
+            data['incomeType'],
+            data.get('description', '')
+        ))
+        
+        income_id = cursor.lastrowid
+        conn.commit()
+        
+        cursor.execute('SELECT * FROM income WHERE id = ?', (income_id,))
+        new_income = dict(cursor.fetchone())
+        conn.close()
+        
+        return jsonify(new_income), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/income/<int:income_id>', methods=['PUT'])
+def update_income(income_id):
+    """Update an existing income entry"""
+    try:
+        data = request.get_json()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM income WHERE id = ?', (income_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Income not found'}), 404
+        
+        cursor.execute('''
+            UPDATE income 
+            SET property_id = ?, income_date = ?, amount = ?, income_type = ?,
+                description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data['propertyId'],
+            data['incomeDate'],
+            data['amount'],
+            data['incomeType'],
+            data.get('description', ''),
+            income_id
+        ))
+        
+        conn.commit()
+        cursor.execute('SELECT * FROM income WHERE id = ?', (income_id,))
+        updated_income = dict(cursor.fetchone())
+        conn.close()
+        
+        return jsonify(updated_income), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/income/<int:income_id>', methods=['DELETE'])
+def delete_income(income_id):
+    """Delete an income entry"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM income WHERE id = ?', (income_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Income not found'}), 404
+        
+        cursor.execute('DELETE FROM income WHERE id = ?', (income_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Income deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
