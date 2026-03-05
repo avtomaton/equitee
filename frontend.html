@@ -1452,13 +1452,34 @@
             const [sortOrder, setSortOrder] = useState('desc');
             const [filterProperty, setFilterProperty] = useState('all');
             const [filterCategories, setFilterCategories] = useState([]);
+            const filterCategoriesInitialized = useRef(false);
+            const [filterTypes, setFilterTypes] = useState([]);
+            const filterTypesInitialized = useRef(false);
             const [dateFilter, setDateFilter] = useState('all');
             const [customDateStart, setCustomDateStart] = useState('');
             const [customDateEnd, setCustomDateEnd] = useState('');
 
+            const allTypes = useMemo(() =>
+                [...new Set(expenses.map(e => e.expense_type))].sort(),
+                [expenses]);
+            const allCategories = useMemo(() =>
+                [...new Set(expenses.map(e => e.expense_category))].sort(),
+                [expenses]);
+
             useEffect(() => {
                 loadExpenses();
             }, []);
+
+            useEffect(() => {
+                if (!filterTypesInitialized.current && allTypes.length > 0) {
+                    setFilterTypes(allTypes);
+                    filterTypesInitialized.current = true;
+                }
+                if (!filterCategoriesInitialized.current && allCategories.length > 0) {
+                    setFilterCategories(allCategories);
+                    filterCategoriesInitialized.current = true;
+                }
+            }, [allTypes, allCategories]);
 
             const loadExpenses = async () => {
                 try {
@@ -1482,10 +1503,6 @@
                 }
             };
 
-            const allCategories = useMemo(() => 
-                [...new Set(expenses.map(e => e.expense_category))].sort(),
-            [expenses]);
-
             const allPropertyNames = useMemo(() =>
                 [...new Set(expenses.map(e => e.property_name))].sort(),
             [expenses]);
@@ -1497,7 +1514,11 @@
                         return false;
                     }
                     // Category filter
-                    if (filterCategories.length > 0 && !filterCategories.includes(e.expense_category)) {
+                    if (!filterCategories.includes(e.expense_category)) {
+                        return false;
+                    }
+                    // Type filter
+                    if (!filterTypes.includes(e.expense_type)) {
                         return false;
                     }
                     // Date filter
@@ -1530,7 +1551,7 @@
                 });
 
                 return filtered;
-            }, [expenses, filterProperty, filterCategories, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
+            }, [expenses, filterProperty, filterCategories, filterTypes, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
 
             const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
 
@@ -1576,6 +1597,12 @@
                                         options={allCategories}
                                         selected={filterCategories}
                                         onChange={setFilterCategories}
+                                    />
+                                    <MultiSelect
+                                        label="Types"
+                                        options={allTypes}
+                                        selected={filterTypes}
+                                        onChange={setFilterTypes}
                                     />
                                     <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}>
                                         <option value="all">All Time</option>
