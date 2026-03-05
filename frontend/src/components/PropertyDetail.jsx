@@ -3,7 +3,7 @@ import {
   Tooltip, ResponsiveContainer,
 } from 'recharts';
 
-const TOOLTIP_STYLE = {
+const DETAIL_TOOLTIP_STYLE = {
   background: '#1a1f2e',
   border: '1px solid #374151',
   borderRadius: '8px',
@@ -71,7 +71,7 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis dataKey="name" stroke="#9ca3af" />
             <YAxis stroke="#9ca3af" />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Tooltip contentStyle={DETAIL_TOOLTIP_STYLE} />
             <Bar dataKey="value" fill="#3b82f6" />
           </BarChart>
         </ResponsiveContainer>
