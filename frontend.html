@@ -382,6 +382,7 @@
             min-width: 200px;
         }
 
+        /* Trigger */
         .multi-select-trigger {
             padding: 0.5rem 0.75rem;
             background: var(--bg-primary);
@@ -400,6 +401,7 @@
             border-color: var(--accent-primary);
         }
 
+        /* Dropdown */
         .multi-select-dropdown {
             position: absolute;
             top: 100%;
@@ -415,23 +417,81 @@
             overflow-y: auto;
         }
 
-        .multi-select-option {
-            padding: 0.75rem 1rem;
-            cursor: pointer;
+        /* Action bar */
+        .multi-select-actions {
             display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-primary);
+        }
+
+        .multi-select-actions button {
+            background: none;
+            border: none;
+            color: var(--accent-primary);
+            cursor: pointer;
+            font-size: 0.8rem;
+            padding: 2px 6px;
+        }
+
+        .multi-select-actions button:hover {
+            text-decoration: underline;
+        }
+
+        .multi-select-actions button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        /* Options */
+        .multi-select-option {
+            padding: 0.6rem 0.75rem;
+            display: flex;
+            justify-content: space-between; /* important */
             align-items: center;
-            gap: 0.75rem;
             transition: background 0.2s;
         }
 
+
         .multi-select-option:hover {
             background: var(--bg-tertiary);
+        }
+
+        /* Left side (checkbox + label) */
+        .multi-select-option label {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            cursor: pointer;
+            flex: 1;
         }
 
         .multi-select-option input[type="checkbox"] {
             width: 16px;
             height: 16px;
             cursor: pointer;
+        }
+
+        /* Only button */
+        .only-btn {
+            background: none;
+            border: none;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        /* Show "only" on hover */
+        .multi-select-option:hover .only-btn {
+            opacity: 0.7;
+        }
+
+        .only-btn:hover {
+            opacity: 1;
+            color: var(--accent-primary);
         }
 
         table {
@@ -875,6 +935,8 @@
                 return () => document.removeEventListener('mousedown', handleClickOutside);
             }, []);
 
+            const allSelected = selected.length === options.length;
+
             const handleToggle = (value) => {
                 const newSelected = selected.includes(value)
                     ? selected.filter(s => s !== value)
@@ -882,30 +944,96 @@
                 onChange(newSelected);
             };
 
-            const displayText = selected.length === 0 
-                ? `All ${label}` 
+            const handleSelectAll = () => {
+                onChange([...options]);
+            };
+
+            const handleClearAll = () => {
+                onChange([]);
+            };
+
+            const handleOnly = (value) => {
+                onChange([value]);
+            };
+
+            /*
+            const displayText = selected.length === 0
+                ? `All ${label}`
                 : selected.length === options.length
                 ? `All ${label}`
                 : `${selected.length} selected`;
+             */
+
+            const displayText =
+                selected.length === options.length
+                    ? `All ${label}`
+                    : selected.length === 0
+                    ? `None`
+                    : `${selected.length} selected`;
 
             return (
                 <div className="multi-select" ref={ref}>
-                    <div className="multi-select-trigger" onClick={() => setIsOpen(!isOpen)}>
+                    <div
+                        className="multi-select-trigger"
+                        onClick={() => setIsOpen(!isOpen)}
+                    >
                         <span>{displayText}</span>
                         <span>{isOpen ? '▲' : '▼'}</span>
                     </div>
+
                     {isOpen && (
                         <div className="multi-select-dropdown">
-                            {options.map(option => (
-                                <div key={option} className="multi-select-option">
-                                    <input
-                                        type="checkbox"
-                                        checked={selected.includes(option)}
-                                        onChange={() => handleToggle(option)}
-                                    />
-                                    <span>{option}</span>
-                                </div>
-                            ))}
+
+                            {/* ✅ Action bar */}
+                            <div className="multi-select-actions">
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAll}
+                                    disabled={allSelected}
+                                >
+                                    Select all
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={handleClearAll}
+                                    disabled={selected.length === 0}
+                                >
+                                    Clear all
+                                </button>
+                            </div>
+
+                            {/* ✅ Options */}
+                            {options.map(option => {
+                                const checked = selected.includes(option);
+
+                                return (
+                                    <div key={option} className="multi-select-option">
+                                        <label>
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => handleToggle(option)}
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+
+                                        {/* ⭐ Quick isolate */}
+                                        {!(checked && selected.length === 1) ? (
+                                            <button
+                                                type="button"
+                                                className="only-btn"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleOnly(option);
+                                                }}
+                                            >
+                                                only
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -1547,13 +1675,25 @@
             const [sortOrder, setSortOrder] = useState('desc');
             const [filterProperty, setFilterProperty] = useState('all');
             const [filterTypes, setFilterTypes] = useState([]);
+            const filterTypesInitialized = useRef(false);
             const [dateFilter, setDateFilter] = useState('all');
             const [customDateStart, setCustomDateStart] = useState('');
             const [customDateEnd, setCustomDateEnd] = useState('');
 
+            const allTypes = useMemo(() =>
+                [...new Set(income.map(i => i.income_type))].sort(),
+                [income]);
+
             useEffect(() => {
                 loadIncome();
             }, []);
+
+            useEffect(() => {
+                if (!filterTypesInitialized.current && allTypes.length > 0) {
+                    setFilterTypes(allTypes);
+                    filterTypesInitialized.current = true;
+                }
+            }, [allTypes]);
 
             const loadIncome = async () => {
                 try {
@@ -1577,10 +1717,6 @@
                 }
             };
 
-            const allTypes = useMemo(() => 
-                [...new Set(income.map(i => i.income_type))].sort(),
-            [income]);
-
             const allPropertyNames = useMemo(() =>
                 [...new Set(income.map(i => i.property_name))].sort(),
             [income]);
@@ -1592,7 +1728,7 @@
                         return false;
                     }
                     // Type filter
-                    if (filterTypes.length > 0 && !filterTypes.includes(i.income_type)) {
+                    if (!filterTypes.includes(i.income_type)) {
                         return false;
                     }
                     // Date filter
