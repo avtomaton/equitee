@@ -1467,8 +1467,10 @@
                 [expenses]);
 
             useEffect(() => {
-                loadExpenses();
-            }, []);
+                if (properties.length > 0) {
+                    loadExpenses(properties);
+                }
+            }, [properties]);
 
             useEffect(() => {
                 if (!filterTypesInitialized.current && allTypes.length > 0) {
@@ -1481,21 +1483,23 @@
                 }
             }, [allTypes, allCategories]);
 
-            const loadExpenses = async () => {
+            const loadExpenses = async (props) => {
+                if (!props?.length) return;
                 try {
                     setLoading(true);
-                    const allExpenses = [];
-                    for (const prop of properties) {
-                        const response = await fetch(`${API_URL}/expenses?property_id=${prop.id}`);
-                        if (response.ok) {
-                            const data = await response.json();
-                            allExpenses.push(...data.map(e => ({
-                                ...e,
-                                property_name: prop.name
-                            })));
-                        }
-                    }
-                    setExpenses(allExpenses);
+                    const responses = await Promise.all(
+                        props.map(prop =>
+                            fetch(`${API_URL}/expenses?property_id=${prop.id}`)
+                                .then(r => r.ok ? r.json() : [])
+                                .then(data =>
+                                    data.map(i => ({
+                                        ...i,
+                                        property_name: prop.name
+                                    }))
+                                )
+                        )
+                    );
+                    setExpenses(responses.flat());
                 } catch (error) {
                     console.error('Error loading expenses:', error);
                 } finally {
@@ -1712,31 +1716,35 @@
                 [income]);
 
             useEffect(() => {
-                loadIncome();
-            }, []);
-
-            useEffect(() => {
                 if (!filterTypesInitialized.current && allTypes.length > 0) {
                     setFilterTypes(allTypes);
                     filterTypesInitialized.current = true;
                 }
             }, [allTypes]);
 
-            const loadIncome = async () => {
+            useEffect(() => {
+                if (properties.length > 0) {
+                    loadIncome(properties);
+                }
+            }, [properties]);
+
+            const loadIncome = async (props) => {
+                if (!props?.length) return;
                 try {
                     setLoading(true);
-                    const allIncome = [];
-                    for (const prop of properties) {
-                        const response = await fetch(`${API_URL}/income?property_id=${prop.id}`);
-                        if (response.ok) {
-                            const data = await response.json();
-                            allIncome.push(...data.map(i => ({
-                                ...i,
-                                property_name: prop.name
-                            })));
-                        }
-                    }
-                    setIncome(allIncome);
+                    const responses = await Promise.all(
+                        props.map(prop =>
+                            fetch(`${API_URL}/income?property_id=${prop.id}`)
+                                .then(r => r.ok ? r.json() : [])
+                                .then(data =>
+                                    data.map(i => ({
+                                        ...i,
+                                        property_name: prop.name
+                                    }))
+                                )
+                        )
+                    );
+                    setIncome(responses.flat());
                 } catch (error) {
                     console.error('Error loading income:', error);
                 } finally {
