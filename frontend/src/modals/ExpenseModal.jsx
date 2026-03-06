@@ -1,12 +1,21 @@
 import { useState } from 'react';
-import { API_URL } from '../config.js';
+import { API_URL, INITIAL_OPTIONS } from '../config.js';
+
+const toFormState = (expense, property) => expense ? {
+  property_id:      expense.property_id ?? '',
+  expense_date:     expense.expense_date ?? new Date().toISOString().split('T')[0],
+  amount:           expense.amount ?? 0,
+  expense_type:     expense.expense_type ?? '',
+  expense_category: expense.expense_category ?? '',
+  notes: expense.notes ?? '',
+} : {
+  property_id:      property?.id ?? '',
+  expense_date:     new Date().toISOString().split('T')[0],
+  amount: 0, expense_type: '', expense_category: '', notes: '',
+};
 
 export default function ExpenseModal({ expense, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(expense || {
-    property_id: property?.id || '',
-    expense_date: new Date().toISOString().split('T')[0],
-    amount: 0, expense_type: '', expense_category: '', description: '',
-  });
+  const [formData, setFormData] = useState(() => toFormState(expense, property));
 
   const set = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
 
@@ -24,13 +33,13 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
           amount:          formData.amount,
           expenseType:     formData.expense_type,
           expenseCategory: formData.expense_category,
-          description:     formData.description,
+          notes: formData.notes,
         }),
       });
-      if (!res.ok) throw new Error('Failed to save expense');
+      if (!res.ok) throw new Error(await res.text());
       onSave();
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error(err);
       alert('Failed to save expense');
     }
   };
@@ -52,33 +61,37 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
                 {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
+
             <div className="form-group">
               <label>Date *</label>
               <input type="date" value={formData.expense_date} onChange={(e) => set('expense_date', e.target.value)} required />
             </div>
+
             <div className="form-group">
               <label>Amount *</label>
-              <input type="number" step="0.01" value={formData.amount} onChange={(e) => set('amount', parseFloat(e.target.value) || 0)} required />
+              <input type="number" step="0.01" min="0" value={formData.amount}
+                onChange={(e) => set('amount', parseFloat(e.target.value) || 0)} required />
             </div>
+
             <div className="form-group">
               <label>Category *</label>
               <select value={formData.expense_category} onChange={(e) => set('expense_category', e.target.value)} required>
                 <option value="">Select Category</option>
-                <option value="Maintenance">Maintenance</option>
-                <option value="Utilities">Utilities</option>
-                <option value="Insurance">Insurance</option>
-                <option value="Property Tax">Property Tax</option>
-                <option value="Mortgage">Mortgage</option>
-                <option value="Other">Other</option>
+                {INITIAL_OPTIONS.expenseCategories.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+
             <div className="form-group">
               <label>Type *</label>
-              <input type="text" value={formData.expense_type} onChange={(e) => set('expense_type', e.target.value)} required />
+              <select value={formData.expense_type} onChange={(e) => set('expense_type', e.target.value)} required>
+                <option value="">Select Type</option>
+                {INITIAL_OPTIONS.expenseTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
+
             <div className="form-group full-width">
-              <label>Description</label>
-              <textarea rows="3" value={formData.description} onChange={(e) => set('description', e.target.value)} />
+              <label>Notes</label>
+              <textarea rows="3" value={formData.notes} onChange={(e) => set('notes', e.target.value)} />
             </div>
           </div>
 

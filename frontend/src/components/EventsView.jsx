@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../config.js';
+import TruncatedCell from './Tooltip.jsx';
 
-export default function EventsView({ properties }) {
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filterProperty, setFilterProperty] = useState('all');
-  const [editingEvent, setEditingEvent] = useState(null);
-  const [editDescription, setEditDescription] = useState('');
+export default function EventsView({ properties, initialPropertyId }) {
+  const [events,       setEvents]       = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [filterProperty, setFilterProperty] = useState(initialPropertyId ? String(initialPropertyId) : 'all');
+  const [editingId,    setEditingId]    = useState(null);
+  const [editNotes,    setEditNotes]    = useState('');
 
   useEffect(() => { loadEvents(); }, []);
 
@@ -15,42 +16,36 @@ export default function EventsView({ properties }) {
       setLoading(true);
       const res = await fetch(`${API_URL}/events`);
       if (res.ok) setEvents(await res.json());
-    } catch (error) {
-      console.error('Error loading events:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
-  const handleEditDescription = async (eventId) => {
+  const startEdit = (event) => {
+    setEditingId(event.id);
+    setEditNotes(event.description || '');
+  };
+
+  const saveEdit = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/events/${eventId}`, {
+      const res = await fetch(`${API_URL}/events/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: editDescription }),
+        body: JSON.stringify({ description: editNotes }),
       });
-      if (res.ok) {
-        loadEvents();
-        setEditingEvent(null);
-        setEditDescription('');
-      }
-    } catch (error) {
-      console.error('Error updating event:', error);
-    }
+      if (res.ok) { loadEvents(); setEditingId(null); }
+    } catch (e) { console.error(e); }
   };
 
-  const handleDeleteEvent = async (eventId) => {
-    if (!confirm('Are you sure you want to delete this event?')) return;
-    try {
-      const res = await fetch(`${API_URL}/events/${eventId}`, { method: 'DELETE' });
-      if (res.ok) loadEvents();
-    } catch (error) {
-      console.error('Error deleting event:', error);
-    }
+  const cancelEdit = () => setEditingId(null);
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this event?')) return;
+    const res = await fetch(`${API_URL}/events/${id}`, { method: 'DELETE' });
+    if (res.ok) loadEvents();
   };
 
-  const filteredEvents = events.filter(
-    (e) => filterProperty === 'all' || e.property_id === parseInt(filterProperty)
+  const filtered = events.filter(
+    e => filterProperty === 'all' || e.property_id === parseInt(filterProperty)
   );
 
   return (
@@ -64,13 +59,13 @@ export default function EventsView({ properties }) {
 
       <div className="table-container">
         <div className="table-header">
-          <div className="table-title">All Events ({filteredEvents.length})</div>
+          <div className="table-title">All Events ({filtered.length})</div>
           <div className="table-controls">
             <div className="filter-group">
               <span className="filter-label">Filter:</span>
-              <select value={filterProperty} onChange={(e) => setFilterProperty(e.target.value)}>
+              <select value={filterProperty} onChange={e => setFilterProperty(e.target.value)}>
                 <option value="all">All Properties</option>
-                {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
           </div>
@@ -78,7 +73,7 @@ export default function EventsView({ properties }) {
 
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
-        ) : filteredEvents.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">📝</div>
             <div className="empty-state-text">No events recorded</div>
@@ -88,43 +83,45 @@ export default function EventsView({ properties }) {
             <thead>
               <tr>
                 <th>Date</th><th>Property</th><th>Field</th>
-                <th>Old Value</th><th>New Value</th><th>Description</th><th>Actions</th>
+                <th>Old Value</th><th>New Value</th><th>Notes</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredEvents.map((event) => (
-                <tr key={event.id}>
-                  <td>{new Date(event.created_at).toLocaleString()}</td>
-                  <td>{event.property_name || 'N/A'}</td>
-                  <td>{event.column_name}</td>
-                  <td>{event.old_value}</td>
-                  <td>{event.new_value}</td>
+              {filtered.map(ev => (
+                <tr key={ev.id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{new Date(ev.created_at).toLocaleString()}</td>
+                  <td>{ev.property_name || '—'}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{ev.column_name}</td>
+                  <td><TruncatedCell text={ev.old_value} /></td>
+                  <td><TruncatedCell text={ev.new_value} /></td>
                   <td>
-                    {editingEvent === event.id ? (
-                      <input
-                        type="text"
-                        value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        onBlur={() => handleEditDescription(event.id)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleEditDescription(event.id)}
-                        autoFocus
-                      />
+                    {editingId === ev.id ? (
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={editNotes}
+                          onChange={e => setEditNotes(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveEdit(ev.id);
+                            if (e.key === 'Escape') cancelEdit();
+                          }}
+                          autoFocus
+                          style={{ flex: 1, minWidth: 0 }}
+                        />
+                        <button className="btn btn-primary btn-small"  onClick={() => saveEdit(ev.id)}>✓</button>
+                        <button className="btn btn-secondary btn-small" onClick={cancelEdit}>✕</button>
+                      </div>
                     ) : (
-                      <span
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => {
-                          setEditingEvent(event.id);
-                          setEditDescription(event.description || '');
-                        }}
-                      >
-                        {event.description || '(click to add)'}
-                      </span>
+                      <TruncatedCell text={ev.description || ''} />
                     )}
                   </td>
                   <td>
-                    <button className="btn btn-danger btn-small" onClick={() => handleDeleteEvent(event.id)}>
-                      🗑 Delete
-                    </button>
+                    <div className="row-actions">
+                      {editingId === ev.id ? null : (
+                        <button className="btn btn-secondary btn-small" onClick={() => startEdit(ev)}>✏️ Edit</button>
+                      )}
+                      <button className="btn btn-danger btn-small" onClick={() => handleDelete(ev.id)}>🗑 Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}

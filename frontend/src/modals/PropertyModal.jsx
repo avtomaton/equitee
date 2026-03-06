@@ -1,18 +1,76 @@
 import { useState } from 'react';
-import { API_URL } from '../config.js';
+import { API_URL, PROVINCES, INITIAL_OPTIONS, formatPostalCode } from '../config.js';
+
+const toFormState = (p) => p ? {
+  name:          p.name           ?? '',
+  province:      p.province       ?? '',
+  city:          p.city           ?? '',
+  address:       p.address        ?? '',
+  postalCode:    p.postal_code    ?? p.postalCode    ?? '',
+  parking:       p.parking        ?? '',
+  purchasePrice: p.purchase_price ?? p.purchasePrice ?? 0,
+  marketPrice:   p.market_price   ?? p.marketPrice   ?? 0,
+  loanAmount:    p.loan_amount    ?? p.loanAmount    ?? 0,
+  monthlyRent:   p.monthly_rent   ?? p.monthlyRent   ?? 0,
+  possDate:      p.poss_date      ?? p.possDate      ?? '',
+  status:        p.status         ?? 'Rented',
+  type:          p.type           ?? 'Condo',
+  notes:         p.notes           ?? '',
+} : {
+  name: '', province: '', city: '', address: '', postalCode: '',
+  parking: '', purchasePrice: 0, marketPrice: 0, loanAmount: 0,
+  monthlyRent: 0, possDate: '', status: 'Rented', type: 'Condo', notes: '',
+};
 
 export default function PropertyModal({ property, onClose, onSave }) {
-  const [formData, setFormData] = useState(property || {
-    name: '', province: '', city: '', address: '',
-    postalCode: '', parking: '', purchasePrice: 0,
-    marketPrice: 0, loanAmount: 0, monthlyRent: 0,
-    possDate: '', status: 'active',
-  });
+  const [formData, setFormData] = useState(() => toFormState(property));
+  const [errors,   setErrors]   = useState({});
 
-  const set = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
+  const prevStatus = property?.status ?? null;
+
+  const isVacant  = formData.status === 'Vacant';
+  const isRented  = formData.status === 'Rented';
+  // Warn when switching TO Rented and rent is still 0
+  const rentWarn  = isRented && formData.monthlyRent === 0;
+  // Rent field is locked to 0 when Vacant
+  const rentLocked = isVacant;
+
+  const set = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) setErrors(e => ({ ...e, [field]: null }));
+  };
+
+  const handleStatusChange = (newStatus) => {
+    if (newStatus === 'Vacant') {
+      // Force rent to 0 immediately
+      setFormData(prev => ({ ...prev, status: newStatus, monthlyRent: 0 }));
+    } else {
+      setFormData(prev => ({ ...prev, status: newStatus }));
+    }
+    if (errors.status) setErrors(e => ({ ...e, status: null }));
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!formData.name.trim())    e.name     = 'Required';
+    if (!formData.province)       e.province = 'Required';
+    if (!formData.city.trim())    e.city     = 'Required';
+    if (!formData.address.trim()) e.address  = 'Required';
+    if (!formData.possDate)       e.possDate = 'Required';
+    const pc = formData.postalCode.replace(/\s/g, '');
+    if (pc && !/^[A-Za-z]\d[A-Za-z]\d[A-Za-z]\d$/.test(pc))
+      e.postalCode = 'Format: A1A 1A1';
+    if (isVacant && formData.monthlyRent !== 0)
+      e.monthlyRent = 'Must be 0 when Vacant';
+    if (isRented && formData.monthlyRent === 0)
+      e.monthlyRent = 'Please enter the rent amount';
+    return e;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
     try {
       const url    = property ? `${API_URL}/properties/${property.id}` : `${API_URL}/properties`;
       const method = property ? 'PUT' : 'POST';
@@ -21,17 +79,35 @@ export default function PropertyModal({ property, onClose, onSave }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
-      if (!res.ok) throw new Error('Failed to save property');
+      if (!res.ok) throw new Error(await res.text());
       onSave();
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error(err);
       alert('Failed to save property');
     }
   };
 
+  const err = (key) => errors[key]
+    ? <span style={{ color: 'var(--danger)', fontSize: '0.75rem' }}>{errors[key]}</span>
+    : null;
+
+  const rentBorderColor = rentLocked
+    ? 'var(--text-tertiary)'
+    : rentWarn
+      ? 'var(--warning, #f59e0b)'
+      : errors.monthlyRent
+        ? 'var(--danger)'
+        : undefined;
+
+  const rentBg = rentLocked
+    ? 'rgba(255,255,255,0.03)'
+    : rentWarn
+      ? 'rgba(245,158,11,0.08)'
+      : undefined;
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">{property ? 'Edit Property' : 'Add New Property'}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -39,56 +115,130 @@ export default function PropertyModal({ property, onClose, onSave }) {
 
         <form onSubmit={handleSubmit}>
           <div className="form-grid">
+            {/* Name */}
             <div className="form-group full-width">
               <label>Property Name *</label>
-              <input type="text" value={formData.name} onChange={(e) => set('name', e.target.value)} required />
+              <input type="text" value={formData.name} onChange={e => set('name', e.target.value)} />
+              {err('name')}
             </div>
+
+            {/* Type */}
             <div className="form-group">
-              <label>Province *</label>
-              <input type="text" value={formData.province} onChange={(e) => set('province', e.target.value)} required />
+              <label>Type *</label>
+              <select value={formData.type} onChange={e => set('type', e.target.value)}>
+                {INITIAL_OPTIONS.propertyTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
-            <div className="form-group">
-              <label>City *</label>
-              <input type="text" value={formData.city} onChange={(e) => set('city', e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Address *</label>
-              <input type="text" value={formData.address} onChange={(e) => set('address', e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Postal Code *</label>
-              <input type="text" value={formData.postalCode} onChange={(e) => set('postalCode', e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Parking</label>
-              <input type="text" value={formData.parking} onChange={(e) => set('parking', e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Purchase Price *</label>
-              <input type="number" value={formData.purchasePrice} onChange={(e) => set('purchasePrice', parseFloat(e.target.value) || 0)} required />
-            </div>
-            <div className="form-group">
-              <label>Market Price *</label>
-              <input type="number" value={formData.marketPrice} onChange={(e) => set('marketPrice', parseFloat(e.target.value) || 0)} required />
-            </div>
-            <div className="form-group">
-              <label>Loan Amount *</label>
-              <input type="number" value={formData.loanAmount} onChange={(e) => set('loanAmount', parseFloat(e.target.value) || 0)} required />
-            </div>
-            <div className="form-group">
-              <label>Monthly Rent *</label>
-              <input type="number" value={formData.monthlyRent} onChange={(e) => set('monthlyRent', parseFloat(e.target.value) || 0)} required />
-            </div>
-            <div className="form-group">
-              <label>Possession Date *</label>
-              <input type="date" value={formData.possDate} onChange={(e) => set('possDate', e.target.value)} required />
-            </div>
+
+            {/* Status */}
             <div className="form-group">
               <label>Status *</label>
-              <select value={formData.status} onChange={(e) => set('status', e.target.value)} required>
-                <option value="active">Active</option>
-                <option value="pending">Pending</option>
+              <select value={formData.status} onChange={e => handleStatusChange(e.target.value)}>
+                {INITIAL_OPTIONS.propertyStatuses.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
+            </div>
+
+            {/* Province */}
+            <div className="form-group">
+              <label>Province *</label>
+              <select value={formData.province} onChange={e => set('province', e.target.value)}>
+                <option value="">Select Province</option>
+                {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              {err('province')}
+            </div>
+
+            {/* City */}
+            <div className="form-group">
+              <label>City *</label>
+              <input type="text" value={formData.city} onChange={e => set('city', e.target.value)} />
+              {err('city')}
+            </div>
+
+            {/* Address */}
+            <div className="form-group full-width">
+              <label>Address *</label>
+              <input type="text" value={formData.address} onChange={e => set('address', e.target.value)} />
+              {err('address')}
+            </div>
+
+            {/* Postal code */}
+            <div className="form-group">
+              <label>Postal Code</label>
+              <input type="text" value={formData.postalCode} placeholder="A1A 1A1"
+                onChange={e => set('postalCode', formatPostalCode(e.target.value))} maxLength={7} />
+              {err('postalCode')}
+            </div>
+
+            {/* Parking */}
+            <div className="form-group">
+              <label>Parking</label>
+              <input type="text" value={formData.parking} onChange={e => set('parking', e.target.value)} />
+            </div>
+
+            {/* Purchase price */}
+            <div className="form-group">
+              <label>Purchase Price *</label>
+              <input type="number" min="0" value={formData.purchasePrice}
+                onChange={e => set('purchasePrice', parseFloat(e.target.value) || 0)} />
+            </div>
+
+            {/* Market price */}
+            <div className="form-group">
+              <label>Market Price *</label>
+              <input type="number" min="0" value={formData.marketPrice}
+                onChange={e => set('marketPrice', parseFloat(e.target.value) || 0)} />
+            </div>
+
+            {/* Loan amount */}
+            <div className="form-group">
+              <label>Loan Amount *</label>
+              <input type="number" min="0" value={formData.loanAmount}
+                onChange={e => set('loanAmount', parseFloat(e.target.value) || 0)} />
+            </div>
+
+            {/* Monthly rent — with vacancy/rented highlighting */}
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                Monthly Rent *
+                {isVacant && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontWeight: 400 }}>
+                    (locked — property is Vacant)
+                  </span>
+                )}
+                {rentWarn && !isVacant && (
+                  <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 600 }}>
+                    ⚠ Enter rent amount
+                  </span>
+                )}
+              </label>
+              <input
+                type="number" min="0" value={formData.monthlyRent}
+                disabled={rentLocked}
+                style={{
+                  borderColor: rentBorderColor,
+                  background:  rentBg,
+                  opacity: rentLocked ? 0.5 : 1,
+                  transition: 'border-color 0.2s, background 0.2s',
+                }}
+                onChange={e => {
+                  if (!rentLocked) set('monthlyRent', parseFloat(e.target.value) || 0);
+                }}
+              />
+              {err('monthlyRent')}
+            </div>
+
+            {/* Possession date */}
+            <div className="form-group">
+              <label>Possession Date *</label>
+              <input type="date" value={formData.possDate} onChange={e => set('possDate', e.target.value)} />
+              {err('possDate')}
+            </div>
+
+            <div className="form-group full-width">
+              <label>Notes</label>
+              <textarea rows="3" value={formData.notes} onChange={e => set('notes', e.target.value)}
+                placeholder="Any additional notes about this property…" />
             </div>
           </div>
 
