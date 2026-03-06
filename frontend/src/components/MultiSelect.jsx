@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function MultiSelect({ label, options, selected, onChange }) {
+export default function MultiSelect({ label, options, selected, onChange, labelMap = {} }) {
   const [isOpen,  setIsOpen]  = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0, flip: false });
   const triggerRef  = useRef(null);
@@ -55,7 +55,7 @@ export default function MultiSelect({ label, options, selected, onChange }) {
   const triggerLabel =
     allSelected        ? label :
     noneSelected       ? `${label}: None` :
-    selected.length === 1 ? `${label}: ${selected[0]}` :
+    selected.length === 1 ? `${label}: ${labelMap[selected[0]] || selected[0]}` :
                           `${label}: ${selected.length}`;
 
   const isFiltered = !allSelected;
@@ -115,7 +115,7 @@ export default function MultiSelect({ label, options, selected, onChange }) {
               cursor:'pointer', flex:1, fontSize:'0.85rem' }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(opt)}
                 style={{ width:14, height:14, cursor:'pointer', accentColor:'var(--accent-primary)' }} />
-              <span style={{ color: checked ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{opt}</span>
+              <span style={{ color: checked ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{labelMap[opt] || opt}</span>
             </label>
             {!(checked && selected.length === 1) && (
               <button type="button" onClick={e => { e.stopPropagation(); only(opt); }}

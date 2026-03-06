@@ -1,17 +1,23 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import MultiSelect from './MultiSelect.jsx';
-import { API_URL, INITIAL_OPTIONS, mergeOptions, getDateRanges, isDateInRange, fmtDate } from '../config.js';
 import TruncatedCell from './Tooltip.jsx';
+import StatCard from './StatCard.jsx';
+import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS, mergeOptions, getDateRanges, isDateInRange, fmtDate } from '../config.js';
+import { useColumnVisibility } from '../hooks.js';
 
 export default function ExpensesView({ properties, onAddExpense, onEditExpense, initialPropertyId }) {
-  const [expenses, setExpenses]   = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [sortBy, setSortBy]       = useState('expense_date');
-  const [sortOrder, setSortOrder] = useState('desc');
-  const [filterProperty, setFilterProperty] = useState(initialPropertyId ? String(initialPropertyId) : 'all');
-  const [dateFilter, setDateFilter]         = useState('all');
+  const [expenses,        setExpenses]        = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [sortBy,          setSortBy]          = useState('expense_date');
+  const [sortOrder,       setSortOrder]       = useState('desc');
+  const [filterProperty,  setFilterProperty]  = useState(initialPropertyId ? String(initialPropertyId) : 'all');
+  const [dateFilter,      setDateFilter]      = useState('all');
   const [customDateStart, setCustomDateStart] = useState('');
-  const [customDateEnd, setCustomDateEnd]     = useState('');
+  const [customDateEnd,   setCustomDateEnd]   = useState('');
+
+  const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('expenses');
+  const allColKeys   = COLUMN_DEFS.expenses.map(d => d.key);
+  const allColLabels = Object.fromEntries(COLUMN_DEFS.expenses.map(d => [d.key, d.label]));
 
   useEffect(() => {
     if (initialPropertyId) setFilterProperty(String(initialPropertyId));
@@ -24,8 +30,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
 
   const [filterCategories, setFilterCategories] = useState(INITIAL_OPTIONS.expenseCategories);
   const [filterTypes,      setFilterTypes]      = useState(INITIAL_OPTIONS.expenseTypes);
-  const catInit = useRef(false);
-  const typInit = useRef(false);
+  const catInit = useRef(false), typInit = useRef(false);
 
   useEffect(() => {
     if (!catInit.current && allCategories.length) { setFilterCategories(allCategories); catInit.current = true; }
@@ -37,18 +42,16 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
     else setFilterTypes(t => mergeOptions(t, allTypes));
   }, [allTypes]);
 
-  useEffect(() => {
-    if (properties.length > 0) loadExpenses();
-  }, [properties]);
+  useEffect(() => { if (properties.length > 0) loadExpenses(); }, [properties]);
 
   const loadExpenses = async () => {
     try {
       setLoading(true);
       const responses = await Promise.all(
-        properties.map(prop =>
-          fetch(`${API_URL}/expenses?property_id=${prop.id}`)
+        properties.map(p =>
+          fetch(`${API_URL}/expenses?property_id=${p.id}`)
             .then(r => r.ok ? r.json() : [])
-            .then(data => data.map(e => ({ ...e, property_name: prop.name })))
+            .then(data => data.map(e => ({ ...e, property_name: p.name })))
         )
       );
       setExpenses(responses.flat());
@@ -60,12 +63,18 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
     if (!confirm('Delete this expense?')) return;
     const res = await fetch(`${API_URL}/expenses/${id}`, { method: 'DELETE' });
     if (res.ok) loadExpenses();
-    else alert('Failed to delete expense');
   };
 
+  // Base: property-filtered only (for unfiltered reference total)
+  const baseExpenses = useMemo(() =>
+    filterProperty === 'all'
+      ? expenses
+      : expenses.filter(e => e.property_id === parseInt(filterProperty)),
+    [expenses, filterProperty]
+  );
+
   const filtered = useMemo(() => {
-    let list = expenses.filter(e => {
-      if (filterProperty !== 'all' && e.property_id !== parseInt(filterProperty)) return false;
+    let list = baseExpenses.filter(e => {
       if (!filterCategories.includes(e.expense_category)) return false;
       if (!filterTypes.includes(e.expense_type)) return false;
       if (dateFilter !== 'all' && dateFilter !== 'custom') {
@@ -84,9 +93,23 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
       return 0;
     });
     return list;
-  }, [expenses, filterProperty, filterCategories, filterTypes, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
+  }, [baseExpenses, filterCategories, filterTypes, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
 
-  const total = filtered.reduce((s, e) => s + e.amount, 0);
+  const baseTotal     = baseExpenses.reduce((s, e) => s + e.amount, 0);
+  const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0);
+  const isFiltered    = filteredTotal !== baseTotal;
+  const pct           = baseTotal > 0 ? ((filteredTotal / baseTotal) * 100).toFixed(1) : '100';
+
+  const propName = filterProperty !== 'all'
+    ? properties.find(p => String(p.id) === filterProperty)?.name
+    : null;
+
+  const amountSub = isFiltered
+    ? `$${baseTotal.toLocaleString()} unfiltered · ${pct}% shown`
+    : null;
+  const txSub = isFiltered
+    ? `${baseExpenses.length} unfiltered`
+    : null;
 
   return (
     <>
@@ -101,10 +124,17 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
       </div>
 
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
-        <div className="stat-card"><div className="stat-label">Total Expenses</div>
-          <div className="stat-value text-danger">${total.toLocaleString()}</div></div>
-        <div className="stat-card"><div className="stat-label">Transactions</div>
-          <div className="stat-value">{filtered.length}</div></div>
+        <StatCard
+          label={propName ? `Total Expenses — ${propName}` : 'Total Expenses'}
+          value={`$${filteredTotal.toLocaleString()}`}
+          cls="text-danger"
+          sub={amountSub}
+        />
+        <StatCard
+          label={propName ? `Transactions — ${propName}` : 'Transactions'}
+          value={filtered.length}
+          sub={txSub}
+        />
       </div>
 
       <div className="table-container">
@@ -117,20 +147,35 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
                 <option value="all">All Properties</option>
                 {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <MultiSelect label="Categories" options={allCategories} selected={filterCategories} onChange={setFilterCategories} />
-              <MultiSelect label="Types"      options={allTypes}      selected={filterTypes}      onChange={setFilterTypes} />
+              <MultiSelect label="Category" options={allCategories} selected={filterCategories} onChange={setFilterCategories} />
+              <MultiSelect label="Type"     options={allTypes}      selected={filterTypes}      onChange={setFilterTypes} />
               <select value={dateFilter} onChange={e => setDateFilter(e.target.value)}>
                 <option value="all">All Time</option>
                 <option value="ytd">YTD</option>
-                <option value="currentMonth">Current Month</option>
-                <option value="currentYear">Current Year</option>
+                <option value="currentMonth">This Month</option>
+                <option value="currentYear">This Year</option>
                 <option value="lastYear">Last Year</option>
-                <option value="custom">Custom Range</option>
+                <option value="custom">Custom…</option>
               </select>
               {dateFilter === 'custom' && <>
                 <input type="date" value={customDateStart} onChange={e => setCustomDateStart(e.target.value)} />
                 <input type="date" value={customDateEnd}   onChange={e => setCustomDateEnd(e.target.value)} />
               </>}
+              <MultiSelect
+                label="Columns"
+                options={allColKeys}
+                selected={visible}
+                onChange={setVisible}
+                labelMap={allColLabels}
+              />
+              {isCustom && (
+                <button type="button" onClick={reset}
+                  style={{ background: 'none', border: 'none', fontSize: '0.75rem',
+                    color: 'var(--accent-primary)', cursor: 'pointer', padding: '0 2px',
+                    textDecoration: 'underline', opacity: 0.8, whiteSpace: 'nowrap' }}>
+                  ↺ reset cols
+                </button>
+              )}
             </div>
             <div className="sort-group">
               <span className="sort-label">Sort:</span>
@@ -140,7 +185,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
               </select>
               <button className="btn btn-secondary btn-small"
                 onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}>
-                {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
+                {sortOrder === 'asc' ? '↑' : '↓'}
               </button>
             </div>
           </div>
@@ -151,32 +196,37 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
           <div className="empty-state"><div className="empty-state-icon">💳</div>
             <div className="empty-state-text">No expenses found</div></div>
         ) : (
-          <table>
-            <thead><tr>
-              <th>Date</th><th>Property</th><th>Category</th>
-              <th>Type</th><th>Notes</th><th>Amount</th><th>Actions</th>
-            </tr></thead>
-            <tbody>
-              {filtered.map(e => (
-                <tr key={e.id}>
-                  <td>{fmtDate(e.expense_date)}</td>
-                  <td>{e.property_name}</td>
-                  <td>{e.expense_category}</td>
-                  <td>{e.expense_type}</td>
-                  <td>
-                    <TruncatedCell text={e.notes} />
-                  </td>
-                  <td className="text-danger">${e.amount.toLocaleString()}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="btn btn-secondary btn-small" onClick={() => onEditExpense(e)}>✏️ Edit</button>
-                      <button className="btn btn-danger btn-small"    onClick={() => handleDelete(e.id)}>🗑 Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll-wrap">
+            <table>
+              <thead><tr>
+                {col('date')     && <th>Date</th>}
+                {col('property') && <th>Property</th>}
+                {col('amount')   && <th>Amount</th>}
+                {col('category') && <th>Category</th>}
+                {col('type')     && <th>Type</th>}
+                {col('notes')    && <th>Notes</th>}
+                <th style={{ width: 52 }}></th>
+              </tr></thead>
+              <tbody>
+                {filtered.map(e => (
+                  <tr key={e.id}>
+                    {col('date')     && <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(e.expense_date)}</td>}
+                    {col('property') && <td><TruncatedCell text={e.property_name} maxWidth={120} /></td>}
+                    {col('amount')   && <td className="text-danger" style={{ whiteSpace: 'nowrap' }}>${e.amount.toLocaleString()}</td>}
+                    {col('category') && <td>{e.expense_category}</td>}
+                    {col('type')     && <td>{e.expense_type}</td>}
+                    {col('notes')    && <td><TruncatedCell text={e.notes} /></td>}
+                    <td>
+                      <div className="row-actions">
+                        <button className="btn btn-secondary btn-icon" title="Edit"   onClick={() => onEditExpense(e)}>✏️</button>
+                        <button className="btn btn-danger    btn-icon" title="Delete" onClick={() => handleDelete(e.id)}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </>

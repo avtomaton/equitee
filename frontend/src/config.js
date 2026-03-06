@@ -9,9 +9,9 @@ export const PROVINCES = ['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 
 export const INITIAL_OPTIONS = {
   expenseTypes:      ['One-off', 'Recurrent'],
   expenseCategories: ['Advertisement', 'Legal', 'Maintenance', 'Management', 'Mortgage', 'Principal', 'Tax', 'Utilities'],
-  incomeTypes:       ['Rent', 'Compensation', 'Rent (net)'],
+  incomeTypes:       ['Rent', 'Compensation'],
   propertyTypes:     ['Condo', 'Townhouse', 'House'],
-  propertyStatuses:  ['Rented', 'Vacant', 'Primary', 'Sold'],
+  propertyStatuses:  ['Rented', 'Vacant', 'Primary'],
 };
 
 /** Merge fixed seed options with data-derived values, deduped and sorted */
@@ -68,4 +68,70 @@ export const parseLocalDate = (str) => {
 export const fmtDate = (str) => {
   const d = parseLocalDate(str);
   return d ? d.toLocaleDateString() : '—';
+};
+
+// ── Column definitions ────────────────────────────────────────────────────────
+// default:true = shown by default; false = hidden but user can enable
+
+export const COLUMN_DEFS = {
+  properties: [
+    { key: 'name',          label: 'Name',         default: true  },
+    { key: 'status',        label: 'Status',       default: true  },
+    { key: 'type',          label: 'Type',         default: true  },
+    { key: 'location',      label: 'Location',     default: true  },
+    { key: 'market_price',  label: 'Mkt Value',    default: true  },
+    { key: 'monthly_rent',  label: 'Rent/mo',      default: true  },
+    { key: 'total_income',  label: 'Income',       default: true  },
+    { key: 'net_expenses',  label: 'Net Expenses', default: true  },
+    { key: 'net',           label: 'Net Profit',   default: true  },
+    { key: 'roi',           label: 'ROI',          default: true  },
+    { key: 'equity',        label: 'Equity',       default: false },
+    { key: 'loan',          label: 'Loan',         default: false },
+    { key: 'poss_date',     label: 'Possession',   default: false },
+    { key: 'notes',         label: 'Notes',        default: false },
+  ],
+  expenses: [
+    { key: 'date',     label: 'Date',     default: true  },
+    { key: 'property', label: 'Property', default: true  },
+    { key: 'amount',   label: 'Amount',   default: true  },
+    { key: 'category', label: 'Category', default: true  },
+    { key: 'type',     label: 'Type',     default: true  },
+    { key: 'notes',    label: 'Notes',    default: true  },
+  ],
+  income: [
+    { key: 'date',     label: 'Date',     default: true  },
+    { key: 'property', label: 'Property', default: true  },
+    { key: 'amount',   label: 'Amount',   default: true  },
+    { key: 'type',     label: 'Type',     default: true  },
+    { key: 'notes',    label: 'Notes',    default: true  },
+  ],
+  tenants: [
+    { key: 'name',        label: 'Name',        default: true  },
+    { key: 'property',    label: 'Property',    default: true  },
+    { key: 'status',      label: 'Status',      default: true  },
+    { key: 'phone',       label: 'Phone',       default: true  },
+    { key: 'email',       label: 'Email',       default: true  },
+    { key: 'lease_start', label: 'Lease Start', default: true  },
+    { key: 'lease_end',   label: 'Lease End',   default: true  },
+    { key: 'rent',        label: 'Rent/mo',     default: true  },
+    { key: 'deposit',     label: 'Deposit',     default: false },
+    { key: 'notes',       label: 'Notes',       default: true  },
+  ],
+  events: [
+    { key: 'date',      label: 'Date',     default: true  },
+    { key: 'property',  label: 'Property', default: true  },
+    { key: 'field',     label: 'Field',    default: true  },
+    { key: 'old_value', label: 'Old',      default: true  },
+    { key: 'new_value', label: 'New',      default: true  },
+    { key: 'notes',     label: 'Notes',    default: true  },
+  ],
+};
+
+// ── Cookie helpers ────────────────────────────────────────────────────────────
+export const getCookie = (name) => {
+  const m = document.cookie.match('(?:^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+  return m ? decodeURIComponent(m[1]) : null;
+};
+export const setCookie = (name, value, days = 730) => {
+  document.cookie = `${name}=${encodeURIComponent(value)};max-age=${days * 86400};path=/`;
 };

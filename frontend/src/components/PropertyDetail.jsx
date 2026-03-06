@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { API_URL, isCurrentTenant, fmtDate } from '../config.js';
+import StatCard from './StatCard.jsx';
 
 const DETAIL_TOOLTIP_STYLE = {
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',
@@ -23,8 +24,7 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
 
   if (!property) return null;
 
-  const netIncome   = property.total_income - property.total_expenses;
-  const roi         = property.market_price > 0 ? ((netIncome / property.market_price) * 100).toFixed(2) : 0;
+  const netIncome   = property.total_income - property.total_expenses; // kept for chart compat
   const currTenants = tenants.filter(isCurrentTenant);
   const recentExp   = [...expenses].sort((a, b) => new Date(b.expense_date) - new Date(a.expense_date)).slice(0, 5);
 
@@ -40,10 +40,14 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
     return rentEvents[0] ?? null;
   }, [events]);
 
+  const downPmt   = property.purchase_price - property.loan_amount;
+  const netExp    = property.total_expenses - downPmt;
+  const netProfit = property.total_income - netExp;
+
   const chartData = [
-    { name: 'Income',   value: property.total_income },
-    { name: 'Expenses', value: property.total_expenses },
-    { name: 'Net',      value: netIncome },
+    { name: 'Income',     value: property.total_income },
+    { name: 'Net Exp',    value: Math.max(0, netExp) },
+    { name: 'Net Profit', value: netProfit },
   ];
 
   const isVacant = property.status === 'Vacant';
@@ -116,23 +120,42 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
       </div>
 
       {/* Stats */}
-      <div className="stats-grid">
-        {[
-          { label: 'Purchase Price', value: `$${property.purchase_price.toLocaleString()}` },
-          { label: 'Market Value',   value: `$${property.market_price.toLocaleString()}` },
-          { label: 'Loan Amount',    value: `$${property.loan_amount.toLocaleString()}` },
-          { label: 'Monthly Rent',   value: isVacant ? 'Vacant' : `$${property.monthly_rent.toLocaleString()}`, cls: isVacant ? '' : '' },
-          { label: 'Total Income',   value: `$${property.total_income.toLocaleString()}`,   cls: 'text-success' },
-          { label: 'Total Expenses', value: `$${property.total_expenses.toLocaleString()}`, cls: 'text-danger'  },
-          { label: 'Net Income',     value: `$${netIncome.toLocaleString()}`, cls: netIncome >= 0 ? 'text-success' : 'text-danger' },
-          { label: 'ROI',            value: `${roi}%`, cls: parseFloat(roi) >= 0 ? 'text-success' : 'text-danger' },
-        ].map(({ label, value, cls }) => (
-          <div className="stat-card" key={label}>
-            <div className="stat-label">{label}</div>
-            <div className={`stat-value ${cls || ''}`}>{value}</div>
+      {(() => {
+        const equity    = property.market_price - property.loan_amount;
+        const downPmt   = property.purchase_price - property.loan_amount;
+        const netExp    = property.total_expenses - downPmt;
+        const netProfit = property.total_income - netExp;
+        const netRoi    = property.market_price > 0 ? ((netProfit / property.market_price) * 100).toFixed(2) : 0;
+        const TT = {
+          purchasePrice: 'Original purchase price of the property.',
+          marketValue:   'Current estimated market value.',
+          equity:        'Market Value − Loan Amount.\nYour ownership stake in the property.',
+          loan:          'Outstanding mortgage or loan balance.',
+          rent:          'Current monthly rent charged to tenants.',
+          income:        'All recorded income from this property.',
+          netExp:        'Total Expenses − Down Payment.\nOperating costs above your initial capital.\nNegative = expenses have not exceeded your down payment yet.',
+          netProfit:     'Total Income − Net Expenses.\nAccounts for initial down payment as part of cost basis.',
+          roi:           'Net Profit ÷ Market Value × 100.',
+        };
+        const cards = [
+          { label: 'Purchase Price', value: `$${property.purchase_price.toLocaleString()}`, tooltip: TT.purchasePrice },
+          { label: 'Market Value',   value: `$${property.market_price.toLocaleString()}`,   tooltip: TT.marketValue },
+          { label: 'Equity',      value: `$${equity.toLocaleString()}`,    cls: equity    >= 0 ? 'text-success' : 'text-danger', tooltip: TT.equity },
+          { label: 'Loan Amount', value: `$${property.loan_amount.toLocaleString()}`,       cls: 'text-danger', tooltip: TT.loan },
+          { label: 'Monthly Rent',value: isVacant ? '—' : `$${property.monthly_rent.toLocaleString()}`, tooltip: TT.rent },
+          { label: 'Total Income',value: `$${property.total_income.toLocaleString()}`,      cls: 'text-success', tooltip: TT.income },
+          { label: 'Net Expenses',value: `$${netExp.toLocaleString()}`,    cls: netExp    >= 0 ? 'text-danger'  : 'text-success', tooltip: TT.netExp },
+          { label: 'Net Profit',  value: `$${netProfit.toLocaleString()}`, cls: netProfit >= 0 ? 'text-success' : 'text-danger',  tooltip: TT.netProfit },
+          { label: 'ROI',         value: `${netRoi}%`,                     cls: parseFloat(netRoi) >= 0 ? 'text-success' : 'text-danger', tooltip: TT.roi },
+        ];
+        return (
+          <div className="stats-grid">
+            {cards.map(({ label, value, cls, tooltip }) => (
+              <StatCard key={label} label={label} value={value} cls={cls} tooltip={tooltip} />
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {/* Chart */}
       <div className="chart-container">

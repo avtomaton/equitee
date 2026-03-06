@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
-import { INITIAL_OPTIONS, PROVINCES, mergeOptions, COLORS, API_URL } from '../config.js';
+import { INITIAL_OPTIONS, PROVINCES, mergeOptions, COLORS, API_URL, COLUMN_DEFS } from '../config.js';
+import { useColumnVisibility } from '../hooks.js';
+import StatCard from './StatCard.jsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
@@ -38,23 +40,50 @@ function Analytics({ filtered }) {
   const [chartData, setChartData] = useState(null);
 
   const buildChartData = useCallback((list) => {
+    const yearsHeld = (p) => {
+      if (!p.poss_date) return null;
+      const [y, m, d] = p.poss_date.split('-').map(Number);
+      const diff = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      return diff > 0 ? diff : null;
+    };
+
     const incExp = list.map(p => ({
       name: shortName(p.name),
       Income: p.total_income, Expenses: p.total_expenses,
       Net: p.total_income - p.total_expenses,
     }));
     const value = list.map(p => ({ name: shortName(p.name), Value: p.market_price }));
-    const roi   = list.map(p => ({
-      name: shortName(p.name),
-      ROI: p.market_price
-        ? parseFloat(((p.total_income - p.total_expenses) / p.market_price * 100).toFixed(2))
-        : 0,
-    }));
+    const roi   = list.map(p => {
+      const downPmt = p.purchase_price - p.loan_amount;
+      const netExp  = p.total_expenses - downPmt;
+      const net     = p.total_income - netExp;
+      return {
+        name: shortName(p.name),
+        ROI: p.market_price ? parseFloat((net / p.market_price * 100).toFixed(2)) : 0,
+      };
+    });
     const statusCount = list.reduce((acc, p) => {
       acc[p.status] = (acc[p.status] || 0) + 1; return acc;
     }, {});
     const status = Object.entries(statusCount).map(([name, value]) => ({ name, value }));
-    return { incExp, value, roi, status };
+
+    const equity = list.map(p => ({
+      name: shortName(p.name),
+      Equity: p.market_price - p.loan_amount,
+      Loan:   p.loan_amount,
+    }));
+    const equityPct = list.map(p => ({
+      name:      shortName(p.name),
+      EquityPct: p.market_price ? parseFloat(((p.market_price - p.loan_amount) / p.market_price * 100).toFixed(1)) : 0,
+    }));
+    const appreciation = list.map(p => {
+      const appr  = p.market_price - p.purchase_price;
+      const yrs   = yearsHeld(p);
+      const yearly = yrs ? parseFloat((appr / yrs).toFixed(0)) : null;
+      return { name: shortName(p.name), Appreciation: appr, YearlyAppr: yearly };
+    });
+
+    return { incExp, value, roi, status, equity, equityPct, appreciation };
   }, []);
 
   // Build on first render so charts show immediately when panel opens
@@ -75,10 +104,64 @@ function Analytics({ filtered }) {
     </div>
   );
 
+  const G2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' };
+
+  // Live aggregate metrics (always reflect current filter, not the snapshot)
+  const agg = (() => {
+    const market    = filtered.reduce((s, p) => s + p.market_price,   0);
+    const purchase  = filtered.reduce((s, p) => s + p.purchase_price, 0);
+    const loan      = filtered.reduce((s, p) => s + p.loan_amount,    0);
+    const income    = filtered.reduce((s, p) => s + p.total_income,   0);
+    const equity    = market - loan;
+    const netExp    = filtered.reduce((s, p) => s + (p.total_expenses - (p.purchase_price - p.loan_amount)), 0);
+    const netProfit = income - netExp;
+    const appreciation = market - purchase;
+    const yearlyAppr = filtered.reduce((s, p) => {
+      if (!p.poss_date) return s;
+      const [y, m, d] = p.poss_date.split('-').map(Number);
+      const yrs = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      return yrs > 0 ? s + (p.market_price - p.purchase_price) / yrs : s;
+    }, 0);
+    return { market, loan, equity, income, netExp, netProfit, appreciation, yearlyAppr,
+      equityPct: market > 0 ? (equity / market * 100).toFixed(1) : null,
+      roi: market > 0 ? (netProfit / market * 100).toFixed(2) : null,
+    };
+  })();
+  const af = n => `$${Math.round(n).toLocaleString()}`;
+
   return (
     <div style={{ padding: '1.25rem 1.5rem' }}>
+
+      {/* Live aggregate stat cards — always current, no refresh needed */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Appreciation', value: af(agg.appreciation), cls: agg.appreciation >= 0 ? 'text-success' : 'text-danger',
+            tooltip: 'Market Value \u2212 Purchase Price across filtered properties.' },
+          { label: 'Yearly Appr.', value: agg.yearlyAppr !== 0 ? af(agg.yearlyAppr) + '/yr' : '\u2014',
+            cls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
+            tooltip: 'Sum of per-property appreciation \u00f7 years held.\nProperties without a possession date are excluded.' },
+          { label: 'Total Equity', value: af(agg.equity), cls: agg.equity >= 0 ? 'text-success' : 'text-danger',
+            tooltip: 'Market Value \u2212 Loan Amount across filtered properties.' },
+          { label: 'Equity %',     value: agg.equityPct !== null ? `${agg.equityPct}%` : '\u2014',
+            cls: agg.equityPct !== null ? (parseFloat(agg.equityPct) >= 50 ? 'text-success' : parseFloat(agg.equityPct) >= 25 ? '' : 'text-danger') : '',
+            tooltip: 'Total Equity \u00f7 Portfolio Value \u00d7 100.' },
+          { label: 'Total Loan',   value: af(agg.loan), cls: 'text-danger',
+            tooltip: 'Sum of outstanding loan balances.' },
+          { label: 'Net Expenses', value: af(agg.netExp), cls: agg.netExp >= 0 ? 'text-danger' : 'text-success',
+            tooltip: 'Total Expenses \u2212 Down Payments.' },
+          { label: 'Net Profit',   value: af(agg.netProfit), cls: agg.netProfit >= 0 ? 'text-success' : 'text-danger',
+            tooltip: 'Total Income \u2212 Net Expenses.' },
+          { label: 'ROI',          value: agg.roi !== null ? `${agg.roi}%` : '\u2014',
+            cls: agg.roi !== null && parseFloat(agg.roi) >= 0 ? 'text-success' : 'text-danger',
+            tooltip: 'Net Profit \u00f7 Portfolio Value \u00d7 100.' },
+        ].map(({ label, value, cls, tooltip }) => (
+          <StatCard key={label} label={label} value={value} cls={cls} tooltip={tooltip}
+            style={{ flex: '1 1 130px', minWidth: 120 }} />
+        ))}
+      </div>
+
+      {/* Row 1: Income vs Expenses (wide) + Status pie */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
-        {/* Income vs Expenses */}
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Income vs Expenses by Property</h2></div>
           <ResponsiveContainer width="100%" height={220}>
@@ -94,8 +177,6 @@ function Analytics({ filtered }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-
-        {/* Status pie */}
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Status Breakdown</h2></div>
           <ResponsiveContainer width="100%" height={220}>
@@ -113,8 +194,8 @@ function Analytics({ filtered }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
-        {/* Market value */}
+      {/* Row 2: Market Value + ROI */}
+      <div style={G2}>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Market Value by Property</h2></div>
           <ResponsiveContainer width="100%" height={190}>
@@ -127,8 +208,6 @@ function Analytics({ filtered }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-
-        {/* ROI */}
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">ROI by Property (%)</h2></div>
           <ResponsiveContainer width="100%" height={190}>
@@ -140,6 +219,76 @@ function Analytics({ filtered }) {
               <Bar dataKey="ROI">
                 {chartData.roi.map((entry, i) => (
                   <Cell key={i} fill={entry.ROI >= 0 ? '#10b981' : '#ef4444'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Row 3: Equity stacked + Equity % */}
+      <div style={G2}>
+        <div className="chart-container" style={{ margin: 0 }}>
+          <div className="chart-header"><h2 className="chart-title">Equity vs Loan by Property</h2></div>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={chartData.equity} stackOffset="none">
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={TT} formatter={v => `$${Number(v).toLocaleString()}`} />
+              <Legend />
+              <Bar dataKey="Equity" stackId="a" fill="#10b981" />
+              <Bar dataKey="Loan"   stackId="a" fill="#ef4444" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="chart-container" style={{ margin: 0 }}>
+          <div className="chart-header"><h2 className="chart-title">Equity % by Property</h2></div>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={chartData.equityPct}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
+              <Tooltip contentStyle={TT} formatter={v => `${v}%`} />
+              <Bar dataKey="EquityPct">
+                {chartData.equityPct.map((entry, i) => (
+                  <Cell key={i} fill={entry.EquityPct >= 50 ? '#10b981' : entry.EquityPct >= 25 ? '#f59e0b' : '#ef4444'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Row 4: Appreciation + Yearly Appreciation */}
+      <div style={{ ...G2, marginBottom: 0 }}>
+        <div className="chart-container" style={{ margin: 0 }}>
+          <div className="chart-header"><h2 className="chart-title">Total Appreciation by Property</h2></div>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={chartData.appreciation}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={TT} formatter={v => `$${Number(v).toLocaleString()}`} />
+              <Bar dataKey="Appreciation">
+                {chartData.appreciation.map((entry, i) => (
+                  <Cell key={i} fill={entry.Appreciation >= 0 ? '#10b981' : '#ef4444'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="chart-container" style={{ margin: 0 }}>
+          <div className="chart-header"><h2 className="chart-title">Yearly Appreciation by Property</h2></div>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={chartData.appreciation.filter(d => d.YearlyAppr !== null)}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={TT} formatter={v => `$${Number(v).toLocaleString()}/yr`} />
+              <Bar dataKey="YearlyAppr">
+                {chartData.appreciation.filter(d => d.YearlyAppr !== null).map((entry, i) => (
+                  <Cell key={i} fill={entry.YearlyAppr >= 0 ? '#10b981' : '#ef4444'} />
                 ))}
               </Bar>
             </BarChart>
@@ -178,7 +327,7 @@ function ArchivedPropertiesSection({ archivedProps, onRestore }) {
             <div className="empty-state-text">No archived properties</div>
           </div>
         ) : (
-          <table>
+          <div className="table-scroll-wrap"><table>
             <thead>
               <tr>
                 <th>Name</th><th>Type</th><th>Location</th><th>Status</th>
@@ -203,7 +352,7 @@ function ArchivedPropertiesSection({ archivedProps, onRestore }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )
       )}
     </div>
@@ -212,6 +361,9 @@ function ArchivedPropertiesSection({ archivedProps, onRestore }) {
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function PropertiesView({ properties, onPropertyClick, onAddProperty, onEditProperty, onReloadProperties }) {
+  const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('properties');
+  const allColKeys   = COLUMN_DEFS.properties.map(d => d.key);
+  const allColLabels = Object.fromEntries(COLUMN_DEFS.properties.map(d => [d.key, d.label]));
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy,       setSortBy]       = useState('name');
   const [sortOrder,    setSortOrder]    = useState('asc');
@@ -369,6 +521,15 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
           {allCities.length > 0 && (
             <MultiSelect label="City" options={allCities} selected={filterCities} onChange={setFilterCities} />
           )}
+          <MultiSelect label="Columns" options={allColKeys} selected={visible} onChange={setVisible} labelMap={allColLabels} />
+              {isCustom && (
+                <button type="button" onClick={reset}
+                  style={{ background: 'none', border: 'none', fontSize: '0.75rem',
+                    color: 'var(--accent-primary)', cursor: 'pointer', padding: '0 2px',
+                    textDecoration: 'underline', opacity: 0.8, whiteSpace: 'nowrap' }}>
+                  ↺ reset cols
+                </button>
+              )}
           {/* Sort pushed to the right */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sort</span>
@@ -395,61 +556,62 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
             <div className="empty-state-text">No properties match the current filters</div>
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Location</th>
-                <th>Status</th>
-                <th>Market Value</th>
-                <th>Rent/mo</th>
-                <th>Income</th>
-                <th>Expenses</th>
-                <th>Net</th>
-                <th>ROI</th>
-                <th>Notes</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(p => {
-                const net = p.total_income - p.total_expenses;
-                const roi = p.market_price ? ((net / p.market_price) * 100).toFixed(1) : null;
-                return (
-                  <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onPropertyClick(p)}>
-                    <td><strong>{p.name}</strong></td>
-                    <td>{p.type || '—'}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{p.city}, {p.province}</td>
-                    <td>
-                      <span className={`property-badge ${p.status?.toLowerCase()}`}>{p.status}</span>
-                    </td>
-                    <td>{fmt(p.market_price)}</td>
-                    <td>
-                      {p.monthly_rent
-                        ? fmt(p.monthly_rent)
-                        : <span style={{ color: 'var(--text-tertiary)' }}>—</span>}
-                    </td>
-                    <td className="text-success">{fmt(p.total_income)}</td>
-                    <td className="text-danger">{fmt(p.total_expenses)}</td>
-                    <td className={net >= 0 ? 'text-success' : 'text-danger'}>{fmt(net)}</td>
-                    <td className={roi !== null && parseFloat(roi) >= 0 ? 'text-success' : 'text-danger'}>
-                      {roi !== null ? `${roi}%` : '—'}
-                    </td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <TruncatedCell text={p.notes} />
-                    </td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <div className="row-actions">
-                        <button className="btn btn-secondary btn-small" onClick={() => onEditProperty(p)}>✏️ Edit</button>
-                        <button className="btn btn-danger btn-small"    onClick={() => handleArchive(p.id)}>🗑 Archive</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-scroll-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {col('name')         && <th>Name</th>}
+                  {col('status')       && <th>Status</th>}
+                  {col('type')         && <th>Type</th>}
+                  {col('location')     && <th>Location</th>}
+                  {col('market_price') && <th>Mkt Value</th>}
+                  {col('monthly_rent') && <th>Rent/mo</th>}
+                  {col('total_income') && <th>Income</th>}
+                  {col('net_expenses') && <th>Net Exp</th>}
+                  {col('net')          && <th>Net Profit</th>}
+                  {col('roi')          && <th>ROI</th>}
+                  {col('equity')       && <th>Equity</th>}
+                  {col('loan')         && <th>Loan</th>}
+                  {col('poss_date')    && <th>Possession</th>}
+                  {col('notes')        && <th>Notes</th>}
+                  <th style={{ width: 52 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(p => {
+                  const downPmt = p.purchase_price - p.loan_amount;
+                  const netExp  = p.total_expenses - downPmt;
+                  const net     = p.total_income - netExp;
+                  const roi     = p.market_price ? ((net / p.market_price) * 100).toFixed(1) : null;
+                  const equity  = p.market_price - p.loan_amount;
+                  return (
+                    <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onPropertyClick(p)}>
+                      {col('name')         && <td><strong>{p.name}</strong></td>}
+                      {col('status')       && <td><span className={`property-badge ${p.status?.toLowerCase()}`}>{p.status}</span></td>}
+                      {col('type')         && <td>{p.type || '—'}</td>}
+                      {col('location')     && <td style={{ color: 'var(--text-secondary)' }}><TruncatedCell text={`${p.city}, ${p.province}`} maxWidth={110} /></td>}
+                      {col('market_price') && <td style={{ whiteSpace: 'nowrap' }}>{fmt(p.market_price)}</td>}
+                      {col('monthly_rent') && <td style={{ whiteSpace: 'nowrap' }}>{p.monthly_rent ? fmt(p.monthly_rent) : <span style={{ color: 'var(--text-tertiary)' }}>—</span>}</td>}
+                      {col('total_income') && <td className="text-success" style={{ whiteSpace: 'nowrap' }}>{fmt(p.total_income)}</td>}
+                      {col('net_expenses') && <td className={netExp >= 0 ? 'text-danger' : 'text-success'} style={{ whiteSpace: 'nowrap' }}>{fmt(netExp)}</td>}
+                      {col('net')          && <td className={net >= 0 ? 'text-success' : 'text-danger'} style={{ whiteSpace: 'nowrap' }}>{fmt(net)}</td>}
+                      {col('roi')          && <td className={roi !== null && parseFloat(roi) >= 0 ? 'text-success' : 'text-danger'}>{roi !== null ? `${roi}%` : '—'}</td>}
+                      {col('equity')       && <td style={{ whiteSpace: 'nowrap' }}>{fmt(equity)}</td>}
+                      {col('loan')         && <td style={{ whiteSpace: 'nowrap' }}>{fmt(p.loan_amount)}</td>}
+                      {col('poss_date')    && <td style={{ whiteSpace: 'nowrap' }}>{p.poss_date || '—'}</td>}
+                      {col('notes')        && <td onClick={e => e.stopPropagation()}><TruncatedCell text={p.notes} /></td>}
+                      <td onClick={e => e.stopPropagation()}>
+                        <div className="row-actions">
+                          <button className="btn btn-secondary btn-icon" title="Edit"    onClick={() => onEditProperty(p)}>✏️</button>
+                          <button className="btn btn-danger    btn-icon" title="Archive" onClick={() => handleArchive(p.id)}>🗑</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
       <ArchivedPropertiesSection archivedProps={archivedProps} onRestore={handleRestore} />
