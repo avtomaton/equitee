@@ -2,11 +2,16 @@ import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * Stat card with optional ℹ tooltip and optional sub-line.
- * sub: string shown below the main value — rendered larger/bolder than before
- *      to match the dashboard MetricCard secondary line feel.
+ * A richer stat card that supports:
+ *   primary   — main large value (string)
+ *   primaryCls — color class for primary
+ *   secondary  — second value shown slightly smaller below primary (string)
+ *   secondaryCls
+ *   tertiary   — small muted line at the bottom
+ *   label      — card title
+ *   tooltip    — hover tooltip text (\n for newlines)
  */
-export default function StatCard({ label, value, cls, tooltip, sub, style }) {
+export default function MetricCard({ label, primary, primaryCls, secondary, secondaryCls, tertiary, tooltip, style }) {
   const [tip, setTip] = useState(null);
   const iconRef = useRef(null);
 
@@ -22,17 +27,26 @@ export default function StatCard({ label, value, cls, tooltip, sub, style }) {
         <span>{label}</span>
         {tooltip && (
           <span ref={iconRef} onMouseEnter={showTip} onMouseLeave={() => setTip(null)}
-            style={{ cursor: 'help', opacity: 0.45, fontSize: '0.7rem', lineHeight: 1, userSelect: 'none' }}>
-            ℹ️
-          </span>
+            style={{ cursor: 'help', opacity: 0.45, fontSize: '0.7rem', userSelect: 'none' }}>ℹ️</span>
         )}
       </div>
-      <div className={`stat-value ${cls || ''}`}>{value}</div>
-      {sub && (
-        <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-secondary)', marginTop: '0.35rem', lineHeight: 1.35 }}>
-          {sub}
+
+      <div className={`stat-value ${primaryCls || ''}`} style={{ fontSize: '1.6rem', lineHeight: 1.15 }}>
+        {primary}
+      </div>
+
+      {secondary && (
+        <div className={secondaryCls || ''} style={{ fontSize: '1rem', fontWeight: 600, marginTop: '0.15rem' }}>
+          {secondary}
         </div>
       )}
+
+      {tertiary && (
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: '0.35rem', lineHeight: 1.4 }}>
+          {tertiary}
+        </div>
+      )}
+
       {tip && createPortal(
         <div style={{
           position: 'fixed', top: tip.y, left: tip.x,

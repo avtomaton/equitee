@@ -140,6 +140,15 @@ body {
 }
 
 /* Stats Cards */
+.stat-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    margin: 0 0 0.5rem 0;
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -269,30 +278,55 @@ body {
     border: 1px solid rgba(239, 68, 68, 0.25);
 }
 
-.property-stats {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
+.pc-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
     margin-top: 1rem;
     padding-top: 1rem;
     border-top: 1px solid var(--border);
 }
 
-.property-stat {
+.pc-row {
     display: flex;
-    flex-direction: column;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-height: 1.35rem;
 }
 
-.property-stat-label {
-    font-size: 0.75rem;
+.pc-label {
+    font-size: 0.78rem;
     color: var(--text-tertiary);
-    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.property-stat-value {
-    font-size: 1rem;
+.pc-right {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
+}
+
+.pc-value {
+    font-size: 0.93rem;
     font-weight: 600;
     color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.pc-pct {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+.pc-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.3rem 0 0.1rem;
 }
 
 .card-actions {
@@ -401,6 +435,7 @@ body {
 table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: auto;
 }
 
 thead {
@@ -429,6 +464,19 @@ tbody tr {
 
 tbody tr:hover {
     background: rgba(59, 130, 246, 0.05);
+}
+
+/* Compact columns: date, amount, status, actions — size to content */
+th.col-shrink,
+td.col-shrink {
+    width: 1px;
+    white-space: nowrap;
+}
+
+/* Primary text column absorbs all remaining table width */
+th.col-fill,
+td.col-fill {
+    width: 100%;
 }
 
 /* Buttons */

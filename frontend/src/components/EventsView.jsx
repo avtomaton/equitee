@@ -95,22 +95,22 @@ export default function EventsView({ properties, initialPropertyId }) {
           <div className="table-scroll-wrap">
             <table>
               <thead><tr>
-                {col('date')      && <th>Date</th>}
-                {col('property')  && <th>Property</th>}
-                {col('field')     && <th>Field</th>}
-                {col('old_value') && <th>Old</th>}
-                {col('new_value') && <th>New</th>}
-                {col('notes')     && <th>Notes</th>}
+                {col('date')      && <th className="col-shrink">Date</th>}
+                {col('property')  && <th className="col-fill">Property</th>}
+                {col('field')     && <th className="col-shrink">Field</th>}
+                {col('old_value') && <th className="col-fill">Old</th>}
+                {col('new_value') && <th className="col-fill">New</th>}
+                {col('notes')     && <th className="col-fill">Notes</th>}
                 <th style={{ width: 52 }}></th>
               </tr></thead>
               <tbody>
                 {filtered.map(ev => (
                   <tr key={ev.id}>
-                    {col('date')      && <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{new Date(ev.created_at).toLocaleString()}</td>}
-                    {col('property')  && <td><TruncatedCell text={ev.property_name || '—'} maxWidth={110} /></td>}
-                    {col('field')     && <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{ev.column_name}</td>}
-                    {col('old_value') && <td><TruncatedCell text={ev.old_value} maxWidth={100} /></td>}
-                    {col('new_value') && <td><TruncatedCell text={ev.new_value} maxWidth={100} /></td>}
+                    {col('date')      && <td className="col-shrink" style={{ fontSize: '0.8rem' }}>{new Date(ev.created_at).toLocaleString()}</td>}
+                    {col('property')  && <td className="col-fill"><TruncatedCell text={ev.property_name || '—'} maxWidth={110} /></td>}
+                    {col('field')     && <td className="col-shrink" style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{ev.column_name}</td>}
+                    {col('old_value') && <td className="col-fill"><TruncatedCell text={ev.old_value} maxWidth={100} /></td>}
+                    {col('new_value') && <td className="col-fill"><TruncatedCell text={ev.new_value} maxWidth={100} /></td>}
                     {col('notes')     && (
                       <td>
                         {editingId === ev.id ? (

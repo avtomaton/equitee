@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
-import { INITIAL_OPTIONS, PROVINCES, mergeOptions, COLORS, API_URL, COLUMN_DEFS } from '../config.js';
+import { INITIAL_OPTIONS, PROVINCES, mergeOptions, COLORS, API_URL, COLUMN_DEFS, yearsHeld, principalInRange } from '../config.js';
 import { useColumnVisibility } from '../hooks.js';
 import StatCard from './StatCard.jsx';
+import MetricCard from './MetricCard.jsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
@@ -34,19 +35,35 @@ function Collapsible({ title, defaultOpen = false, children, headerRight }) {
   );
 }
 
-// ── Analytics charts ───────────────────────────────────────────────────────────
+// ── Analytics ─────────────────────────────────────────────────────────────────
+const WINDOW_OPTIONS = [1, 2, 3, 6, 12];
+
 function Analytics({ filtered }) {
-  // Charts are only redrawn when user clicks Refresh — snapshot on demand
-  const [chartData, setChartData] = useState(null);
+  const [chartData,  setChartData]  = useState(null);
+  const [allIncome,  setAllIncome]  = useState([]);
+  const [allExpenses,setAllExpenses]= useState([]);
+  const [avgWindow,  setAvgWindow]  = useState(3);
+
+  // Fetch raw income + expense records for all filtered properties
+  useEffect(() => {
+    if (!filtered.length) { setAllIncome([]); setAllExpenses([]); return; }
+    Promise.all(filtered.map(p =>
+      fetch(`${API_URL}/income?property_id=${p.id}`).then(r => r.ok ? r.json() : [])
+        .then(d => d.map(i => ({ ...i, _pid: p.id })))
+    )).then(r => setAllIncome(r.flat())).catch(() => {});
+    Promise.all(filtered.map(p =>
+      fetch(`${API_URL}/expenses?property_id=${p.id}`).then(r => r.ok ? r.json() : [])
+        .then(d => d.map(e => ({ ...e, _pid: p.id })))
+    )).then(r => setAllExpenses(r.flat())).catch(() => {});
+  }, [filtered.map(p => p.id).join(',')]);
 
   const buildChartData = useCallback((list) => {
-    const yearsHeld = (p) => {
+    const yrsHeld = (p) => {
       if (!p.poss_date) return null;
       const [y, m, d] = p.poss_date.split('-').map(Number);
       const diff = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
       return diff > 0 ? diff : null;
     };
-
     const incExp = list.map(p => ({
       name: shortName(p.name),
       Income: p.total_income, Expenses: p.total_expenses,
@@ -54,118 +71,219 @@ function Analytics({ filtered }) {
     }));
     const value = list.map(p => ({ name: shortName(p.name), Value: p.market_price }));
     const roi   = list.map(p => {
-      const downPmt = p.purchase_price - p.loan_amount;
-      const netExp  = p.total_expenses - downPmt;
-      const net     = p.total_income - netExp;
-      return {
-        name: shortName(p.name),
-        ROI: p.market_price ? parseFloat((net / p.market_price * 100).toFixed(2)) : 0,
-      };
+      const net = p.total_income - (p.total_expenses - (p.purchase_price - p.loan_amount));
+      return { name: shortName(p.name), ROI: p.market_price ? parseFloat((net / p.market_price * 100).toFixed(2)) : 0 };
     });
-    const statusCount = list.reduce((acc, p) => {
-      acc[p.status] = (acc[p.status] || 0) + 1; return acc;
-    }, {});
+    const statusCount = list.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc; }, {});
     const status = Object.entries(statusCount).map(([name, value]) => ({ name, value }));
-
-    const equity = list.map(p => ({
-      name: shortName(p.name),
-      Equity: p.market_price - p.loan_amount,
-      Loan:   p.loan_amount,
-    }));
+    const equity = list.map(p => ({ name: shortName(p.name), Equity: p.market_price - p.loan_amount, Loan: p.loan_amount }));
     const equityPct = list.map(p => ({
-      name:      shortName(p.name),
+      name: shortName(p.name),
       EquityPct: p.market_price ? parseFloat(((p.market_price - p.loan_amount) / p.market_price * 100).toFixed(1)) : 0,
     }));
     const appreciation = list.map(p => {
       const appr  = p.market_price - p.purchase_price;
-      const yrs   = yearsHeld(p);
-      const yearly = yrs ? parseFloat((appr / yrs).toFixed(0)) : null;
-      return { name: shortName(p.name), Appreciation: appr, YearlyAppr: yearly };
+      const yrs   = yrsHeld(p);
+      return { name: shortName(p.name), Appreciation: appr, YearlyAppr: yrs ? parseFloat((appr / yrs).toFixed(0)) : null };
     });
-
     return { incExp, value, roi, status, equity, equityPct, appreciation };
   }, []);
 
-  // Build on first render so charts show immediately when panel opens
-  useEffect(() => {
-    setChartData(buildChartData(filtered));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setChartData(buildChartData(filtered)); }, []); // eslint-disable-line
 
-  const refresh = (e) => {
-    e.stopPropagation();
-    setChartData(buildChartData(filtered));
-  };
+  const refresh = (e) => { e.stopPropagation(); setChartData(buildChartData(filtered)); };
 
-  const statusColors = { Rented: '#10b981', Vacant: '#ef4444', Primary: '#3b82f6' };
-
-  if (!chartData) return (
-    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-      Loading charts…
-    </div>
-  );
-
-  const G2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' };
-
-  // Live aggregate metrics (always reflect current filter, not the snapshot)
-  const agg = (() => {
-    const market    = filtered.reduce((s, p) => s + p.market_price,   0);
-    const purchase  = filtered.reduce((s, p) => s + p.purchase_price, 0);
-    const loan      = filtered.reduce((s, p) => s + p.loan_amount,    0);
-    const income    = filtered.reduce((s, p) => s + p.total_income,   0);
-    const equity    = market - loan;
-    const netExp    = filtered.reduce((s, p) => s + (p.total_expenses - (p.purchase_price - p.loan_amount)), 0);
-    const netProfit = income - netExp;
-    const appreciation = market - purchase;
+  // Live aggregate metrics — always current with filter
+  const agg = useMemo(() => {
+    const market   = filtered.reduce((s, p) => s + p.market_price,   0);
+    const purchase = filtered.reduce((s, p) => s + p.purchase_price, 0);
+    const loan     = filtered.reduce((s, p) => s + p.loan_amount,    0);
+    const income   = filtered.reduce((s, p) => s + p.total_income,   0);
+    const expenses = filtered.reduce((s, p) => s + p.total_expenses, 0);
+    const equity   = market - loan;
+    const equityPct= market > 0 ? equity / market * 100 : null;
+    const loanPct  = market > 0 ? loan   / market * 100 : null;
+    const appr     = market - purchase;
+    const apprPct  = purchase > 0 ? appr / purchase * 100 : null;
     const yearlyAppr = filtered.reduce((s, p) => {
       if (!p.poss_date) return s;
       const [y, m, d] = p.poss_date.split('-').map(Number);
-      const yrs = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      const yrs = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000*60*60*24*365.25);
       return yrs > 0 ? s + (p.market_price - p.purchase_price) / yrs : s;
     }, 0);
-    return { market, loan, equity, income, netExp, netProfit, appreciation, yearlyAppr,
-      equityPct: market > 0 ? (equity / market * 100).toFixed(1) : null,
-      roi: market > 0 ? (netProfit / market * 100).toFixed(2) : null,
+    const yearlyApprPct = purchase > 0 ? yearlyAppr / purchase * 100 : null;
+    const now = new Date();
+    const yearFrac = (now - new Date(now.getFullYear(), 0, 1)) / (365.25 * 86400000);
+    const projectedYE = market + appr * (1 - yearFrac);
+    const totalNetExp  = filtered.reduce((s, p) => s + (p.total_expenses - (p.purchase_price - p.loan_amount)), 0);
+    const netProfit    = income - totalNetExp;
+    const balance      = income - expenses;
+    const roi          = market > 0 ? netProfit / market * 100 : null;
+    const sellingProfit = filtered.reduce((s, p) =>
+      s + p.market_price + p.total_income - p.total_expenses - p.loan_amount, 0);
+    const sellingPct    = filtered.reduce((s, p) => s + p.total_expenses, 0) > 0
+      ? (sellingProfit / filtered.reduce((s, p) => s + p.total_expenses, 0) * 100).toFixed(1) : null;
+
+    // YTD (trailing 12 months)
+    const ytdEnd   = new Date();
+    const ytdStart = new Date(ytdEnd); ytdStart.setFullYear(ytdStart.getFullYear() - 1);
+    const inYTD = (dateStr) => {
+      if (!dateStr) return false;
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt >= ytdStart && dt <= ytdEnd;
     };
-  })();
-  const af = n => `$${Math.round(n).toLocaleString()}`;
+    const ytdInc  = allIncome.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
+    const ytdExp  = allExpenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+    const ytdBal  = ytdInc - ytdExp;
+    const ytdPrin = filtered.reduce((sum, p) => {
+      const propExp = allExpenses.filter(r => r._pid === p.id);
+      return sum + principalInRange(propExp, p.loan_amount, p.mortgage_rate || 0, ytdStart, ytdEnd);
+    }, 0);
+    const ytdNetExp    = ytdExp  - ytdPrin;
+    const ytdNetProfit = ytdInc  - ytdNetExp;
+
+    return { market, loan, equity, equityPct, loanPct, appr, apprPct,
+             yearlyAppr, yearlyApprPct, projectedYE,
+             income, expenses, balance, totalNetExp, netProfit, roi, sellingProfit, sellingPct,
+             ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdNetProfit };
+  }, [filtered, allIncome, allExpenses]);
+
+  // Monthly averages
+  const avg = useMemo(() => {
+    const now   = new Date();
+    const end   = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(end); start.setMonth(start.getMonth() - avgWindow);
+    const inW   = (dateStr) => {
+      if (!dateStr) return false;
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt >= start && dt < end;
+    };
+    const inc  = allIncome.filter(r   => inW(r.income_date)).reduce((s, r) => s + r.amount, 0);
+    const exp  = allExpenses.filter(r => inW(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+    return { income: inc / avgWindow, expenses: exp / avgWindow, cashflow: (inc - exp) / avgWindow };
+  }, [allIncome, allExpenses, avgWindow]);
+
+  const f   = n => `$${Math.round(n).toLocaleString()}`;
+  const fp  = n => `${Number(n).toFixed(1)}%`;
+  const mc  = (props) => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
+
+  const statusColors = { Rented: '#10b981', Vacant: '#ef4444', Primary: '#3b82f6' };
+
+  const G2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' };
 
   return (
     <div style={{ padding: '1.25rem 1.5rem' }}>
 
-      {/* Live aggregate stat cards — always current, no refresh needed */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {[
-          { label: 'Appreciation', value: af(agg.appreciation), cls: agg.appreciation >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Market Value \u2212 Purchase Price across filtered properties.' },
-          { label: 'Yearly Appr.', value: agg.yearlyAppr !== 0 ? af(agg.yearlyAppr) + '/yr' : '\u2014',
-            cls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Sum of per-property appreciation \u00f7 years held.\nProperties without a possession date are excluded.' },
-          { label: 'Total Equity', value: af(agg.equity), cls: agg.equity >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Market Value \u2212 Loan Amount across filtered properties.' },
-          { label: 'Equity %',     value: agg.equityPct !== null ? `${agg.equityPct}%` : '\u2014',
-            cls: agg.equityPct !== null ? (parseFloat(agg.equityPct) >= 50 ? 'text-success' : parseFloat(agg.equityPct) >= 25 ? '' : 'text-danger') : '',
-            tooltip: 'Total Equity \u00f7 Portfolio Value \u00d7 100.' },
-          { label: 'Total Loan',   value: af(agg.loan), cls: 'text-danger',
-            tooltip: 'Sum of outstanding loan balances.' },
-          { label: 'Net Expenses', value: af(agg.netExp), cls: agg.netExp >= 0 ? 'text-danger' : 'text-success',
-            tooltip: 'Total Expenses \u2212 Down Payments.' },
-          { label: 'Net Profit',   value: af(agg.netProfit), cls: agg.netProfit >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Total Income \u2212 Net Expenses.' },
-          { label: 'ROI',          value: agg.roi !== null ? `${agg.roi}%` : '\u2014',
-            cls: agg.roi !== null && parseFloat(agg.roi) >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Net Profit \u00f7 Portfolio Value \u00d7 100.' },
-        ].map(({ label, value, cls, tooltip }) => (
-          <StatCard key={label} label={label} value={value} cls={cls} tooltip={tooltip}
-            style={{ flex: '1 1 130px', minWidth: 120 }} />
-        ))}
+      {/* ── Value & Equity ── */}
+      <p className="stat-section-label">Value &amp; Equity</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {mc({ label: 'Portfolio Value', primary: f(agg.market),
+          tooltip: 'Sum of market values of filtered properties.' })}
+        {mc({ label: 'Equity', primary: f(agg.equity),
+          primaryCls: agg.equity >= 0 ? 'text-success' : 'text-danger',
+          secondary: agg.equityPct !== null ? fp(agg.equityPct) + ' of value' : null,
+          secondaryCls: agg.equityPct !== null && agg.equityPct >= 50 ? 'text-success' : '',
+          tooltip: 'Market Value \u2212 Loan.\nPercentage = equity share of portfolio value.' })}
+        {mc({ label: 'Total Loan', primary: f(agg.loan), primaryCls: 'text-danger',
+          secondary: agg.loanPct !== null ? fp(agg.loanPct) + ' of value' : null,
+          tooltip: 'Outstanding loan balances. Percentage of portfolio value.' })}
       </div>
 
-      {/* Row 1: Income vs Expenses (wide) + Status pie */}
+      {/* ── Appreciation ── */}
+      <p className="stat-section-label">Appreciation</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {mc({ label: 'Total Appreciation', primary: f(agg.appr),
+          primaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
+          secondary: agg.apprPct !== null ? fp(agg.apprPct) + ' of purchase' : null,
+          secondaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'Market Value \u2212 Purchase Price.' })}
+        {mc({ label: 'Yearly Appreciation', primary: f(agg.yearlyAppr) + '/yr',
+          primaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
+          secondary: agg.yearlyApprPct !== null ? fp(agg.yearlyApprPct) + '/yr of purchase' : null,
+          secondaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'Annualized appreciation, summed across filtered properties.\nRequires possession date.' })}
+        {mc({ label: 'Projected Year-End', primary: f(agg.projectedYE),
+          tertiary: 'Linear extrapolation via yearly appreciation',
+          tooltip: 'Market value + remaining year fraction \u00d7 yearly appreciation.' })}
+      </div>
+
+      {/* ── Income & Expenses ── */}
+      <p className="stat-section-label">Income &amp; Expenses (all-time)</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {mc({ label: 'Total Income',   primary: f(agg.income),    primaryCls: 'text-success',
+          tooltip: 'All recorded income for filtered properties.' })}
+        {mc({ label: 'Total Expenses', primary: f(agg.expenses),  primaryCls: 'text-danger',
+          tooltip: 'All recorded expenses including principal payments.' })}
+        {mc({ label: 'Total Balance',  primary: f(agg.balance),
+          primaryCls: agg.balance >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'Total Income \u2212 Total Expenses (raw, no adjustments).' })}
+        {mc({ label: 'Net Expenses',   primary: f(agg.totalNetExp),
+          primaryCls: agg.totalNetExp >= 0 ? 'text-danger' : 'text-success',
+          tooltip: 'Total Expenses \u2212 Down Payments.\nOperating costs above initial capital.' })}
+        {mc({ label: 'Net Profit', primary: f(agg.netProfit),
+          primaryCls: agg.netProfit >= 0 ? 'text-success' : 'text-danger',
+          secondary: agg.roi !== null ? fp(agg.roi) + ' ROI' : null,
+          secondaryCls: agg.roi !== null && agg.roi >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'Total Income \u2212 Net Expenses.\nROI = Net Profit \u00f7 Portfolio Value.' })}
+        {mc({ label: 'Selling Profit', primary: f(agg.sellingProfit),
+          primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
+          secondary: agg.sellingPct !== null ? fp(parseFloat(agg.sellingPct)) + ' of exp' : null,
+          secondaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'Market Value + Income \u2212 Expenses \u2212 Loan.' })}
+      </div>
+
+      {/* ── YTD ── */}
+      <p className="stat-section-label">YTD — trailing 12 months</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        {mc({ label: 'YTD Income',      primary: f(agg.ytdInc),  primaryCls: 'text-success' })}
+        {mc({ label: 'YTD Expenses',    primary: f(agg.ytdExp),  primaryCls: 'text-danger' })}
+        {mc({ label: 'YTD Balance',     primary: f(agg.ytdBal),
+          primaryCls: agg.ytdBal >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'YTD Income \u2212 YTD Expenses.' })}
+        {mc({ label: 'YTD Principal',   primary: agg.ytdPrin > 0 ? f(agg.ytdPrin) : '\u2014',
+          tertiary: 'From Principal expense records',
+          tooltip: 'Sum of expenses categorised as Principal in the YTD period.' })}
+        {mc({ label: 'YTD Net Exp',     primary: f(agg.ytdNetExp),
+          primaryCls: agg.ytdNetExp >= 0 ? 'text-danger' : 'text-success',
+          tooltip: 'YTD Expenses \u2212 YTD Principal.' })}
+        {mc({ label: 'YTD Net Profit',  primary: f(agg.ytdNetProfit),
+          primaryCls: agg.ytdNetProfit >= 0 ? 'text-success' : 'text-danger',
+          tooltip: 'YTD Income \u2212 YTD Net Expenses.' })}
+      </div>
+
+      {/* ── Monthly averages ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>
+        <p className="stat-section-label" style={{ margin: 0 }}>Monthly Averages</p>
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>window:</span>
+        {WINDOW_OPTIONS.map(w => (
+          <button key={w} type="button" onClick={() => setAvgWindow(w)}
+            style={{
+              padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.78rem', cursor: 'pointer',
+              background: avgWindow === w ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+              color: avgWindow === w ? '#fff' : 'var(--text-secondary)',
+              border: `1px solid ${avgWindow === w ? 'var(--accent-primary)' : 'var(--border)'}`,
+            }}>{w}M</button>
+        ))}
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>(excludes current month)</span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        {mc({ label: `Avg Income (${avgWindow}M)`,   primary: f(avg.income),   primaryCls: 'text-success',
+          tooltip: `Average monthly income over the last ${avgWindow} complete months.` })}
+        {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: f(avg.expenses), primaryCls: 'text-danger',
+          tooltip: `Average monthly expenses over the last ${avgWindow} complete months.` })}
+        {mc({ label: `Avg Cash Flow (${avgWindow}M)`,primary: f(avg.cashflow),
+          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
+          tooltip: `Average monthly net cash flow over the last ${avgWindow} complete months.` })}
+      </div>
+
+      {/* ── Charts ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Income vs Expenses by Property</h2></div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chartData.incExp}>
+            <BarChart data={chartData?.incExp}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
@@ -181,10 +299,10 @@ function Analytics({ filtered }) {
           <div className="chart-header"><h2 className="chart-title">Status Breakdown</h2></div>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={chartData.status} dataKey="value" nameKey="name"
+              <Pie data={chartData?.status} dataKey="value" nameKey="name"
                 cx="50%" cy="50%" outerRadius={75}
                 label={({ name, value }) => `${name}: ${value}`}>
-                {chartData.status.map((entry, i) => (
+                {(chartData?.status || []).map((entry, i) => (
                   <Cell key={entry.name} fill={statusColors[entry.name] || COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
@@ -194,12 +312,11 @@ function Analytics({ filtered }) {
         </div>
       </div>
 
-      {/* Row 2: Market Value + ROI */}
       <div style={G2}>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Market Value by Property</h2></div>
           <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.value}>
+            <BarChart data={chartData?.value}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
@@ -211,27 +328,24 @@ function Analytics({ filtered }) {
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">ROI by Property (%)</h2></div>
           <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.roi}>
+            <BarChart data={chartData?.roi}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <Tooltip contentStyle={TT} formatter={v => `${v}%`} />
               <Bar dataKey="ROI">
-                {chartData.roi.map((entry, i) => (
-                  <Cell key={i} fill={entry.ROI >= 0 ? '#10b981' : '#ef4444'} />
-                ))}
+                {(chartData?.roi || []).map((e, i) => <Cell key={i} fill={e.ROI >= 0 ? '#10b981' : '#ef4444'} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Row 3: Equity stacked + Equity % */}
       <div style={G2}>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Equity vs Loan by Property</h2></div>
           <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.equity} stackOffset="none">
+            <BarChart data={chartData?.equity}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
@@ -245,14 +359,14 @@ function Analytics({ filtered }) {
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Equity % by Property</h2></div>
           <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.equityPct}>
+            <BarChart data={chartData?.equityPct}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
               <Tooltip contentStyle={TT} formatter={v => `${v}%`} />
               <Bar dataKey="EquityPct">
-                {chartData.equityPct.map((entry, i) => (
-                  <Cell key={i} fill={entry.EquityPct >= 50 ? '#10b981' : entry.EquityPct >= 25 ? '#f59e0b' : '#ef4444'} />
+                {(chartData?.equityPct || []).map((e, i) => (
+                  <Cell key={i} fill={e.EquityPct >= 50 ? '#10b981' : e.EquityPct >= 25 ? '#f59e0b' : '#ef4444'} />
                 ))}
               </Bar>
             </BarChart>
@@ -260,20 +374,17 @@ function Analytics({ filtered }) {
         </div>
       </div>
 
-      {/* Row 4: Appreciation + Yearly Appreciation */}
       <div style={{ ...G2, marginBottom: 0 }}>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Total Appreciation by Property</h2></div>
           <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.appreciation}>
+            <BarChart data={chartData?.appreciation}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <Tooltip contentStyle={TT} formatter={v => `$${Number(v).toLocaleString()}`} />
               <Bar dataKey="Appreciation">
-                {chartData.appreciation.map((entry, i) => (
-                  <Cell key={i} fill={entry.Appreciation >= 0 ? '#10b981' : '#ef4444'} />
-                ))}
+                {(chartData?.appreciation || []).map((e, i) => <Cell key={i} fill={e.Appreciation >= 0 ? '#10b981' : '#ef4444'} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -281,14 +392,14 @@ function Analytics({ filtered }) {
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Yearly Appreciation by Property</h2></div>
           <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.appreciation.filter(d => d.YearlyAppr !== null)}>
+            <BarChart data={(chartData?.appreciation || []).filter(d => d.YearlyAppr !== null)}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <Tooltip contentStyle={TT} formatter={v => `$${Number(v).toLocaleString()}/yr`} />
               <Bar dataKey="YearlyAppr">
-                {chartData.appreciation.filter(d => d.YearlyAppr !== null).map((entry, i) => (
-                  <Cell key={i} fill={entry.YearlyAppr >= 0 ? '#10b981' : '#ef4444'} />
+                {(chartData?.appreciation || []).filter(d => d.YearlyAppr !== null).map((e, i) => (
+                  <Cell key={i} fill={e.YearlyAppr >= 0 ? '#10b981' : '#ef4444'} />
                 ))}
               </Bar>
             </BarChart>
@@ -298,7 +409,7 @@ function Analytics({ filtered }) {
 
       <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="btn btn-secondary btn-small" onClick={refresh}>
-          ↻ Refresh charts from current filters
+          \u21bb Refresh charts from current filters
         </button>
       </div>
     </div>
@@ -330,7 +441,7 @@ function ArchivedPropertiesSection({ archivedProps, onRestore }) {
           <div className="table-scroll-wrap"><table>
             <thead>
               <tr>
-                <th>Name</th><th>Type</th><th>Location</th><th>Status</th>
+                <th className="col-fill">Name</th><th>Type</th><th>Location</th><th>Status</th>
                 <th>Market Value</th><th>Rent/mo</th><th>Notes</th><th>Actions</th>
               </tr>
             </thead>
@@ -560,20 +671,20 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
             <table>
               <thead>
                 <tr>
-                  {col('name')         && <th>Name</th>}
-                  {col('status')       && <th>Status</th>}
-                  {col('type')         && <th>Type</th>}
-                  {col('location')     && <th>Location</th>}
-                  {col('market_price') && <th>Mkt Value</th>}
-                  {col('monthly_rent') && <th>Rent/mo</th>}
-                  {col('total_income') && <th>Income</th>}
-                  {col('net_expenses') && <th>Net Exp</th>}
-                  {col('net')          && <th>Net Profit</th>}
-                  {col('roi')          && <th>ROI</th>}
-                  {col('equity')       && <th>Equity</th>}
-                  {col('loan')         && <th>Loan</th>}
-                  {col('poss_date')    && <th>Possession</th>}
-                  {col('notes')        && <th>Notes</th>}
+                  {col('name')         && <th className="col-fill">Name</th>}
+                  {col('status')       && <th className="col-shrink">Status</th>}
+                  {col('type')         && <th className="col-shrink">Type</th>}
+                  {col('location')     && <th className="col-shrink">Location</th>}
+                  {col('market_price') && <th className="col-shrink">Mkt Value</th>}
+                  {col('monthly_rent') && <th className="col-shrink">Rent/mo</th>}
+                  {col('total_income') && <th className="col-shrink">Income</th>}
+                  {col('net_expenses') && <th className="col-shrink">Net Exp</th>}
+                  {col('net')          && <th className="col-shrink">Net Profit</th>}
+                  {col('roi')          && <th className="col-shrink">ROI</th>}
+                  {col('equity')       && <th className="col-shrink">Equity</th>}
+                  {col('loan')         && <th className="col-shrink">Loan</th>}
+                  {col('poss_date')    && <th className="col-shrink">Possession</th>}
+                  {col('notes')        && <th className="col-fill">Notes</th>}
                   <th style={{ width: 52 }}></th>
                 </tr>
               </thead>
@@ -586,20 +697,20 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
                   const equity  = p.market_price - p.loan_amount;
                   return (
                     <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onPropertyClick(p)}>
-                      {col('name')         && <td><strong>{p.name}</strong></td>}
-                      {col('status')       && <td><span className={`property-badge ${p.status?.toLowerCase()}`}>{p.status}</span></td>}
-                      {col('type')         && <td>{p.type || '—'}</td>}
-                      {col('location')     && <td style={{ color: 'var(--text-secondary)' }}><TruncatedCell text={`${p.city}, ${p.province}`} maxWidth={110} /></td>}
-                      {col('market_price') && <td style={{ whiteSpace: 'nowrap' }}>{fmt(p.market_price)}</td>}
-                      {col('monthly_rent') && <td style={{ whiteSpace: 'nowrap' }}>{p.monthly_rent ? fmt(p.monthly_rent) : <span style={{ color: 'var(--text-tertiary)' }}>—</span>}</td>}
-                      {col('total_income') && <td className="text-success" style={{ whiteSpace: 'nowrap' }}>{fmt(p.total_income)}</td>}
-                      {col('net_expenses') && <td className={netExp >= 0 ? 'text-danger' : 'text-success'} style={{ whiteSpace: 'nowrap' }}>{fmt(netExp)}</td>}
-                      {col('net')          && <td className={net >= 0 ? 'text-success' : 'text-danger'} style={{ whiteSpace: 'nowrap' }}>{fmt(net)}</td>}
+                      {col('name')         && <td className="col-fill"><strong>{p.name}</strong></td>}
+                      {col('status')       && <td className="col-shrink"><span className={`property-badge ${p.status?.toLowerCase()}`}>{p.status}</span></td>}
+                      {col('type')         && <td className="col-shrink">{p.type || '—'}</td>}
+                      {col('location')     && <td className="col-shrink"><TruncatedCell text={`${p.city}, ${p.province}`} maxWidth={110} /></td>}
+                      {col('market_price') && <td className="col-shrink">{fmt(p.market_price)}</td>}
+                      {col('monthly_rent') && <td className="col-shrink">{p.monthly_rent ? fmt(p.monthly_rent) : <span style={{ color: 'var(--text-tertiary)' }}>—</span>}</td>}
+                      {col('total_income') && <td className="col-shrink text-success">{fmt(p.total_income)}</td>}
+                      {col('net_expenses') && <td className={`col-shrink ${netExp >= 0 ? 'text-danger' : 'text-success'}`}>{fmt(netExp)}</td>}
+                      {col('net')          && <td className={`col-shrink ${net >= 0 ? 'text-success' : 'text-danger'}`}>{fmt(net)}</td>}
                       {col('roi')          && <td className={roi !== null && parseFloat(roi) >= 0 ? 'text-success' : 'text-danger'}>{roi !== null ? `${roi}%` : '—'}</td>}
-                      {col('equity')       && <td style={{ whiteSpace: 'nowrap' }}>{fmt(equity)}</td>}
-                      {col('loan')         && <td style={{ whiteSpace: 'nowrap' }}>{fmt(p.loan_amount)}</td>}
+                      {col('equity')       && <td className="col-shrink">{fmt(equity)}</td>}
+                      {col('loan')         && <td className="col-shrink">{fmt(p.loan_amount)}</td>}
                       {col('poss_date')    && <td style={{ whiteSpace: 'nowrap' }}>{p.poss_date || '—'}</td>}
-                      {col('notes')        && <td onClick={e => e.stopPropagation()}><TruncatedCell text={p.notes} /></td>}
+                      {col('notes')        && <td className="col-fill" onClick={e => e.stopPropagation()}><TruncatedCell text={p.notes} /></td>}
                       <td onClick={e => e.stopPropagation()}>
                         <div className="row-actions">
                           <button className="btn btn-secondary btn-icon" title="Edit"    onClick={() => onEditProperty(p)}>✏️</button>

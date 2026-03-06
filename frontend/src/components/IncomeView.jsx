@@ -185,21 +185,21 @@ export default function IncomeView({ properties, onAddIncome, onEditIncome, init
           <div className="table-scroll-wrap">
             <table>
               <thead><tr>
-                {col('date')     && <th>Date</th>}
-                {col('property') && <th>Property</th>}
-                {col('amount')   && <th>Amount</th>}
-                {col('type')     && <th>Type</th>}
-                {col('notes')    && <th>Notes</th>}
+                {col('date')     && <th className="col-shrink">Date</th>}
+                {col('property') && <th className="col-fill">Property</th>}
+                {col('amount')   && <th className="col-shrink">Amount</th>}
+                {col('type')     && <th className="col-shrink">Type</th>}
+                {col('notes')    && <th className="col-fill">Notes</th>}
                 <th style={{ width: 52 }}></th>
               </tr></thead>
               <tbody>
                 {filtered.map(i => (
                   <tr key={i.id}>
-                    {col('date')     && <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(i.income_date)}</td>}
-                    {col('property') && <td><TruncatedCell text={i.property_name} maxWidth={120} /></td>}
-                    {col('amount')   && <td className="text-success" style={{ whiteSpace: 'nowrap' }}>${i.amount.toLocaleString()}</td>}
-                    {col('type')     && <td>{i.income_type}</td>}
-                    {col('notes')    && <td><TruncatedCell text={i.notes} /></td>}
+                    {col('date')     && <td className="col-shrink">{fmtDate(i.income_date)}</td>}
+                    {col('property') && <td className="col-fill"><TruncatedCell text={i.property_name} maxWidth={120} /></td>}
+                    {col('amount')   && <td className="col-shrink text-success">${i.amount.toLocaleString()}</td>}
+                    {col('type')     && <td className="col-shrink">{i.income_type}</td>}
+                    {col('notes')    && <td className="col-fill"><TruncatedCell text={i.notes} /></td>}
                     <td>
                       <div className="row-actions">
                         <button className="btn btn-secondary btn-icon" title="Edit"   onClick={() => onEditIncome(i)}>✏️</button>

@@ -1,16 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { API_URL, isCurrentTenant, fmtDate } from '../config.js';
+import { API_URL, isCurrentTenant, fmtDate, yearsHeld, avgMonthly, principalInRange } from '../config.js';
 import StatCard from './StatCard.jsx';
+import MetricCard from './MetricCard.jsx';
 
 const DETAIL_TOOLTIP_STYLE = {
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',
 };
 
-export default function PropertyDetail({ property, onBack, onAddExpense, onAddIncome, onAddTenant, onEdit, onJump }) {
+export default function PropertyDetail({ property, properties = [], onSelectProperty, onBack, onAddExpense, onAddIncome, onAddTenant, onEdit, onJump }) {
   const [tenants,  setTenants]  = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [events,   setEvents]   = useState([]);
+
+  const [income,    setIncome]    = useState([]);
+  const [avgWindow, setAvgWindow] = useState(3);
 
   useEffect(() => {
     if (!property) return;
@@ -20,6 +24,8 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
       .then(r => r.ok ? r.json() : []).then(setExpenses).catch(() => {});
     fetch(`${API_URL}/events?property_id=${property.id}`)
       .then(r => r.ok ? r.json() : []).then(setEvents).catch(() => {});
+    fetch(`${API_URL}/income?property_id=${property.id}`)
+      .then(r => r.ok ? r.json() : []).then(setIncome).catch(() => {});
   }, [property?.id]);
 
   if (!property) return null;
@@ -56,7 +62,27 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
     <>
       {/* Header */}
       <div className="page-header">
-        <button className="btn btn-secondary" onClick={onBack}>← Back</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <button className="btn btn-secondary" onClick={onBack}>← Back</button>
+          {properties.length > 1 && (
+            <select
+              value={property.id}
+              onChange={e => {
+                const p = properties.find(x => x.id === Number(e.target.value));
+                if (p) onSelectProperty?.(p);
+              }}
+              style={{
+                padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem',
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                color: 'var(--text-primary)', cursor: 'pointer', maxWidth: 220,
+              }}
+            >
+              {properties.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={onEdit}>✏️ Edit</button>
           <button className="btn btn-secondary" onClick={onAddTenant}>+ Tenant</button>
@@ -122,39 +148,153 @@ export default function PropertyDetail({ property, onBack, onAddExpense, onAddIn
       {/* Stats */}
       {(() => {
         const equity    = property.market_price - property.loan_amount;
+        const equityPct = property.market_price > 0 ? equity / property.market_price * 100 : null;
+        const loanPct   = property.market_price > 0 ? property.loan_amount / property.market_price * 100 : null;
         const downPmt   = property.purchase_price - property.loan_amount;
-        const netExp    = property.total_expenses - downPmt;
-        const netProfit = property.total_income - netExp;
-        const netRoi    = property.market_price > 0 ? ((netProfit / property.market_price) * 100).toFixed(2) : 0;
-        const TT = {
-          purchasePrice: 'Original purchase price of the property.',
-          marketValue:   'Current estimated market value.',
-          equity:        'Market Value − Loan Amount.\nYour ownership stake in the property.',
-          loan:          'Outstanding mortgage or loan balance.',
-          rent:          'Current monthly rent charged to tenants.',
-          income:        'All recorded income from this property.',
-          netExp:        'Total Expenses − Down Payment.\nOperating costs above your initial capital.\nNegative = expenses have not exceeded your down payment yet.',
-          netProfit:     'Total Income − Net Expenses.\nAccounts for initial down payment as part of cost basis.',
-          roi:           'Net Profit ÷ Market Value × 100.',
+        const appr      = property.market_price - property.purchase_price;
+        const apprPct   = property.purchase_price > 0 ? appr / property.purchase_price * 100 : null;
+        const yrs       = yearsHeld(property);
+        const yearlyAppr    = yrs ? appr / yrs : null;
+        const yearlyApprPct = (yrs && property.purchase_price > 0) ? yearlyAppr / property.purchase_price * 100 : null;
+        const now = new Date();
+        const yearFrac = (now - new Date(now.getFullYear(), 0, 1)) / (365.25 * 86400000);
+        const projectedYE = property.market_price + appr * (1 - yearFrac);
+
+        const totalNetExp  = property.total_expenses - downPmt;
+        const totalNetProfit = property.total_income - totalNetExp;
+        const balance      = property.total_income - property.total_expenses;
+        const sellingProfit = property.market_price + property.total_income
+                              - property.total_expenses - property.loan_amount;
+        const sellingPct    = property.total_expenses > 0
+          ? (sellingProfit / property.total_expenses * 100).toFixed(1) : null;
+        const roi          = property.market_price > 0 ? totalNetProfit / property.market_price * 100 : null;
+
+        // YTD (trailing 12 months)
+        const ytdEnd   = new Date();
+        const ytdStart = new Date(ytdEnd); ytdStart.setFullYear(ytdStart.getFullYear() - 1);
+        const inYTD = (dateStr) => {
+          if (!dateStr) return false;
+          const [y, m, d] = dateStr.split('-').map(Number);
+          const dt = new Date(y, m - 1, d);
+          return dt >= ytdStart && dt <= ytdEnd;
         };
-        const cards = [
-          { label: 'Purchase Price', value: `$${property.purchase_price.toLocaleString()}`, tooltip: TT.purchasePrice },
-          { label: 'Market Value',   value: `$${property.market_price.toLocaleString()}`,   tooltip: TT.marketValue },
-          { label: 'Equity',      value: `$${equity.toLocaleString()}`,    cls: equity    >= 0 ? 'text-success' : 'text-danger', tooltip: TT.equity },
-          { label: 'Loan Amount', value: `$${property.loan_amount.toLocaleString()}`,       cls: 'text-danger', tooltip: TT.loan },
-          { label: 'Monthly Rent',value: isVacant ? '—' : `$${property.monthly_rent.toLocaleString()}`, tooltip: TT.rent },
-          { label: 'Total Income',value: `$${property.total_income.toLocaleString()}`,      cls: 'text-success', tooltip: TT.income },
-          { label: 'Net Expenses',value: `$${netExp.toLocaleString()}`,    cls: netExp    >= 0 ? 'text-danger'  : 'text-success', tooltip: TT.netExp },
-          { label: 'Net Profit',  value: `$${netProfit.toLocaleString()}`, cls: netProfit >= 0 ? 'text-success' : 'text-danger',  tooltip: TT.netProfit },
-          { label: 'ROI',         value: `${netRoi}%`,                     cls: parseFloat(netRoi) >= 0 ? 'text-success' : 'text-danger', tooltip: TT.roi },
-        ];
-        return (
-          <div className="stats-grid">
-            {cards.map(({ label, value, cls, tooltip }) => (
-              <StatCard key={label} label={label} value={value} cls={cls} tooltip={tooltip} />
-            ))}
-          </div>
+        const ytdInc  = income.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
+        const ytdExp  = expenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+        const ytdBal  = ytdInc - ytdExp;
+        const ytdPrin = principalInRange(
+          expenses, property.loan_amount, property.mortgage_rate || 0, ytdStart, ytdEnd
         );
+        const ytdNetExp    = ytdExp  - ytdPrin;
+        const ytdNetProfit = ytdInc  - ytdNetExp;
+
+        const avg = avgMonthly(income, expenses, avgWindow);
+
+        const f  = n => `$${Math.round(n).toLocaleString()}`;
+        const fp = n => `${Number(n).toFixed(1)}%`;
+        const WOPT = [1, 2, 3, 6, 12];
+        const mc = (props) => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
+
+        return (<>
+          {/* Value & Equity */}
+          <p className="stat-section-label">Value &amp; Equity</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'Purchase Price', primary: f(property.purchase_price),
+              tooltip: 'Original purchase price of the property.' })}
+            {mc({ label: 'Market Value', primary: f(property.market_price),
+              tooltip: 'Current estimated market value.' })}
+            {mc({ label: 'Equity', primary: f(equity),
+              primaryCls: equity >= 0 ? 'text-success' : 'text-danger',
+              secondary: equityPct !== null ? fp(equityPct) + ' of value' : null,
+              secondaryCls: equityPct !== null && equityPct >= 50 ? 'text-success' : '',
+              tooltip: 'Market Value \u2212 Loan Amount.' })}
+            {mc({ label: 'Loan Amount', primary: f(property.loan_amount), primaryCls: 'text-danger',
+              secondary: loanPct !== null ? fp(loanPct) + ' of value' : null,
+              tooltip: 'Outstanding mortgage or loan balance.' })}
+            {property.mortgage_rate > 0 && mc({ label: 'Mortgage Rate', primary: `${property.mortgage_rate}%`,
+              tooltip: 'Annual mortgage interest rate.' })}
+          </div>
+
+          {/* Appreciation */}
+          <p className="stat-section-label">Appreciation</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'Appreciation', primary: f(appr),
+              primaryCls: appr >= 0 ? 'text-success' : 'text-danger',
+              secondary: apprPct !== null ? fp(apprPct) + ' of purchase' : null,
+              secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Market Value \u2212 Purchase Price.' })}
+            {mc({ label: 'Yearly Appr.', primary: yearlyAppr !== null ? f(yearlyAppr) + '/yr' : '\u2014',
+              primaryCls: yearlyAppr !== null ? (yearlyAppr >= 0 ? 'text-success' : 'text-danger') : '',
+              secondary: yearlyApprPct !== null ? fp(yearlyApprPct) + '/yr of purchase' : null,
+              secondaryCls: yearlyAppr !== null && yearlyAppr >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Appreciation \u00f7 years held since possession date.' })}
+            {mc({ label: 'Projected Year-End', primary: f(projectedYE),
+              tertiary: 'Linear extrapolation via yearly appreciation',
+              tooltip: 'Current value + remaining year fraction \u00d7 yearly appreciation.' })}
+          </div>
+
+          {/* Income & Expenses */}
+          <p className="stat-section-label">Income &amp; Expenses (all-time)</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'Total Income',   primary: f(property.total_income), primaryCls: 'text-success' })}
+            {mc({ label: 'Total Expenses', primary: f(property.total_expenses), primaryCls: 'text-danger' })}
+            {mc({ label: 'Total Balance',  primary: f(balance),
+              primaryCls: balance >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Total Income \u2212 Total Expenses (raw balance).' })}
+            {mc({ label: 'Net Expenses',   primary: f(totalNetExp),
+              primaryCls: totalNetExp >= 0 ? 'text-danger' : 'text-success',
+              tooltip: 'Total Expenses \u2212 Down Payment.' })}
+            {mc({ label: 'Net Profit', primary: f(totalNetProfit),
+              primaryCls: totalNetProfit >= 0 ? 'text-success' : 'text-danger',
+              secondary: roi !== null ? fp(roi) + ' ROI' : null,
+              secondaryCls: roi !== null && roi >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Total Income \u2212 Net Expenses.' })}
+            {mc({ label: 'Selling Profit', primary: f(sellingProfit),
+              primaryCls: sellingProfit >= 0 ? 'text-success' : 'text-danger',
+              secondary: sellingPct !== null ? fp(parseFloat(sellingPct)) + ' of expenses' : null,
+              secondaryCls: sellingProfit >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Market Value + Total Income \u2212 Total Expenses \u2212 Loan Amount.\nWhat you would net if you sold today.' })}
+            {!isVacant && mc({ label: 'Monthly Rent', primary: f(property.monthly_rent),
+              tooltip: 'Current monthly rent charged.' })}
+          </div>
+
+          {/* YTD */}
+          <p className="stat-section-label">YTD — trailing 12 months</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'YTD Income',     primary: f(ytdInc), primaryCls: 'text-success' })}
+            {mc({ label: 'YTD Expenses',   primary: f(ytdExp), primaryCls: 'text-danger' })}
+            {mc({ label: 'YTD Balance',    primary: f(ytdBal),
+              primaryCls: ytdBal >= 0 ? 'text-success' : 'text-danger' })}
+            {mc({ label: 'YTD Principal',  primary: ytdPrin > 0 ? f(ytdPrin) : '\u2014',
+              tertiary: 'From Principal expense records',
+              tooltip: 'Sum of Principal expenses in the trailing 12 months.' })}
+            {mc({ label: 'YTD Net Exp',    primary: f(ytdNetExp),
+              primaryCls: ytdNetExp >= 0 ? 'text-danger' : 'text-success' })}
+            {mc({ label: 'YTD Net Profit', primary: f(ytdNetProfit),
+              primaryCls: ytdNetProfit >= 0 ? 'text-success' : 'text-danger' })}
+          </div>
+
+          {/* Monthly averages */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>
+            <p className="stat-section-label" style={{ margin: 0 }}>Monthly Averages</p>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>window:</span>
+            {WOPT.map(w => (
+              <button key={w} type="button" onClick={() => setAvgWindow(w)}
+                style={{
+                  padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.78rem', cursor: 'pointer',
+                  background: avgWindow === w ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                  color: avgWindow === w ? '#fff' : 'var(--text-secondary)',
+                  border: `1px solid ${avgWindow === w ? 'var(--accent-primary)' : 'var(--border)'}`,
+                }}>{w}M</button>
+            ))}
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>(excludes current month)</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
+            {mc({ label: `Avg Income (${avgWindow}M)`,   primary: f(avg.income),   primaryCls: 'text-success' })}
+            {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: f(avg.expenses), primaryCls: 'text-danger' })}
+            {mc({ label: `Avg Cash Flow (${avgWindow}M)`,primary: f(avg.cashflow),
+              primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger' })}
+          </div>
+        </>);
       })()}
 
       {/* Chart */}

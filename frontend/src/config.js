@@ -135,3 +135,196 @@ export const getCookie = (name) => {
 export const setCookie = (name, value, days = 730) => {
   document.cookie = `${name}=${encodeURIComponent(value)};max-age=${days * 86400};path=/`;
 };
+
+// ── Metric computation helpers ────────────────────────────────────────────────
+
+/** Years a property has been held (fractional). null if no poss_date. */
+export const yearsHeld = (p) => {
+  if (!p.poss_date) return null;
+  const [y, m, d] = p.poss_date.split('-').map(Number);
+  const diff = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+  return diff > 0 ? diff : null;
+};
+
+/**
+ * All derived metrics for a single property.
+ * income/expenses arrays are optional (needed for YTD / averages).
+ */
+export const calcMetrics = (p, incomeRecs = [], expenseRecs = []) => {
+  const downPmt      = p.purchase_price - p.loan_amount;
+  const equity       = p.market_price   - p.loan_amount;
+  const equityPct    = p.market_price   > 0 ? equity / p.market_price * 100 : null;
+  const loanPct      = p.market_price   > 0 ? p.loan_amount / p.market_price * 100 : null;
+  const appreciation = p.market_price   - p.purchase_price;
+  const apprPct      = p.purchase_price > 0 ? appreciation / p.purchase_price * 100 : null;
+  const yrs          = yearsHeld(p);
+  const yearlyAppr   = yrs ? appreciation / yrs : null;
+  const yearlyApprPct = (yrs && p.purchase_price > 0) ? yearlyAppr / p.purchase_price * 100 : null;
+
+  // Projected year-end market value (linear extrapolation)
+  const now = new Date();
+  const yearFrac = (now - new Date(now.getFullYear(), 0, 1)) / (365.25 * 86400000);
+  const remainingYearFrac = 1 - yearFrac;
+  const projectedYearEnd = yearlyAppr !== null
+    ? p.market_price + yearlyAppr * remainingYearFrac
+    : null;
+
+  const totalNetExp  = p.total_expenses - downPmt;
+  const totalNetProfit = p.total_income - totalNetExp;
+  const totalBalance = p.total_income - p.total_expenses;
+  const roi          = p.market_price > 0 ? totalNetProfit / p.market_price * 100 : null;
+
+  // YTD helpers (trailing 12 months to today)
+  const ytdEnd   = new Date();
+  const ytdStart = new Date(ytdEnd);
+  ytdStart.setFullYear(ytdStart.getFullYear() - 1);
+
+  const inPeriod = (dateStr, start, end) => {
+    if (!dateStr) return false;
+    const [yr, mo, dy] = dateStr.split('-').map(Number);
+    const d = new Date(yr, mo - 1, dy);
+    return d >= start && d <= end;
+  };
+
+  const ytdIncome   = incomeRecs.filter(r => inPeriod(r.income_date,   ytdStart, ytdEnd)).reduce((s, r) => s + r.amount, 0);
+  const ytdExpenses = expenseRecs.filter(r => inPeriod(r.expense_date, ytdStart, ytdEnd)).reduce((s, r) => s + r.amount, 0);
+  const ytdBalance  = ytdIncome - ytdExpenses;
+
+  // YTD principal: use 'Principal' expense category records first, else estimate from mortgage_rate
+  const ytdPrincipalRecs = expenseRecs.filter(r =>
+    r.expense_category === 'Principal' && inPeriod(r.expense_date, ytdStart, ytdEnd)
+  );
+  let ytdPrincipal;
+  if (ytdPrincipalRecs.length > 0) {
+    ytdPrincipal = ytdPrincipalRecs.reduce((s, r) => s + r.amount, 0);
+  } else if (p.mortgage_rate > 0) {
+    // Estimate: work backwards month by month from current loan balance
+    // For each month in YTD, interest = balance * rate/12; principal = payment - interest
+    // We need monthly_payment. Approximate it as constant from current amortization.
+    // Without term, we use interest-only as a lower bound and note it's estimated.
+    const monthlyRate = p.mortgage_rate / 100 / 12;
+    // Months in YTD period (approximate)
+    const ytdMonths = Math.round((ytdEnd - ytdStart) / (30.44 * 86400000));
+    // Interest-only estimate: avg balance over period ≈ loan_amount + ytdMonths/2 * (principal/mo)
+    // Simplified: just use current balance for all months (conservative — slightly overestimates interest → underestimates principal)
+    const estMonthlyInterest = p.loan_amount * monthlyRate;
+    // Without payment amount, we can only return the interest component; set principal to 0
+    // and flag it as unavailable
+    ytdPrincipal = null; // cannot compute without monthly_payment
+    void estMonthlyInterest; // suppress unused warning
+  } else {
+    ytdPrincipal = null;
+  }
+
+  const ytdNetExp     = ytdPrincipal !== null ? ytdExpenses - ytdPrincipal : null;
+  const ytdNetProfit  = ytdNetExp    !== null ? ytdIncome   - ytdNetExp    : null;
+
+  return {
+    equity, equityPct, loanPct,
+    appreciation, apprPct, yearlyAppr, yearlyApprPct, projectedYearEnd,
+    downPmt, totalNetExp, totalNetProfit, totalBalance, roi,
+    ytdIncome, ytdExpenses, ytdBalance, ytdPrincipal, ytdNetExp, ytdNetProfit,
+  };
+};
+
+/**
+ * Average monthly income/expenses/cashflow over a trailing window.
+ * windowMonths: how many complete months back to look (ignores current partial month).
+ * Returns { income, expenses, cashflow } per month.
+ */
+export const avgMonthly = (incomeRecs, expenseRecs, windowMonths = 3) => {
+  const now   = new Date();
+  const end   = new Date(now.getFullYear(), now.getMonth(), 1); // start of current month (excluded)
+  const start = new Date(end);
+  start.setMonth(start.getMonth() - windowMonths);
+
+  const inWindow = (dateStr, field) => {
+    if (!dateStr) return false;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return dt >= start && dt < end;
+  };
+
+  const income   = incomeRecs.filter(r  => inWindow(r.income_date)).reduce((s, r) => s + r.amount, 0);
+  const expenses = expenseRecs.filter(r => inWindow(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+  return {
+    income:   windowMonths > 0 ? income   / windowMonths : 0,
+    expenses: windowMonths > 0 ? expenses / windowMonths : 0,
+    cashflow: windowMonths > 0 ? (income - expenses) / windowMonths : 0,
+  };
+};
+
+/**
+ * Compute the principal portion of each Mortgage expense, working backwards
+ * from the current loan balance.
+ *
+ * Algorithm:
+ *   - Sort mortgage payments ascending by date
+ *   - Start: balance = property.loan_amount (current balance, after all payments)
+ *   - Walk backwards (reverse):
+ *       principal[i] = payment[i] - balance * (rate/100/12)
+ *       balance_before[i] = balance + principal[i]
+ *   - Return array of { expense_id, date, amount (full payment), principal }
+ *
+ * @param {Array}  mortgageExpenses  expenses filtered to category === 'Mortgage'
+ * @param {number} currentLoanBalance  property.loan_amount
+ * @param {number} annualRatePct       property.mortgage_rate (e.g. 5.25 for 5.25%)
+ * @returns {Array} same expenses enriched with a `principal` field
+ */
+export const computeMortgagePrincipal = (mortgageExpenses, currentLoanBalance, annualRatePct) => {
+  if (!annualRatePct || mortgageExpenses.length === 0) return [];
+
+  const monthlyRate = annualRatePct / 100 / 12;
+
+  // Sort ascending by date so we can walk backwards
+  const sorted = [...mortgageExpenses].sort((a, b) =>
+    new Date(a.expense_date) - new Date(b.expense_date)
+  );
+
+  // Walk backwards: we know the balance AFTER the last payment
+  let balance = currentLoanBalance;
+  const result = new Array(sorted.length);
+
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const payment   = sorted[i].amount;
+    const interest  = balance * monthlyRate;
+    const principal = Math.max(0, payment - interest);
+    result[i] = { ...sorted[i], principal, interest: Math.min(payment, interest) };
+    balance   = balance + principal; // restore balance to before this payment
+  }
+
+  return result;
+};
+
+/**
+ * Compute total principal paid within a date range.
+ * Combines explicit 'Principal' expense records + principal portion of 'Mortgage' expenses.
+ *
+ * @param {Array}  expenseRecs        all expense records for the property/portfolio
+ * @param {number} currentLoanBalance property.loan_amount
+ * @param {number} annualRatePct      property.mortgage_rate
+ * @param {Date}   startDate
+ * @param {Date}   endDate
+ */
+export const principalInRange = (expenseRecs, currentLoanBalance, annualRatePct, startDate, endDate) => {
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return dt >= startDate && dt <= endDate;
+  };
+
+  // 1. Explicit Principal records
+  const explicitPrincipal = expenseRecs
+    .filter(r => r.expense_category === 'Principal' && inRange(r.expense_date))
+    .reduce((s, r) => s + r.amount, 0);
+
+  // 2. Principal portion of Mortgage records
+  const mortgageRecs = expenseRecs.filter(r => r.expense_category === 'Mortgage');
+  const withPrincipal = computeMortgagePrincipal(mortgageRecs, currentLoanBalance, annualRatePct);
+  const mortgagePrincipal = withPrincipal
+    .filter(r => inRange(r.expense_date))
+    .reduce((s, r) => s + r.principal, 0);
+
+  return explicitPrincipal + mortgagePrincipal;
+};

@@ -24,6 +24,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS properties (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            type TEXT NOT NULL,
             province TEXT NOT NULL,
             city TEXT NOT NULL,
             address TEXT NOT NULL,
@@ -35,8 +36,8 @@ def init_db():
             monthly_rent REAL NOT NULL,
             poss_date TEXT NOT NULL,
             status TEXT NOT NULL,
-            type TEXT DEFAULT 'Condo',
-            notes TEXT DEFAULT '',
+            mortgage_rate REAL DEFAULT 0,
+            notes TEXT,
             is_archived INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -129,6 +130,7 @@ def select_from_properties():
                   p.purchase_price,
                   p.market_price,
                   p.loan_amount,
+                  p.mortgage_rate,
                   p.poss_date,
                   p.status,
                   p.type,
@@ -186,12 +188,13 @@ def create_property():
         cursor.execute('''
             INSERT INTO properties (name, province, city, address, postal_code,
                                     parking, purchase_price, market_price,
-                                    loan_amount, poss_date, monthly_rent, status, type, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    loan_amount, mortgage_rate, poss_date, monthly_rent, status, type, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['name'], data['province'], data['city'], data['address'],
             data['postalCode'], data.get('parking', ''),
             data['purchasePrice'], data['marketPrice'], data['loanAmount'],
+            data.get('mortgageRate', 0),
             data['possDate'], data['monthlyRent'], data['status'],
             data.get('type', 'Condo'), data.get('notes', '')
         ))
@@ -228,6 +231,7 @@ def update_property(property_id):
             'purchase_price': data['purchasePrice'],
             'market_price':   data['marketPrice'],
             'loan_amount':    data['loanAmount'],
+            'mortgage_rate':  data.get('mortgageRate', 0),
             'poss_date':      data['possDate'],
             'monthly_rent':   data['monthlyRent'],
             'status':         data['status'],
@@ -251,13 +255,14 @@ def update_property(property_id):
         cursor.execute('''
             UPDATE properties
             SET name=?, province=?, city=?, address=?, postal_code=?, parking=?,
-                purchase_price=?, market_price=?, loan_amount=?, poss_date=?,
+                purchase_price=?, market_price=?, loan_amount=?, mortgage_rate=?, poss_date=?,
                 monthly_rent=?, status=?, type=?, notes=?, updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         ''', (
             data['name'], data['province'], data['city'], data['address'],
             data['postalCode'], data.get('parking', ''),
             data['purchasePrice'], data['marketPrice'], data['loanAmount'],
+            data.get('mortgageRate', 0),
             data['possDate'], data['monthlyRent'], data['status'],
             data.get('type', 'Condo'), data.get('notes', ''), property_id
         ))

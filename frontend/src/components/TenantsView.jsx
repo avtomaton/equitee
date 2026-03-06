@@ -8,22 +8,22 @@ function TenantRow({ t, onEdit, onArchive, onRestore, archived, col }) {
   const current = isCurrentTenant(t);
   return (
     <tr style={{ opacity: archived ? 0.65 : 1 }}>
-      {col('name')        && <td><strong>{t.name}</strong></td>}
-      {col('property')    && <td><TruncatedCell text={t.property_name} maxWidth={120} /></td>}
+      {col('name')        && <td className="col-fill"><strong>{t.name}</strong></td>}
+      {col('property')    && <td className="col-shrink"><TruncatedCell text={t.property_name} maxWidth={120} /></td>}
       {!archived && col('status') && (
-        <td>
+        <td className="col-shrink">
           <span className={`property-badge ${current ? 'active' : 'badge-warning'}`}>
             {current ? 'Current' : 'Past'}
           </span>
         </td>
       )}
-      {col('phone')       && <td>{t.phone || '—'}</td>}
-      {col('email')       && <td><TruncatedCell text={t.email} maxWidth={140} /></td>}
-      {col('lease_start') && <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.lease_start)}</td>}
-      {col('lease_end')   && <td style={{ whiteSpace: 'nowrap' }}>{t.lease_end ? fmtDate(t.lease_end) : 'Ongoing'}</td>}
-      {col('rent')        && <td style={{ whiteSpace: 'nowrap' }}>${(t.rent_amount || 0).toLocaleString()}</td>}
-      {col('deposit')     && <td style={{ whiteSpace: 'nowrap' }}>${(t.deposit || 0).toLocaleString()}</td>}
-      {col('notes')       && <td><TruncatedCell text={t.notes} /></td>}
+      {col('phone')       && <td className="col-shrink">{t.phone || '—'}</td>}
+      {col('email')       && <td className="col-fill"><TruncatedCell text={t.email} maxWidth={140} /></td>}
+      {col('lease_start') && <td className="col-shrink">{fmtDate(t.lease_start)}</td>}
+      {col('lease_end')   && <td className="col-shrink">{t.lease_end ? fmtDate(t.lease_end) : 'Ongoing'}</td>}
+      {col('rent')        && <td className="col-shrink">${(t.rent_amount || 0).toLocaleString()}</td>}
+      {col('deposit')     && <td className="col-shrink">${(t.deposit || 0).toLocaleString()}</td>}
+      {col('notes')       && <td className="col-fill"><TruncatedCell text={t.notes} /></td>}
       <td>
         <div className="row-actions">
           {archived ? (
@@ -159,16 +159,16 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
           <div className="table-scroll-wrap">
             <table>
               <thead><tr>
-                {col('name')        && <th>Name</th>}
-                {col('property')    && <th>Property</th>}
-                {col('status')      && <th>Status</th>}
-                {col('phone')       && <th>Phone</th>}
-                {col('email')       && <th>Email</th>}
-                {col('lease_start') && <th>Lease Start</th>}
-                {col('lease_end')   && <th>Lease End</th>}
-                {col('rent')        && <th>Rent/mo</th>}
-                {col('deposit')     && <th>Deposit</th>}
-                {col('notes')       && <th>Notes</th>}
+                {col('name')        && <th className="col-fill">Name</th>}
+                {col('property')    && <th className="col-shrink">Property</th>}
+                {col('status')      && <th className="col-shrink">Status</th>}
+                {col('phone')       && <th className="col-shrink">Phone</th>}
+                {col('email')       && <th className="col-fill">Email</th>}
+                {col('lease_start') && <th className="col-shrink">Lease Start</th>}
+                {col('lease_end')   && <th className="col-shrink">Lease End</th>}
+                {col('rent')        && <th className="col-shrink">Rent/mo</th>}
+                {col('deposit')     && <th className="col-shrink">Deposit</th>}
+                {col('notes')       && <th className="col-fill">Notes</th>}
                 <th style={{ width: 52 }}></th>
               </tr></thead>
               <tbody>
@@ -196,15 +196,15 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
             : <div className="table-scroll-wrap">
                 <table>
                   <thead><tr>
-                    {col('name')        && <th>Name</th>}
-                    {col('property')    && <th>Property</th>}
-                    {col('phone')       && <th>Phone</th>}
-                    {col('email')       && <th>Email</th>}
-                    {col('lease_start') && <th>Lease Start</th>}
-                    {col('lease_end')   && <th>Lease End</th>}
-                    {col('rent')        && <th>Rent/mo</th>}
-                    {col('deposit')     && <th>Deposit</th>}
-                    {col('notes')       && <th>Notes</th>}
+                    {col('name')        && <th className="col-fill">Name</th>}
+                    {col('property')    && <th className="col-shrink">Property</th>}
+                    {col('phone')       && <th className="col-shrink">Phone</th>}
+                    {col('email')       && <th className="col-fill">Email</th>}
+                    {col('lease_start') && <th className="col-shrink">Lease Start</th>}
+                    {col('lease_end')   && <th className="col-shrink">Lease End</th>}
+                    {col('rent')        && <th className="col-shrink">Rent/mo</th>}
+                    {col('deposit')     && <th className="col-shrink">Deposit</th>}
+                    {col('notes')       && <th className="col-fill">Notes</th>}
                     <th style={{ width: 52 }}></th>
                   </tr></thead>
                   <tbody>

@@ -11,6 +11,7 @@ const toFormState = (p) => p ? {
   purchasePrice: p.purchase_price ?? p.purchasePrice ?? 0,
   marketPrice:   p.market_price   ?? p.marketPrice   ?? 0,
   loanAmount:    p.loan_amount    ?? p.loanAmount    ?? 0,
+  mortgageRate:  p.mortgage_rate  ?? p.mortgageRate  ?? 0,
   monthlyRent:   p.monthly_rent   ?? p.monthlyRent   ?? 0,
   possDate:      p.poss_date      ?? p.possDate      ?? '',
   status:        p.status         ?? 'Rented',
@@ -18,7 +19,7 @@ const toFormState = (p) => p ? {
   notes:         p.notes           ?? '',
 } : {
   name: '', province: '', city: '', address: '', postalCode: '',
-  parking: '', purchasePrice: 0, marketPrice: 0, loanAmount: 0,
+  parking: '', purchasePrice: 0, marketPrice: 0, loanAmount: 0, mortgageRate: 0,
   monthlyRent: 0, possDate: '', status: 'Rented', type: 'Condo', notes: '',
 };
 
@@ -179,22 +180,31 @@ export default function PropertyModal({ property, onClose, onSave }) {
             {/* Purchase price */}
             <div className="form-group">
               <label>Purchase Price *</label>
-              <input type="number" min="0" value={formData.purchasePrice}
+              <input type="number" min="0" step="0.01" value={formData.purchasePrice}
                 onChange={e => set('purchasePrice', parseFloat(e.target.value) || 0)} />
             </div>
 
             {/* Market price */}
             <div className="form-group">
               <label>Market Price *</label>
-              <input type="number" min="0" value={formData.marketPrice}
+              <input type="number" min="0" step="0.01" value={formData.marketPrice}
                 onChange={e => set('marketPrice', parseFloat(e.target.value) || 0)} />
             </div>
 
             {/* Loan amount */}
             <div className="form-group">
               <label>Loan Amount *</label>
-              <input type="number" min="0" value={formData.loanAmount}
+              <input type="number" min="0" step="0.01" value={formData.loanAmount}
                 onChange={e => set('loanAmount', parseFloat(e.target.value) || 0)} />
+            </div>
+
+            {/* Mortgage rate */}
+            <div className="form-group">
+              <label>Mortgage Rate (% annual)</label>
+              <input type="number" min="0" max="30" step="0.01"
+                value={formData.mortgageRate}
+                placeholder="e.g. 5.25"
+                onChange={e => set('mortgageRate', parseFloat(e.target.value) || 0)} />
             </div>
 
             {/* Monthly rent — with vacancy/rented highlighting */}
@@ -213,7 +223,7 @@ export default function PropertyModal({ property, onClose, onSave }) {
                 )}
               </label>
               <input
-                type="number" min="0" value={formData.monthlyRent}
+                type="number" min="0" step="0.01" value={formData.monthlyRent}
                 disabled={rentLocked}
                 style={{
                   borderColor: rentBorderColor,

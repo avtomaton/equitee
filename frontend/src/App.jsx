@@ -116,7 +116,7 @@ export default function App() {
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard properties={properties} stats={stats} onPropertyClick={handlePropertyClick} />;
+        return <Dashboard properties={properties} onPropertyClick={handlePropertyClick} />;
 
       case 'properties':
         return <PropertiesView
@@ -157,6 +157,8 @@ export default function App() {
       case 'property-detail':
         return <PropertyDetail
           property={selectedProperty}
+          properties={properties}
+          onSelectProperty={(p) => { setSelectedProperty(p); }}
           onBack={() => navigate('properties')}
           onEdit={() => openModal('property', selectedProperty)}
           onAddExpense={() => openModal('expense', null, selectedProperty)}
@@ -166,7 +168,7 @@ export default function App() {
         />;
 
       default:
-        return <Dashboard properties={properties} stats={stats} onPropertyClick={handlePropertyClick} />;
+        return <Dashboard properties={properties} onPropertyClick={handlePropertyClick} />;
     }
   };
 
