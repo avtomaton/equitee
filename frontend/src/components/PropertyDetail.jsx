@@ -169,6 +169,9 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           ? (sellingProfit / property.total_expenses * 100).toFixed(1) : null;
         const roi          = property.market_price > 0 ? totalNetProfit / property.market_price * 100 : null;
 
+        // Monthly gain = avg cash flow + monthly appreciation (computed after avg)
+        // timeToProfit and monthlyGain computed below after avg is available
+
         // YTD (trailing 12 months)
         const ytdEnd   = new Date();
         const ytdStart = new Date(ytdEnd); ytdStart.setFullYear(ytdStart.getFullYear() - 1);
@@ -188,6 +191,90 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
         const ytdNetProfit = ytdInc  - ytdNetExp;
 
         const avg = avgMonthly(income, expenses, avgWindow);
+
+        const monthlyAppr = yearlyAppr !== null ? yearlyAppr / 12 : 0;
+        const monthlyGain = avg.cashflow + monthlyAppr;
+
+        // Time to reach selling profit via cash flow
+        // Returns { months, label, cls }
+        const timeToProfit = (() => {
+          if (sellingProfit <= 0) return { label: '\u2014', cls: 'text-secondary',
+            tip: 'No selling profit yet \u2014 nothing to reach.' };
+          if (avg.cashflow <= 0) return { label: avg.cashflow === 0 ? '\u2014' : '\u221e (losing)',
+            cls: 'text-danger',
+            tip: 'Avg cash flow is negative \u2014 the property is consuming cash.' };
+          const months = sellingProfit / avg.cashflow;
+          const label  = months < 12
+            ? `${Math.round(months)} mo`
+            : `${(months / 12).toFixed(1)} yr`;
+          return { label, cls: months < 24 ? 'text-success' : months < 60 ? '' : 'text-danger', tip: null };
+        })();
+
+        // Smart tip analysis
+        const tip = (() => {
+          const cf    = avg.cashflow;
+          const mg    = monthlyGain;
+          const sp    = sellingProfit;
+          const ya    = yearlyAppr;
+          const isVac = property.status === 'Vacant';
+          const isRnt = property.status === 'Rented';
+
+          // Vacant too long (if vacant and no income in 30+ days)
+          if (isVac) {
+            const lastIncome = [...income].sort((a,b) => new Date(b.income_date)-new Date(a.income_date))[0];
+            const daysSince  = lastIncome
+              ? (Date.now() - new Date(lastIncome.income_date)) / 86400000 : Infinity;
+            if (daysSince > 30) return {
+              icon: '\u26a0\ufe0f', label: 'Long vacancy',
+              cls: 'text-danger',
+              detail: `Property has been vacant with no income for ${Math.round(daysSince)} days. Consider adjusting rent or marketing.`,
+            };
+          }
+
+          // Losing money on all fronts \u2014 sell to cut losses
+          if (isRnt && cf < 0 && ya !== null && ya < 0) return {
+            icon: '\ud83d\udea8', label: 'Consider selling',
+            cls: 'text-danger',
+            detail: 'Cash flow is negative AND the property is depreciating. Holding longer will likely increase losses.',
+          };
+
+          // Golden cow: rented, cash flow positive, selling profit low or negative
+          if (isRnt && cf > 0 && sp < property.market_price * 0.05) return {
+            icon: '\ud83d\udc4e\ud83d\udcb0', label: 'Golden cow \u2014 keep!',
+            cls: 'text-success',
+            detail: `Strong cash flow ($${Math.round(cf).toLocaleString()}/mo) with low selling profit. This property earns well and selling now would leave little gain.`,
+          };
+
+          // Short time to recover selling profit \u2014 keep
+          if (isRnt && cf > 0 && sp > 0 && sp / cf < 12) return {
+            icon: '\u2b50', label: 'High yield',
+            cls: 'text-success',
+            detail: `At current cash flow you cover the selling profit in under a year. Excellent return \u2014 keep holding.`,
+          };
+
+          // Good total gain but poor cash flow \u2014 consider selling
+          if (isRnt && sp > property.market_price * 0.15 && mg < property.market_price * 0.003) return {
+            icon: '\ud83d\udca1', label: 'Consider selling',
+            cls: 'text-warning',
+            detail: `Significant unrealized gain ($${Math.round(sp).toLocaleString()}) but monthly gain is low. Selling and redeploying capital may yield better returns.`,
+          };
+
+          // Negative monthly gain despite being rented
+          if (isRnt && mg < 0) return {
+            icon: '\ud83d\udcc9', label: 'Negative monthly gain',
+            cls: 'text-danger',
+            detail: `Monthly gain ($${Math.round(mg).toLocaleString()}/mo) is negative after combining cash flow and appreciation. Monitor closely.`,
+          };
+
+          // Strong performer
+          if (mg > 0 && cf > 0 && ya !== null && ya > 0) return {
+            icon: '\ud83d\ude80', label: 'Strong performer',
+            cls: 'text-success',
+            detail: `Positive cash flow, appreciating value, and positive monthly gain. Property is performing well on all metrics.`,
+          };
+
+          return null;
+        })();
 
         const f  = n => `$${Math.round(n).toLocaleString()}`;
         const fp = n => `${Number(n).toFixed(1)}%`;
@@ -214,22 +301,39 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
               tooltip: 'Annual mortgage interest rate.' })}
           </div>
 
-          {/* Appreciation */}
-          <p className="stat-section-label">Appreciation</p>
+          {/* Smart tip */}
+          {tip && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+              padding: '0.85rem 1rem', marginBottom: '1.25rem',
+              borderRadius: '8px', border: '1px solid var(--border)',
+              background: 'var(--bg-tertiary)',
+            }}>
+              <span style={{ fontSize: '1.3rem', lineHeight: 1, flexShrink: 0 }}>{tip.icon}</span>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}
+                  className={tip.cls}>{tip.label}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', lineHeight: 1.5 }}>
+                  {tip.detail}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Cash flow metrics */}
+          <p className="stat-section-label">Cash Flow &amp; Gain</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Appreciation', primary: f(appr),
-              primaryCls: appr >= 0 ? 'text-success' : 'text-danger',
-              secondary: apprPct !== null ? fp(apprPct) + ' of purchase' : null,
-              secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
-              tooltip: 'Market Value \u2212 Purchase Price.' })}
-            {mc({ label: 'Yearly Appr.', primary: yearlyAppr !== null ? f(yearlyAppr) + '/yr' : '\u2014',
-              primaryCls: yearlyAppr !== null ? (yearlyAppr >= 0 ? 'text-success' : 'text-danger') : '',
-              secondary: yearlyApprPct !== null ? fp(yearlyApprPct) + '/yr of purchase' : null,
-              secondaryCls: yearlyAppr !== null && yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-              tooltip: 'Appreciation \u00f7 years held since possession date.' })}
-            {mc({ label: 'Projected Year-End', primary: f(projectedYE),
-              tertiary: 'Linear extrapolation via yearly appreciation',
-              tooltip: 'Current value + remaining year fraction \u00d7 yearly appreciation.' })}
+            {mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: f(avg.cashflow),
+              primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
+              tooltip: `Average monthly (income \u2212 expenses) over the last ${avgWindow} complete months.` })}
+            {mc({ label: 'Monthly Gain', primary: f(monthlyGain) + '/mo',
+              primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
+              secondary: yearlyAppr !== null ? `CF ${f(avg.cashflow)} + Appr ${f(monthlyAppr)}/mo` : null,
+              secondaryCls: 'text-secondary',
+              tooltip: 'Avg Cash Flow + Monthly Appreciation.\nCaptures both income and value growth together.\nMonthly Appreciation = Yearly Appreciation \u00f7 12.' })}
+            {mc({ label: 'Time to Sell Profit', primary: timeToProfit.label,
+              primaryCls: timeToProfit.cls,
+              tooltip: timeToProfit.tip || 'How many months of avg cash flow needed to equal the current selling profit.\nShorter = better return on holding.' })}
           </div>
 
           {/* Income & Expenses */}
@@ -288,11 +392,30 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
             ))}
             <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>(excludes current month)</span>
           </div>
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
             {mc({ label: `Avg Income (${avgWindow}M)`,   primary: f(avg.income),   primaryCls: 'text-success' })}
             {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: f(avg.expenses), primaryCls: 'text-danger' })}
             {mc({ label: `Avg Cash Flow (${avgWindow}M)`,primary: f(avg.cashflow),
               primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger' })}
+          </div>
+
+          {/* Appreciation */}
+          <p className="stat-section-label">Appreciation</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'Appreciation', primary: f(appr),
+              primaryCls: appr >= 0 ? 'text-success' : 'text-danger',
+              secondary: apprPct !== null ? fp(apprPct) + ' of purchase' : null,
+              secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Market Value \u2212 Purchase Price.' })}
+            {mc({ label: 'Yearly Appr.', primary: yearlyAppr !== null ? f(yearlyAppr) + '/yr' : '\u2014',
+              primaryCls: yearlyAppr !== null ? (yearlyAppr >= 0 ? 'text-success' : 'text-danger') : '',
+              secondary: yearlyApprPct !== null ? fp(yearlyApprPct) + '/yr of purchase' : null,
+              secondaryCls: yearlyAppr !== null && yearlyAppr >= 0 ? 'text-success' : 'text-danger',
+              tooltip: 'Appreciation \u00f7 years held since possession date.' })}
+            {mc({ label: 'Projected Year-End', primary: f(projectedYE),
+              tertiary: 'Linear extrapolation via yearly appreciation',
+              tooltip: 'Current value + remaining year fraction \u00d7 yearly appreciation.' })}
           </div>
         </>);
       })()}

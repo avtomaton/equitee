@@ -245,6 +245,22 @@ export default function Dashboard({ properties, onPropertyClick }) {
         {mc({ label: `Avg Cash Flow (${avgWindow}M)`,        primary: fmt(avg.cashflow),
           primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
           tooltip: `Average monthly (Income \u2212 Expenses) over the last ${avgWindow} complete months.` })}
+        {(() => {
+          const monthlyAppr = agg.yearlyAppr / 12;
+          const mg = avg.cashflow + monthlyAppr;
+          return mc({ label: 'Monthly Gain', primary: fmt(mg) + '/mo',
+            primaryCls: mg >= 0 ? 'text-success' : 'text-danger',
+            tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly / 12).\nCaptures income and value growth in one number.' });
+        })()}
+        {(() => {
+          const sp = agg.sellingProfit; const cf = avg.cashflow;
+          let label, cls;
+          if (sp <= 0)      { label = '—'; cls = ''; }
+          else if (cf <= 0) { label = cf < 0 ? '∞ (losing)' : '—'; cls = 'text-danger'; }
+          else { const mo = sp / cf; label = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; cls = mo < 24 ? 'text-success' : mo < 60 ? '' : 'text-danger'; }
+          return mc({ label: 'Time to Sell Profit', primary: label, primaryCls: cls,
+            tooltip: 'Months of avg cash flow to equal portfolio selling profit.' });
+        })()}
       </div>
 
       {/* ── Charts ── */}

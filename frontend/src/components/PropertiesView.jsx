@@ -143,8 +143,13 @@ function Analytics({ filtered }) {
     const ytdNetExp    = ytdExp  - ytdPrin;
     const ytdNetProfit = ytdInc  - ytdNetExp;
 
+    // Monthly gain = (avg cash flow across all filtered) + monthly appreciation
+    // avgCashFlow for agg is computed from allIncome/allExpenses avg window
+    // We approximate here using YTD / 12 as a proxy; the actual avg window calc is below
+    const approxMonthlyCF  = (agg => agg)(0); // placeholder — overwritten below
+    const monthlyApprAgg   = yearlyAppr / 12;
     return { market, loan, equity, equityPct, loanPct, appr, apprPct,
-             yearlyAppr, yearlyApprPct, projectedYE,
+             yearlyAppr, yearlyApprPct, projectedYE, monthlyApprAgg,
              income, expenses, balance, totalNetExp, netProfit, roi, sellingProfit, sellingPct,
              ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdNetProfit };
   }, [filtered, allIncome, allExpenses]);
@@ -276,6 +281,22 @@ function Analytics({ filtered }) {
         {mc({ label: `Avg Cash Flow (${avgWindow}M)`,primary: f(avg.cashflow),
           primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
           tooltip: `Average monthly net cash flow over the last ${avgWindow} complete months.` })}
+        {(() => {
+          const mg = avg.cashflow + agg.monthlyApprAgg;
+          return mc({ label: 'Monthly Gain', primary: f(mg) + '/mo',
+            primaryCls: mg >= 0 ? 'text-success' : 'text-danger',
+            tooltip: `Avg Cash Flow + Monthly Appreciation (yearly / 12).\nCaptures income and value growth together.` });
+        })()}
+        {(() => {
+          const sp = agg.sellingProfit;
+          const cf = avg.cashflow;
+          let label, cls;
+          if (sp <= 0)        { label = '—'; cls = ''; }
+          else if (cf <= 0)   { label = cf < 0 ? '∞ (losing)' : '—'; cls = 'text-danger'; }
+          else { const mo = sp / cf; label = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; cls = mo < 24 ? 'text-success' : mo < 60 ? '' : 'text-danger'; }
+          return mc({ label: 'Time to Sell Profit', primary: label, primaryCls: cls,
+            tooltip: 'Months of avg cash flow needed to equal the total selling profit of filtered properties.' });
+        })()}
       </div>
 
       {/* ── Charts ── */}

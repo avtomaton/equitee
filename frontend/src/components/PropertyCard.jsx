@@ -1,17 +1,15 @@
 export default function PropertyCard({ property, onClick, onEdit, avgCashFlow }) {
-  const downPmt      = property.purchase_price - property.loan_amount;
-  const equity       = property.market_price   - property.loan_amount;
+  const equity       = property.market_price - property.loan_amount;
   const equityPct    = property.market_price > 0
     ? (equity / property.market_price * 100).toFixed(1) : null;
-  const appreciation = property.market_price   - property.purchase_price;
+  const appreciation = property.market_price - property.purchase_price;
   const apprPct      = property.purchase_price > 0
     ? (appreciation / property.purchase_price * 100).toFixed(1) : null;
-
-  // Selling profit = market value + all income − all expenses − current loan
   const sellingProfit = property.market_price + property.total_income
                         - property.total_expenses - property.loan_amount;
   const sellingPct   = property.total_expenses > 0
     ? (sellingProfit / property.total_expenses * 100).toFixed(1) : null;
+  const balance      = property.total_income - property.total_expenses;
 
   const yearsHeld = (() => {
     if (!property.poss_date) return null;
@@ -23,29 +21,38 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
   const yearlyApprPct = (yearsHeld && property.purchase_price > 0)
     ? (yearlyAppr / property.purchase_price * 100).toFixed(1) : null;
 
-  const balance = property.total_income - property.total_expenses;
+  const monthlyAppr = yearlyAppr !== null ? yearlyAppr / 12 : 0;
+  const monthlyGain = avgCashFlow != null ? avgCashFlow + monthlyAppr : null;
 
-  const fmt    = n  => `$${Math.round(n).toLocaleString()}`;
-  const fmtPct = n  => n !== null ? `${n}%` : null;
-  const eqCls  = equityPct !== null
+  // Time to reach selling profit
+  const timeToProfit = (() => {
+    if (sellingProfit <= 0) return { label: '\u2014', cls: '' };
+    if (avgCashFlow == null || avgCashFlow <= 0)
+      return { label: avgCashFlow < 0 ? '\u221e' : '\u2014', cls: 'text-danger' };
+    const mo = sellingProfit / avgCashFlow;
+    return {
+      label: mo < 12 ? `${Math.round(mo)} mo` : `${(mo / 12).toFixed(1)} yr`,
+      cls: mo < 24 ? 'text-success' : mo < 60 ? '' : 'text-danger',
+    };
+  })();
+
+  const eqCls = equityPct !== null
     ? (parseFloat(equityPct) >= 50 ? 'text-success'
     : parseFloat(equityPct) >= 25 ? 'text-warning' : 'text-danger') : '';
 
+  const fmt = n => `$${Math.round(n).toLocaleString()}`;
   const handleEdit = (e) => { e.stopPropagation(); onEdit?.(property); };
 
-  // A row: label | value [pct]
-  // value and pct are inline; pct is smaller and muted unless given a color class
   const Row = ({ label, value, valueCls = '', pct = null, pctCls = '' }) => (
     <div className="pc-row">
       <span className="pc-label">{label}</span>
       <span className="pc-right">
         <span className={`pc-value ${valueCls}`}>{value}</span>
-        {pct && <span className={`pc-pct ${pctCls}`}>{pct}</span>}
+        {pct != null && pct !== '' && <span className={`pc-pct ${pctCls}`}>{pct}</span>}
       </span>
     </div>
   );
-
-  const Divider = () => <div className="pc-divider" />;
+  const Div = () => <div className="pc-divider" />;
 
   return (
     <div className="property-card" onClick={onClick}>
@@ -54,8 +61,6 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
           <button className="btn btn-secondary btn-icon btn-small" onClick={handleEdit} title="Edit">✏️</button>
         </div>
       )}
-
-      {/* Header */}
       <div className="property-card-header">
         <div>
           <div className="property-name">{property.name}</div>
@@ -65,54 +70,60 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
       </div>
 
       <div className="pc-body">
-
-        {/* Value & Equity */}
-        <Row label="Market Value"  value={fmt(property.market_price)} />
+        {/* 1. Market value & equity */}
+        <Row label="Market Value" value={fmt(property.market_price)} />
         <Row label="Equity"
-          value={fmt(equity)}    valueCls={equity >= 0 ? 'text-success' : 'text-danger'}
-          pct={fmtPct(equityPct)} pctCls={eqCls} />
+          value={fmt(equity)} valueCls={equity >= 0 ? 'text-success' : 'text-danger'}
+          pct={equityPct !== null ? `${equityPct}%` : null} pctCls={eqCls} />
 
-        {/* Selling profit */}
-        <Divider />
-        <Row label="Sell Profit"
-          value={fmt(sellingProfit)}
-          valueCls={sellingProfit >= 0 ? 'text-success' : 'text-danger'}
-          pct={fmtPct(sellingPct)}
-          pctCls={sellingProfit >= 0 ? 'text-success' : 'text-danger'} />
-
-        {/* Appreciation */}
-        <Divider />
-        <Row label="Appreciation"
-          value={fmt(appreciation)}
-          valueCls={appreciation >= 0 ? 'text-success' : 'text-danger'}
-          pct={fmtPct(apprPct)}
-          pctCls={appreciation >= 0 ? 'text-success' : 'text-danger'} />
-        {yearlyAppr !== null && (
-          <Row label="Yearly Appr."
-            value={fmt(yearlyAppr) + '/yr'}
-            valueCls={yearlyAppr >= 0 ? 'text-success' : 'text-danger'}
-            pct={yearlyApprPct !== null ? yearlyApprPct + '%/yr' : null}
-            pctCls={yearlyAppr >= 0 ? 'text-success' : 'text-danger'} />
-        )}
-
-        {/* Cash flow */}
-        <Divider />
+        <Div />
+        {/* 2. Rent & cash flow */}
         {property.monthly_rent > 0 && (
-          <Row label="Rent/mo"      value={fmt(property.monthly_rent)} />
+          <Row label="Rent/mo" value={fmt(property.monthly_rent)} />
         )}
-        {avgCashFlow !== undefined && avgCashFlow !== null && (
+        {avgCashFlow != null && (
           <Row label="Avg Cash Flow"
             value={fmt(avgCashFlow) + '/mo'}
             valueCls={avgCashFlow >= 0 ? 'text-success' : 'text-danger'} />
         )}
+        {monthlyGain !== null && (
+          <Row label="Monthly Gain"
+            value={fmt(monthlyGain) + '/mo'}
+            valueCls={monthlyGain >= 0 ? 'text-success' : 'text-danger'} />
+        )}
 
-        {/* Income / Expenses / Balance */}
-        <Divider />
+        <Div />
+        {/* 3. Selling profit */}
+        <Row label="Sell Profit"
+          value={fmt(sellingProfit)}
+          valueCls={sellingProfit >= 0 ? 'text-success' : 'text-danger'}
+          pct={sellingPct !== null ? `${sellingPct}%` : null}
+          pctCls={sellingProfit >= 0 ? 'text-success' : 'text-danger'} />
+        <Row label="Time to Profit"
+          value={timeToProfit.label}
+          valueCls={timeToProfit.cls} />
+
+        <Div />
+        {/* 4. Income / expenses / balance */}
         <Row label="Income"   value={fmt(property.total_income)}   valueCls="text-success" />
         <Row label="Expenses" value={fmt(property.total_expenses)} valueCls="text-danger" />
         <Row label="Balance"  value={fmt(balance)}
           valueCls={balance >= 0 ? 'text-success' : 'text-danger'} />
 
+        <Div />
+        {/* 5. Appreciation */}
+        <Row label="Appreciation"
+          value={fmt(appreciation)}
+          valueCls={appreciation >= 0 ? 'text-success' : 'text-danger'}
+          pct={apprPct !== null ? `${apprPct}%` : null}
+          pctCls={appreciation >= 0 ? 'text-success' : 'text-danger'} />
+        {yearlyAppr !== null && (
+          <Row label="Yearly Appr."
+            value={fmt(yearlyAppr) + '/yr'}
+            valueCls={yearlyAppr >= 0 ? 'text-success' : 'text-danger'}
+            pct={yearlyApprPct !== null ? `${yearlyApprPct}%/yr` : null}
+            pctCls={yearlyAppr >= 0 ? 'text-success' : 'text-danger'} />
+        )}
       </div>
     </div>
   );
