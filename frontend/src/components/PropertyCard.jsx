@@ -1,4 +1,22 @@
-export default function PropertyCard({ property, onClick, onEdit, avgCashFlow }) {
+import StarRating from './StarRating.jsx';
+import { yearsHeld, calcInvestmentScore } from '../config.js';
+
+// Health badge derived from investment score
+function HealthBadge({ score }) {
+  if (score == null) return null;
+  let bg, color, label;
+  if      (score >= 70) { bg = 'rgba(16,185,129,0.15)'; color = '#10b981'; label = '● Healthy'; }
+  else if (score >= 40) { bg = 'rgba(245,158,11,0.15)'; color = '#f59e0b'; label = '● Average'; }
+  else                  { bg = 'rgba(239,68,68,0.15)';  color = '#ef4444'; label = '● Needs Attention'; }
+  return (
+    <span style={{
+      fontSize: '0.7rem', fontWeight: 700, padding: '0.18rem 0.55rem',
+      borderRadius: '20px', background: bg, color, letterSpacing: '0.03em',
+    }}>{label}</span>
+  );
+}
+
+export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, ytdIncome }) {
   const equity       = property.market_price - property.loan_amount;
   const equityPct    = property.market_price > 0
     ? (equity / property.market_price * 100).toFixed(1) : null;
@@ -11,18 +29,19 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
     ? (sellingProfit / property.total_expenses * 100).toFixed(1) : null;
   const balance      = property.total_income - property.total_expenses;
 
-  const yearsHeld = (() => {
-    if (!property.poss_date) return null;
-    const [y, m, d] = property.poss_date.split('-').map(Number);
-    const diff = (Date.now() - new Date(y, m - 1, d).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-    return diff > 0 ? diff : null;
-  })();
-  const yearlyAppr    = yearsHeld ? appreciation / yearsHeld : null;
-  const yearlyApprPct = (yearsHeld && property.purchase_price > 0)
+  const yrs           = yearsHeld(property);
+  const yearlyAppr    = yrs ? appreciation / yrs : null;
+  const yearlyApprPct = (yrs && property.purchase_price > 0)
     ? (yearlyAppr / property.purchase_price * 100).toFixed(1) : null;
 
   const monthlyAppr = yearlyAppr !== null ? yearlyAppr / 12 : 0;
   const monthlyGain = avgCashFlow != null ? avgCashFlow + monthlyAppr : null;
+
+  // Economic vacancy rate: lost rent YTD / annual potential rent
+  const annualRent = property.monthly_rent * 12;
+  const econVacancy = (property.monthly_rent > 0 && ytdIncome != null)
+    ? Math.max(0, (annualRent - ytdIncome) / annualRent * 100)
+    : null;
 
   // Time to reach selling profit
   const timeToProfit = (() => {
@@ -34,6 +53,20 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
       label: mo < 12 ? `${Math.round(mo)} mo` : `${(mo / 12).toFixed(1)} yr`,
       cls: mo < 24 ? 'text-success' : mo < 60 ? '' : 'text-danger',
     };
+  })();
+
+  // Investment score for health badge
+  const investmentScore = (() => {
+    if (avgCashFlow == null) return null;
+    const annualNOI      = (avgNOI ?? avgCashFlow) * 12;
+    const capRate        = property.purchase_price > 0 ? annualNOI / property.purchase_price : 0;
+    const cashOnCash     = equity > 0 ? avgCashFlow * 12 / equity : 0;
+    const ltvRatio       = property.purchase_price > 0 ? property.loan_amount / property.purchase_price : 0;
+    const expenseRatio   = property.monthly_rent > 0
+      ? (property.total_expenses / Math.max(1, property.total_income)) : 0;
+    const yearlyApprRatio = (yrs && property.purchase_price > 0)
+      ? yearlyAppr / property.purchase_price : 0;
+    return calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
   })();
 
   const eqCls = equityPct !== null
@@ -66,8 +99,24 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
           <div className="property-name">{property.name}</div>
           <div className="property-address">{property.city}, {property.province}</div>
         </div>
-        <div className={`property-badge ${property.status.toLowerCase()}`}>{property.status}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', alignItems: 'flex-end' }}>
+          <div className={`property-badge ${property.status.toLowerCase()}`}>{property.status}</div>
+          {investmentScore && <HealthBadge score={investmentScore.score} />}
+        </div>
       </div>
+
+      {/* Investment score stars */}
+      {investmentScore && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0 0.1rem', borderBottom: '1px solid var(--border)', marginBottom: '0.4rem' }}>
+          <StarRating starsData={investmentScore.starsData} size="1.1rem" />
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+            {investmentScore.score}/100
+          </span>
+          <span style={{ fontSize: '0.72rem', fontWeight: 600 }} className={investmentScore.cls}>
+            {investmentScore.label}
+          </span>
+        </div>
+      )}
 
       <div className="pc-body">
         {/* 1. Market value & equity */}
@@ -77,9 +126,14 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow })
           pct={equityPct !== null ? `${equityPct}%` : null} pctCls={eqCls} />
 
         <Div />
-        {/* 2. Rent & cash flow */}
+        {/* 2. Rent, vacancy & cash flow */}
         {property.monthly_rent > 0 && (
           <Row label="Rent/mo" value={fmt(property.monthly_rent)} />
+        )}
+        {econVacancy !== null && (
+          <Row label="Econ. Vacancy"
+            value={`${econVacancy.toFixed(1)}%`}
+            valueCls={econVacancy > 10 ? 'text-danger' : econVacancy > 4 ? 'text-warning' : 'text-success'} />
         )}
         {avgCashFlow != null && (
           <Row label="Avg Cash Flow"

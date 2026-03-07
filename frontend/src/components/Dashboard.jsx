@@ -14,6 +14,24 @@ const sn   = s  => s.length > 14 ? s.slice(0, 14) + '\u2026' : s;
 
 const WINDOW_OPTIONS = [1, 2, 3, 6, 12];
 
+// Section-header separator
+const SectionLabel = ({ children, style }) => (
+  <p className="stat-section-label" style={style}>{children}</p>
+);
+
+// Highlight card — larger, for top-level KPIs
+function KPICard({ label, primary, primaryCls = '', secondary, secondaryCls = '', tertiary, tooltip, accentColor }) {
+  const border = accentColor ? `2px solid ${accentColor}` : '1px solid var(--border)';
+  return (
+    <div className="metric-card" style={{ flex: '1 1 170px', minWidth: 155, borderTop: border }}>
+      <div className="metric-label">{label}</div>
+      <div className={`metric-primary ${primaryCls}`}>{primary}</div>
+      {secondary && <div className={`metric-secondary ${secondaryCls}`}>{secondary}</div>}
+      {tertiary  && <div className="metric-tertiary">{tertiary}</div>}
+    </div>
+  );
+}
+
 export default function Dashboard({ properties, onPropertyClick }) {
   const [allIncome,   setAllIncome]   = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
@@ -39,7 +57,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
       .catch(() => setLoading(false));
   }, [properties.map(p => p.id).join(',')]);
 
-  // Portfolio-wide metrics
+  // Portfolio-wide aggregate metrics
   const agg = useMemo(() => {
     const market      = properties.reduce((s, p) => s + p.market_price,   0);
     const purchase    = properties.reduce((s, p) => s + p.purchase_price, 0);
@@ -66,11 +84,9 @@ export default function Dashboard({ properties, onPropertyClick }) {
     }, 0);
     const netProfit    = income - totalNetExp;
     const balance      = income - expenses;
-    const roi           = market > 0 ? netProfit / market * 100 : null;
+    const roi          = market > 0 ? netProfit / market * 100 : null;
     const sellingProfit = properties.reduce((s, p) =>
       s + p.market_price + p.total_income - p.total_expenses - p.loan_amount, 0);
-    const sellingPct    = expenses > 0
-      ? (sellingProfit / expenses * 100).toFixed(1) : null;
 
     // YTD (trailing 12mo)
     const ytdEnd   = new Date();
@@ -91,20 +107,39 @@ export default function Dashboard({ properties, onPropertyClick }) {
     const ytdNetExp    = ytdExp  - ytdPrin;
     const ytdNetProfit = ytdInc  - ytdNetExp;
 
+    // Occupancy: properties not vacant
+    const occupied = properties.filter(p => p.status !== 'Vacant').length;
+    const occupancyPct = properties.length > 0 ? occupied / properties.length * 100 : null;
+
+    // Per-property YTD income map (for economic vacancy on cards)
+    const ytdIncomeByProp = {};
+    properties.forEach(p => {
+      ytdIncomeByProp[p.id] = allIncome
+        .filter(r => r.property_id === p.id && inYTD(r.income_date))
+        .reduce((s, r) => s + r.amount, 0);
+    });
+
     return {
       market, purchase, loan, income, expenses, equity, equityPct, loanPct,
       appr, apprPct, yearlyAppr, yearlyApprPct, projectedYE,
-      totalNetExp, netProfit, balance, roi, sellingProfit, sellingPct,
+      totalNetExp, netProfit, balance, roi, sellingProfit,
       ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdNetProfit,
+      occupied, occupancyPct, ytdIncomeByProp,
     };
   }, [properties, allIncome, allExpenses]);
 
-  // Monthly averages
+  // Monthly averages (portfolio-wide)
   const avg = useMemo(() =>
     avgMonthly(allIncome, allExpenses, avgWindow),
   [allIncome, allExpenses, avgWindow]);
 
-  // Per-property avg cash flow for PropertyCard (use 3-month window)
+  // DSCR: avg monthly NOI / avg monthly mortgage payments
+  const dscr = useMemo(() => {
+    if (avg.mortgage <= 0) return null;
+    return avg.noi / avg.mortgage;
+  }, [avg]);
+
+  // Per-property avg (3-month window) for PropertyCard
   const perPropAvg = useMemo(() => {
     const map = {};
     for (const p of properties) {
@@ -139,42 +174,60 @@ export default function Dashboard({ properties, onPropertyClick }) {
         </div>
       </div>
 
-      {/* ── Value & Equity ── */}
-      <p className="stat-section-label">Value &amp; Equity</p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'Portfolio Value', primary: fmt(agg.market),
-          tooltip: 'Sum of current market values.' })}
-        {mc({ label: 'Equity', primary: fmt(agg.equity),
-          primaryCls: agg.equity >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.equityPct !== null ? fmtP(agg.equityPct) + ' of value' : null,
-          secondaryCls: agg.equityPct !== null && agg.equityPct >= 50 ? 'text-success' : '',
-          tooltip: 'Market Value \u2212 Loan.\nPercentage shows equity as share of market value.' })}
-        {mc({ label: 'Total Loan', primary: fmt(agg.loan),
-          primaryCls: 'text-danger',
-          secondary: agg.loanPct !== null ? fmtP(agg.loanPct) + ' of value' : null,
-          tooltip: 'Outstanding loan balances. Percentage of portfolio value.' })}
+      {/* ── Portfolio KPIs ─────────────────────────────────────────────────── */}
+      <SectionLabel>Portfolio Snapshot</SectionLabel>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        <KPICard label="Portfolio Value" primary={fmt(agg.market)}
+          accentColor="#3b82f6"
+          tooltip="Sum of current market values." />
+        <KPICard label="Total Equity" primary={fmt(agg.equity)}
+          primaryCls={agg.equity >= 0 ? 'text-success' : 'text-danger'}
+          secondary={agg.equityPct !== null ? fmtP(agg.equityPct) + ' of value' : null}
+          accentColor="#10b981"
+          tooltip="Market Value − Loan. Percentage shows equity share of portfolio value." />
+        <KPICard label="Total Loan" primary={fmt(agg.loan)}
+          primaryCls="text-danger"
+          secondary={agg.loanPct !== null ? fmtP(agg.loanPct) + ' LTV' : null}
+          accentColor="#ef4444"
+          tooltip="Outstanding loan balances. LTV = loan share of portfolio value." />
+        <KPICard label="Occupancy Rate"
+          primary={agg.occupancyPct !== null ? fmtP(agg.occupancyPct) : '—'}
+          primaryCls={agg.occupancyPct !== null && agg.occupancyPct >= 90 ? 'text-success' : agg.occupancyPct >= 70 ? '' : 'text-danger'}
+          secondary={`${agg.occupied} of ${properties.length} properties`}
+          accentColor={agg.occupancyPct >= 90 ? '#10b981' : agg.occupancyPct >= 70 ? '#f59e0b' : '#ef4444'}
+          tooltip={'Occupied units / total properties.\nCounts any status other than Vacant as occupied.\nTarget: 90%+ for a healthy portfolio.'} />
+        <KPICard label="Net Profit" primary={fmt(agg.netProfit)}
+          primaryCls={agg.netProfit >= 0 ? 'text-success' : 'text-danger'}
+          secondary={agg.roi !== null ? fmtP(agg.roi) + ' ROI' : null}
+          secondaryCls={agg.roi !== null && agg.roi >= 0 ? 'text-success' : 'text-danger'}
+          accentColor={agg.netProfit >= 0 ? '#10b981' : '#ef4444'}
+          tooltip="Total Income − Net Expenses. ROI = Net Profit ÷ Portfolio Value." />
+        <KPICard label="Selling Profit" primary={fmt(agg.sellingProfit)}
+          primaryCls={agg.sellingProfit >= 0 ? 'text-success' : 'text-danger'}
+          accentColor={agg.sellingProfit >= 0 ? '#10b981' : '#ef4444'}
+          tooltip="Market Value + Income − Expenses − Loan. Net proceeds if you sold everything today." />
       </div>
 
-      {/* ── Appreciation ── */}
-      <p className="stat-section-label">Appreciation</p>
+      {/* ── Appreciation ─────────────────────────────────────────────────────── */}
+      <SectionLabel>Appreciation</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {mc({ label: 'Total Appreciation', primary: fmt(agg.appr),
           primaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
           secondary: agg.apprPct !== null ? fmtP(agg.apprPct) + ' of purchase' : null,
           secondaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Market Value \u2212 Purchase Price.' })}
+          tooltip: 'Market Value − Purchase Price.' })}
         {mc({ label: 'Yearly Appreciation', primary: fmt(agg.yearlyAppr) + '/yr',
           primaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
           secondary: agg.yearlyApprPct !== null ? fmtP(agg.yearlyApprPct) + '/yr of purchase' : null,
           secondaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Annualized appreciation per property, summed.\nProperties without possession date excluded.' })}
+          tooltip: 'Annualized appreciation per property, summed. Requires possession date.' })}
         {mc({ label: 'Projected Year-End', primary: fmt(agg.projectedYE),
           tertiary: 'Based on current yearly appreciation rate',
-          tooltip: 'Current market value + remaining year fraction \u00d7 yearly appreciation.' })}
+          tooltip: 'Current market value + remaining year fraction × yearly appreciation.' })}
       </div>
 
-      {/* ── Income & Expenses (all-time) ── */}
-      <p className="stat-section-label">Income &amp; Expenses (all-time)</p>
+      {/* ── Income & Expenses (all-time) ────────────────────────────────────── */}
+      <SectionLabel>Income &amp; Expenses (all-time)</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {mc({ label: 'Total Income',   primary: fmt(agg.income),   primaryCls: 'text-success',
           tooltip: 'All recorded income.' })}
@@ -182,24 +235,19 @@ export default function Dashboard({ properties, onPropertyClick }) {
           tooltip: 'All recorded expenses including principal payments.' })}
         {mc({ label: 'Total Balance',  primary: fmt(agg.balance),
           primaryCls: agg.balance >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total Income \u2212 Total Expenses (raw balance, no adjustments).' })}
+          tooltip: 'Total Income − Total Expenses (raw balance).' })}
         {mc({ label: 'Net Expenses',   primary: fmt(agg.totalNetExp),
           primaryCls: agg.totalNetExp >= 0 ? 'text-danger' : 'text-success',
-          tooltip: 'Total Expenses \u2212 Down Payments.\nOperating costs above initial capital.' })}
+          tooltip: 'Total Expenses − Down Payments. Operating costs above initial capital.' })}
         {mc({ label: 'Net Profit',     primary: fmt(agg.netProfit),
           primaryCls: agg.netProfit >= 0 ? 'text-success' : 'text-danger',
           secondary: agg.roi !== null ? fmtP(agg.roi) + ' ROI' : null,
           secondaryCls: agg.roi !== null && agg.roi >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total Income \u2212 Net Expenses.\nROI = Net Profit \u00f7 Portfolio Value.' })}
-        {mc({ label: 'Selling Profit', primary: fmt(agg.sellingProfit),
-          primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.sellingPct !== null ? fmtP(parseFloat(agg.sellingPct)) + ' of exp' : null,
-          secondaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Market Value + Income \u2212 Expenses \u2212 Loan.\nNet proceeds if you sold today.' })}
+          tooltip: 'Total Income − Net Expenses. ROI = Net Profit ÷ Portfolio Value.' })}
       </div>
 
-      {/* ── YTD (trailing 12 months) ── */}
-      <p className="stat-section-label">YTD — trailing 12 months</p>
+      {/* ── YTD (trailing 12 months) ─────────────────────────────────────────── */}
+      <SectionLabel>YTD — trailing 12 months</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {mc({ label: 'YTD Income',      primary: fmt(agg.ytdInc),  primaryCls: 'text-success',
           tooltip: 'Income recorded in the last 12 months.' })}
@@ -207,21 +255,21 @@ export default function Dashboard({ properties, onPropertyClick }) {
           tooltip: 'Expenses recorded in the last 12 months.' })}
         {mc({ label: 'YTD Balance',     primary: fmt(agg.ytdBal),
           primaryCls: agg.ytdBal >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'YTD Income \u2212 YTD Expenses.' })}
+          tooltip: 'YTD Income − YTD Expenses.' })}
         {mc({ label: 'YTD Principal',   primary: agg.ytdPrin > 0 ? fmt(agg.ytdPrin) : '\u2014',
           tertiary: 'From Principal expense records',
-          tooltip: 'Principal payments recorded in the last 12 months.\nAdd expenses with category "Principal" to track this.' })}
+          tooltip: 'Principal payments recorded in the last 12 months.' })}
         {mc({ label: 'YTD Net Expenses',primary: fmt(agg.ytdNetExp),
           primaryCls: agg.ytdNetExp >= 0 ? 'text-danger' : 'text-success',
-          tooltip: 'YTD Expenses \u2212 YTD Principal paid.' })}
+          tooltip: 'YTD Expenses − YTD Principal paid.' })}
         {mc({ label: 'YTD Net Profit',  primary: fmt(agg.ytdNetProfit),
           primaryCls: agg.ytdNetProfit >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'YTD Income \u2212 YTD Net Expenses.' })}
+          tooltip: 'YTD Income − YTD Net Expenses.' })}
       </div>
 
-      {/* ── Monthly averages ── */}
+      {/* ── Monthly Averages ─────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>
-        <p className="stat-section-label" style={{ margin: 0 }}>Monthly Averages</p>
+        <SectionLabel style={{ margin: 0 }}>Monthly Averages &amp; Key Ratios</SectionLabel>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>window:</span>
         {WINDOW_OPTIONS.map(w => (
           <button key={w} type="button"
@@ -237,21 +285,38 @@ export default function Dashboard({ properties, onPropertyClick }) {
           (excludes current month)
         </span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {mc({ label: `Avg Monthly Income (${avgWindow}M)`,   primary: fmt(avg.income),   primaryCls: 'text-success',
+
+      {/* Row 1: Core monthly metrics */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
+        {mc({ label: `Avg Income (${avgWindow}M)`,   primary: fmt(avg.income),   primaryCls: 'text-success',
           tooltip: `Average monthly income over the last ${avgWindow} complete months.` })}
-        {mc({ label: `Avg Monthly Expenses (${avgWindow}M)`, primary: fmt(avg.expenses), primaryCls: 'text-danger',
+        {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: fmt(avg.expenses), primaryCls: 'text-danger',
           tooltip: `Average monthly expenses over the last ${avgWindow} complete months.` })}
-        {mc({ label: `Avg Cash Flow (${avgWindow}M)`,        primary: fmt(avg.cashflow),
+        {mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: fmt(avg.cashflow),
           primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          tooltip: `Average monthly (Income \u2212 Expenses) over the last ${avgWindow} complete months.` })}
+          tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.` })}
+        {mc({ label: `Avg NOI (${avgWindow}M)`, primary: fmt(avg.noi),
+          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
+          tertiary: 'Excl. mortgage & principal',
+          tooltip: `Net Operating Income: avg monthly income minus all operating expenses, excluding mortgage and principal payments.\nThis is financing-agnostic — useful for comparing asset performance regardless of how the property is financed.\nAverage over the last ${avgWindow} complete months.` })}
+      </div>
+
+      {/* Row 2: Ratio metrics */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {(() => {
           const monthlyAppr = agg.yearlyAppr / 12;
           const mg = avg.cashflow + monthlyAppr;
           return mc({ label: 'Monthly Gain', primary: fmt(mg) + '/mo',
             primaryCls: mg >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly / 12).\nCaptures income and value growth in one number.' });
+            tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly / 12). Captures income and value growth in one number.' });
         })()}
+        {dscr !== null && mc({
+          label: `DSCR (${avgWindow}M)`,
+          primary: dscr.toFixed(2) + 'x',
+          primaryCls: dscr >= 1.25 ? 'text-success' : dscr >= 1.0 ? 'text-warning' : 'text-danger',
+          tertiary: dscr >= 1.25 ? 'Healthy coverage' : dscr >= 1.0 ? 'Marginal' : 'Insufficient coverage',
+          tooltip: `Debt Service Coverage Ratio = avg monthly NOI ÷ avg monthly mortgage payments.\nMeasures how well operating income covers debt obligations.\n≥ 1.25x: lenders consider this healthy.\n1.0–1.25x: marginal — little cushion.\n< 1.0x: NOI doesn't cover the mortgage; property is cash-flow dependent on reserves.\nAverage over the last ${avgWindow} complete months.`,
+        })}
         {(() => {
           const sp = agg.sellingProfit; const cf = avg.cashflow;
           let label, cls;
@@ -324,7 +389,13 @@ export default function Dashboard({ properties, onPropertyClick }) {
       ) : (
         <div className="property-grid">
           {properties.slice(0, 6).map(p => (
-            <PropertyCard key={p.id} property={p} avgCashFlow={perPropAvg[p.id]?.cashflow} onClick={() => onPropertyClick(p)} />
+            <PropertyCard
+              key={p.id} property={p}
+              avgCashFlow={perPropAvg[p.id]?.cashflow}
+              avgNOI={perPropAvg[p.id]?.noi}
+              ytdIncome={agg.ytdIncomeByProp[p.id]}
+              onClick={() => onPropertyClick(p)}
+            />
           ))}
         </div>
       )}

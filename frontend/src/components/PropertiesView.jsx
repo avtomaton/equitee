@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
-import { INITIAL_OPTIONS, PROVINCES, mergeOptions, COLORS, API_URL, COLUMN_DEFS, yearsHeld, principalInRange } from '../config.js';
+import { INITIAL_OPTIONS, PROVINCES, mergeOptions, COLORS, API_URL, COLUMN_DEFS, yearsHeld, principalInRange, calcSimpleHealth, avgMonthly } from '../config.js';
 import { useColumnVisibility } from '../hooks.js';
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
@@ -281,6 +281,10 @@ function Analytics({ filtered }) {
         {mc({ label: `Avg Cash Flow (${avgWindow}M)`,primary: f(avg.cashflow),
           primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
           tooltip: `Average monthly net cash flow over the last ${avgWindow} complete months.` })}
+        {mc({ label: `Avg NOI (${avgWindow}M)`, primary: f(avg.noi),
+          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
+          tertiary: 'Excl. mortgage & principal',
+          tooltip: `Net Operating Income: avg monthly income minus operating expenses (excludes mortgage & principal).\nFinancing-agnostic measure of property productivity. Average over the last ${avgWindow} complete months.` })}
         {(() => {
           const mg = avg.cashflow + agg.monthlyApprAgg;
           return mc({ label: 'Monthly Gain', primary: f(mg) + '/mo',
@@ -566,6 +570,11 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       const dir = sortOrder === 'asc' ? 1 : -1;
       switch (sortBy) {
         case 'name':           return dir * a.name.localeCompare(b.name);
+        case 'score': {
+          const sA = calcSimpleHealth(a).score;
+          const sB = calcSimpleHealth(b).score;
+          return dir * (sA - sB);
+        }
         case 'market_price':   return dir * (a.market_price   - b.market_price);
         case 'monthly_rent':   return dir * (a.monthly_rent   - b.monthly_rent);
         case 'total_income':   return dir * (a.total_income   - b.total_income);
@@ -587,6 +596,71 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
   const totalIncome   = filtered.reduce((s, p) => s + p.total_income,   0);
   const totalExpenses = filtered.reduce((s, p) => s + p.total_expenses, 0);
   const netProfit     = totalIncome - totalExpenses;
+
+  // Smart tips: portfolio-level insights from property records
+  const smartTips = useMemo(() => {
+    const tips = [];
+    if (!filtered.length) return tips;
+
+    const vacant     = filtered.filter(p => p.status === 'Vacant');
+    const negative   = filtered.filter(p => {
+      const dp = p.purchase_price - p.loan_amount;
+      return p.total_income > 0 && (p.total_income - (p.total_expenses - dp)) < 0;
+    });
+    const highLTV    = filtered.filter(p => p.purchase_price > 0 && p.loan_amount / p.purchase_price > 0.80);
+    const noRent     = filtered.filter(p => !p.monthly_rent && p.status === 'Rented');
+    const scores     = filtered.map(p => ({ p, s: calcSimpleHealth(p) }));
+    const bottomTwo  = [...scores].sort((a, b) => a.s.score - b.s.score).slice(0, 2);
+    const strongOnes = scores.filter(x => x.s.score >= 70);
+
+    const occupancyPct = filtered.filter(p => p.status !== 'Vacant').length / filtered.length * 100;
+
+    if (vacant.length > 0) {
+      const lostRent = vacant.reduce((s, p) => s + (p.monthly_rent || 0), 0);
+      tips.push({ icon: '🏠', cls: 'text-danger', label: `${vacant.length} vacant propert${vacant.length > 1 ? 'ies' : 'y'}`,
+        detail: lostRent > 0
+          ? `Losing up to ${fmt(lostRent)}/mo in potential rent. Prioritise filling vacancies to improve cash flow.`
+          : `${vacant.length} propert${vacant.length > 1 ? 'ies' : 'y'} with no rental income. Consider marketing or lease incentives.` });
+    }
+
+    if (negative.length > 0) {
+      tips.push({ icon: '📉', cls: 'text-danger', label: `${negative.length} cash-flow-negative propert${negative.length > 1 ? 'ies' : 'y'}`,
+        detail: `${negative.map(p => p.name).join(', ')} ${negative.length > 1 ? 'are' : 'is'} generating more expenses than income. Review rent pricing and operating costs.` });
+    }
+
+    if (highLTV.length > 0) {
+      tips.push({ icon: '⚡', cls: 'text-warning', label: `${highLTV.length} high-leverage propert${highLTV.length > 1 ? 'ies' : 'y'}`,
+        detail: `${highLTV.map(p => p.name).join(', ')} ${highLTV.length > 1 ? 'have' : 'has'} LTV above 80%. A market correction could erode equity quickly. Consider accelerating principal payments.` });
+    }
+
+    if (occupancyPct < 80 && filtered.length > 1) {
+      tips.push({ icon: '📊', cls: 'text-warning', label: `Occupancy at ${occupancyPct.toFixed(0)}%`,
+        detail: `Only ${filtered.filter(p => p.status !== 'Vacant').length} of ${filtered.length} properties are occupied. Industry target is 90%+. Sustained low occupancy signals a market fit or pricing issue.` });
+    }
+
+    if (noRent.length > 0) {
+      tips.push({ icon: '⚠️', cls: 'text-warning', label: `${noRent.length} rented propert${noRent.length > 1 ? 'ies' : 'y'} missing rent amount`,
+        detail: `Set monthly rent on ${noRent.map(p => p.name).join(', ')} to enable cap rate and vacancy calculations.` });
+    }
+
+    if (bottomTwo.length > 0 && filtered.length > 2) {
+      const names = bottomTwo.map(x => `${x.p.name} (${x.s.score}/100)`).join(', ');
+      tips.push({ icon: '🔻', cls: 'text-warning', label: 'Lowest-scoring properties',
+        detail: `${names}. Click on these to see detailed insights and improvement suggestions.` });
+    }
+
+    if (strongOnes.length > 0) {
+      tips.push({ icon: '🚀', cls: 'text-success', label: `${strongOnes.length} healthy propert${strongOnes.length > 1 ? 'ies' : 'y'}`,
+        detail: `${strongOnes.map(x => x.p.name).join(', ')} score 70+ — strong performers across cash flow, yield, and leverage metrics.` });
+    }
+
+    if (!tips.length) {
+      tips.push({ icon: '✅', cls: 'text-success', label: 'Portfolio looks healthy',
+        detail: 'No major issues detected across the filtered properties.' });
+    }
+
+    return tips;
+  }, [filtered]);
 
   const summaryCards = [
     { label: 'Shown / Total', value: `${filtered.length} / ${properties.length}` },
@@ -610,11 +684,11 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
         </div>
       </div>
 
-      {/* ── 1. Summary cards (open by default) ──────────────────────────── */}
-      <Collapsible title="📊 Summary" defaultOpen={true}>
+      {/* ── 1. Summary cards + smart tips (open by default) ────────────── */}
+      <Collapsible title="📊 Summary &amp; Insights" defaultOpen={true}>
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: '1rem',
-          padding: '1rem 1.5rem 1.25rem',
+          padding: '1rem 1.5rem 1rem',
         }}>
           {summaryCards.map(({ label, value, cls }) => (
             <div key={label} className="stat-card" style={{ flex: '1 1 140px', minWidth: 130, margin: 0 }}>
@@ -623,6 +697,27 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
             </div>
           ))}
         </div>
+
+        {/* Smart tips */}
+        {smartTips.length > 0 && (
+          <div style={{ padding: '0 1.5rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <p style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+              color: 'var(--text-tertiary)', margin: '0 0 0.4rem' }}>Portfolio Insights</p>
+            {smartTips.map((tip, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'flex-start', gap: '0.65rem',
+                padding: '0.55rem 0.85rem', borderRadius: '8px',
+                border: '1px solid var(--border)', background: 'var(--bg-tertiary)',
+              }}>
+                <span style={{ fontSize: '1.1rem', lineHeight: 1, flexShrink: 0, marginTop: '0.1rem' }}>{tip.icon}</span>
+                <div>
+                  <span style={{ fontWeight: 600, fontSize: '0.82rem' }} className={tip.cls}>{tip.label} </span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{tip.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Collapsible>
 
       {/* ── 2. Analytics (closed by default, refresh button in header) ──── */}
@@ -668,6 +763,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
             <select value={sortBy} onChange={e => setSortBy(e.target.value)}
               style={{ fontSize: '0.82rem', padding: '0.38rem 0.5rem' }}>
               <option value="name">Name</option>
+              <option value="score">Score</option>
               <option value="market_price">Market Value</option>
               <option value="monthly_rent">Rent</option>
               <option value="total_income">Income</option>
@@ -693,6 +789,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
               <thead>
                 <tr>
                   {col('name')         && <th className="col-fill">Name</th>}
+                  <th className="col-shrink">Health</th>
                   {col('status')       && <th className="col-shrink">Status</th>}
                   {col('type')         && <th className="col-shrink">Type</th>}
                   {col('location')     && <th className="col-shrink">Location</th>}
@@ -716,9 +813,19 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
                   const net     = p.total_income - netExp;
                   const roi     = p.market_price ? ((net / p.market_price) * 100).toFixed(1) : null;
                   const equity  = p.market_price - p.loan_amount;
+                  const health  = calcSimpleHealth(p);
+                  const healthColor = health.score >= 70 ? '#10b981' : health.score >= 40 ? '#f59e0b' : '#ef4444';
+                  const healthLabel = health.score >= 70 ? 'Healthy' : health.score >= 40 ? 'Average' : 'Needs Attention';
                   return (
                     <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onPropertyClick(p)}>
                       {col('name')         && <td className="col-fill"><strong>{p.name}</strong></td>}
+                      <td className="col-shrink">
+                        <span style={{
+                          fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                          borderRadius: '20px', whiteSpace: 'nowrap',
+                          background: `${healthColor}22`, color: healthColor,
+                        }}>● {healthLabel} <span style={{ opacity: 0.7 }}>({health.score})</span></span>
+                      </td>
                       {col('status')       && <td className="col-shrink"><span className={`property-badge ${p.status?.toLowerCase()}`}>{p.status}</span></td>}
                       {col('type')         && <td className="col-shrink">{p.type || '—'}</td>}
                       {col('location')     && <td className="col-shrink"><TruncatedCell text={`${p.city}, ${p.province}`} /></td>}

@@ -1,6 +1,7 @@
+import StarRating from './StarRating.jsx';
 import { useState, useMemo } from 'react';
 import MetricCard from './MetricCard.jsx';
-import { calcInvestmentScore, calcMortgagePayment } from '../config.js';
+import { calcInvestmentScore, calcMortgagePayment, calcIRR } from '../config.js';
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ function ScorePanel({ score }) {
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-        <span style={{ fontSize: '1.35rem', letterSpacing: '0.05em', color: '#f59e0b' }}>{score.stars}</span>
+        <StarRating starsData={score.starsData} />
         <span style={{ fontWeight: 600, fontSize: '0.9rem' }} className={score.cls}>{score.label}</span>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
           Weighted: Cash Flow 30 · Cap Rate 20 · CoC 20 · Expense 15 · LTV 10 · Appreciation 5
@@ -315,6 +316,22 @@ export default function EvaluatorView() {
 
     const score = calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
 
+    // GRM: Gross Rent Multiplier = Purchase Price / Annual Gross Rent
+    const grm = annualGrossRent > 0 ? p.purchasePrice / annualGrossRent : null;
+
+    // IRR over 10-year projection horizon
+    const irr10 = (() => {
+      if (!avgCashFlow || projections.length < 1) return null;
+      // CF0 = -(down payment + one-off expense)
+      const cf0 = -(cashInvested);
+      // Uniform monthly cash flows for 10 years = 120 months
+      const monthlyCFs = new Array(120).fill(avgCashFlow);
+      // Terminal value at month 120 = equity at year 10
+      const terminal = projections[projections.length - 1]?.yearEquity ?? 0;
+      monthlyCFs[119] += terminal;
+      return calcIRR([cf0, ...monthlyCFs]);
+    })();
+
     const analysis = buildAnalysis({
       avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
       sellingProfit: null, marketValue: p.purchasePrice,
@@ -327,10 +344,10 @@ export default function EvaluatorView() {
     return {
       effectiveRent, effectiveDownPayment, effectiveRate, loanAmount,
       monthlyMortgage, monthlyTax, monthlyRepairReserve, totalMonthlyExpenses,
-      avgCashFlow, annualGrossRent, capRate, cashOnCash,
+      avgCashFlow, annualGrossRent, annualNetOpIncome, capRate, cashOnCash,
       ltvRatio, equity, expenseRatio, rentToValue,
       yearlyAppr, yearlyApprRatio, monthlyAppr, monthlyGain,
-      cashInvested, breakEven, projections, score, analysis,
+      cashInvested, breakEven, projections, score, analysis, grm, irr10,
     };
   }, [inputs, scenario]);
 
@@ -414,6 +431,24 @@ export default function EvaluatorView() {
               primaryCls: m.rentToValue > 0.01 ? 'text-success' : m.rentToValue > 0.007 ? '' : 'text-danger',
               tertiary: m.rentToValue > 0.01 ? 'Meets 1% rule' : m.rentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
               tooltip: 'Annual Gross Rent \u00f7 Purchase Price.\nThe "1% rule": monthly rent \u22651% of price for cash-flow-positive property.' })}
+          </div>
+
+          {/* ── NOI & Prospective Ratios ── */}
+          <p className="stat-section-label">NOI &amp; Return Projections</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'Annual NOI', primary: fmt(m.annualNetOpIncome) + '/yr',
+              primaryCls: m.annualNetOpIncome >= 0 ? 'text-success' : 'text-danger',
+              secondary: `${fmt(m.annualNetOpIncome / 12)}/mo`,
+              secondaryCls: 'text-secondary',
+              tooltip: 'Net Operating Income = Annual Gross Rent \u2212 (operating expenses + property tax).\nExcludes mortgage payments so it is financing-agnostic.\nThis is the standard metric for comparing income-producing properties.' })}
+            {m.grm !== null && inputs.monthlyRent > 0 && mc({ label: 'GRM', primary: m.grm.toFixed(1) + 'x',
+              primaryCls: m.grm < 10 ? 'text-success' : m.grm < 15 ? '' : 'text-danger',
+              tertiary: m.grm < 10 ? 'Attractive' : m.grm < 15 ? 'Moderate' : 'Expensive',
+              tooltip: 'Gross Rent Multiplier = Purchase Price \u00f7 Annual Gross Rent.\nA quick valuation sanity check: how many years of gross rent equal the price?\nLower is better. Typical range: 8\u201312x for good cash-flow markets, 15\u201320x in expensive markets.\nDoesn\u2019t account for expenses or vacancies \u2014 always pair with NOI and cash flow.' })}
+            {m.irr10 !== null && mc({ label: 'IRR (10-yr)', primary: fmtP(m.irr10 * 100),
+              primaryCls: m.irr10 > 0.15 ? 'text-success' : m.irr10 > 0.08 ? '' : m.irr10 < 0 ? 'text-danger' : 'text-warning',
+              tertiary: m.irr10 > 0.15 ? 'Excellent' : m.irr10 > 0.08 ? 'Good' : m.irr10 < 0 ? 'Loss' : 'Below target',
+              tooltip: 'Internal Rate of Return over a 10-year horizon.\nThe annualised discount rate at which the NPV of all projected cash flows equals zero.\nAssumes: uniform monthly cash flow, 10-year property value as terminal value, initial investment = down payment + one-off costs.\nThis accounts for the time-value of money and is the gold standard for investment comparison.\nTarget: 10\u201315%+ for real estate.' })}
           </div>
 
           <p className="stat-section-label">Cash Flow &amp; Monthly Gain</p>
