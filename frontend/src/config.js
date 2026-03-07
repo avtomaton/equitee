@@ -75,6 +75,7 @@ export const fmtDate = (str) => {
 
 export const COLUMN_DEFS = {
   properties: [
+    { key: 'score',         label: 'Score',        default: false },
     { key: 'name',          label: 'Name',         default: true  },
     { key: 'status',        label: 'Status',       default: true  },
     { key: 'type',          label: 'Type',         default: true  },
@@ -228,9 +229,13 @@ export const calcMetrics = (p, incomeRecs = [], expenseRecs = []) => {
 };
 
 /**
- * Average monthly income/expenses/cashflow over a trailing window.
+ * Average monthly income/expenses/cashflow/NOI over a trailing window.
  * windowMonths: how many complete months back to look (ignores current partial month).
- * Returns { income, expenses, cashflow } per month.
+ * Returns { income, expenses, cashflow, noi, noiExpenses, mortgage } per month.
+ *
+ * NOI = income − all operating expenses (excludes Mortgage & Principal payments).
+ * This mirrors the real-estate definition: property income minus operating costs,
+ * before debt service, so it's financing-agnostic.
  */
 export const avgMonthly = (incomeRecs, expenseRecs, windowMonths = 3) => {
   const now   = new Date();
@@ -238,19 +243,33 @@ export const avgMonthly = (incomeRecs, expenseRecs, windowMonths = 3) => {
   const start = new Date(end);
   start.setMonth(start.getMonth() - windowMonths);
 
-  const inWindow = (dateStr, field) => {
+  const inWindow = (dateStr) => {
     if (!dateStr) return false;
     const [y, m, d] = dateStr.split('-').map(Number);
     const dt = new Date(y, m - 1, d);
     return dt >= start && dt < end;
   };
 
-  const income   = incomeRecs.filter(r  => inWindow(r.income_date)).reduce((s, r) => s + r.amount, 0);
-  const expenses = expenseRecs.filter(r => inWindow(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+  const income     = incomeRecs.filter(r  => inWindow(r.income_date)).reduce((s, r) => s + r.amount, 0);
+  const expenses   = expenseRecs.filter(r => inWindow(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+
+  // NOI: exclude debt-service expenses (Mortgage & Principal)
+  const noiExpenses = expenseRecs
+    .filter(r => inWindow(r.expense_date) && !['Mortgage', 'Principal'].includes(r.expense_category))
+    .reduce((s, r) => s + r.amount, 0);
+
+  // Mortgage payments (for DSCR)
+  const mortgageExpenses = expenseRecs
+    .filter(r => inWindow(r.expense_date) && r.expense_category === 'Mortgage')
+    .reduce((s, r) => s + r.amount, 0);
+
   return {
-    income:   windowMonths > 0 ? income   / windowMonths : 0,
-    expenses: windowMonths > 0 ? expenses / windowMonths : 0,
-    cashflow: windowMonths > 0 ? (income - expenses) / windowMonths : 0,
+    income:      windowMonths > 0 ? income       / windowMonths : 0,
+    expenses:    windowMonths > 0 ? expenses     / windowMonths : 0,
+    cashflow:    windowMonths > 0 ? (income - expenses)    / windowMonths : 0,
+    noi:         windowMonths > 0 ? (income - noiExpenses) / windowMonths : 0,
+    noiExpenses: windowMonths > 0 ? noiExpenses  / windowMonths : 0,
+    mortgage:    windowMonths > 0 ? mortgageExpenses / windowMonths : 0,
   };
 };
 
@@ -345,6 +364,118 @@ export const calcMortgagePayment = (principal, annualRatePct, amortYears) => {
 };
 
 /**
+ * Calculate Internal Rate of Return (IRR) using Newton-Raphson iteration.
+ *
+ * Cash flows are assumed to be monthly: cashFlows[0] is the initial outflow
+ * (negative), cashFlows[1..n] are the subsequent monthly cash flows.
+ *
+ * Returns the annualised IRR as a decimal (e.g. 0.12 = 12%), or null when
+ * no solution converges or the data is insufficient.
+ *
+ * The annualisation uses compounding: IRR_annual = (1 + r_monthly)^12 − 1.
+ */
+export const calcIRR = (cashFlows) => {
+  if (!cashFlows || cashFlows.length < 2) return null;
+  // Must have at least one sign change
+  const pos = cashFlows.some(c => c > 0);
+  const neg = cashFlows.some(c => c < 0);
+  if (!pos || !neg) return null;
+
+  const npv  = (r) => cashFlows.reduce((s, cf, t) => s + cf / Math.pow(1 + r, t), 0);
+  const dnpv = (r) => cashFlows.reduce((s, cf, t) => s - t * cf / Math.pow(1 + r, t + 1), 0);
+
+  let r = 0.01; // initial monthly guess (≈ 12 %/yr)
+  for (let i = 0; i < 300; i++) {
+    const f  = npv(r);
+    const df = dnpv(r);
+    if (Math.abs(df) < 1e-14) break;
+    const rNew = r - f / df;
+    if (!isFinite(rNew) || isNaN(rNew)) break;
+    if (Math.abs(rNew - r) < 1e-10) { r = rNew; break; }
+    r = Math.max(-0.9999, rNew); // guard against blow-up
+  }
+
+  if (!isFinite(r) || Math.abs(npv(r)) > 5000) return null;
+  return Math.pow(1 + r, 12) - 1; // annualise
+};
+
+/**
+ * Build the monthly cash-flow array for IRR computation from a property's
+ * historical income and expense records.
+ *
+ * Layout:
+ *   [0]      = −downPayment            (initial equity outlay at possession date)
+ *   [1..n]   = monthly net cash flow   (income − expenses for each calendar month)
+ *   [n] += current equity              (terminal value: market_price − loan_amount)
+ *
+ * Returns null if the property has no possession date or fewer than 2 months
+ * of history (not enough data for a meaningful IRR).
+ */
+export const buildPropertyIRRCashFlows = (property, incomeRecs, expenseRecs) => {
+  if (!property.poss_date) return null;
+
+  const [py, pm, pd] = property.poss_date.split('-').map(Number);
+  const possDate = new Date(py, pm - 1, pd);
+  const now      = new Date();
+
+  const totalMonths =
+    (now.getFullYear() - possDate.getFullYear()) * 12 +
+    (now.getMonth()    - possDate.getMonth());
+
+  if (totalMonths < 2) return null;
+
+  const monthlyCFs = new Array(totalMonths).fill(0);
+
+  const monthOffset = (dateStr) => {
+    if (!dateStr) return -1;
+    const [y, m] = dateStr.split('-').map(Number);
+    return (y - py) * 12 + (m - 1 - (pm - 1));
+  };
+
+  incomeRecs.forEach(r => {
+    const off = monthOffset(r.income_date);
+    if (off >= 0 && off < totalMonths) monthlyCFs[off] += r.amount;
+  });
+  expenseRecs.forEach(r => {
+    const off = monthOffset(r.expense_date);
+    if (off >= 0 && off < totalMonths) monthlyCFs[off] -= r.amount;
+  });
+
+  // Add terminal equity to last complete month
+  const equity = property.market_price - property.loan_amount;
+  monthlyCFs[totalMonths - 1] += equity;
+
+  const downPmt = property.purchase_price - property.loan_amount;
+  return [-downPmt, ...monthlyCFs];
+};
+
+/**
+ * Quick health score for a property using only property-record-level data
+ * (no separate income/expense records needed). Used for badges in list views.
+ * Approximates cash flow, cap rate, etc. from all-time totals.
+ */
+export const calcSimpleHealth = (p) => {
+  const yrs        = yearsHeld(p);
+  const downPmt    = p.purchase_price - p.loan_amount;
+  const netExp     = p.total_expenses - downPmt;
+  const netProfit  = p.total_income   - netExp;
+  const annualCF   = yrs && yrs > 0 ? netProfit / yrs : 0;
+  const avgCashFlow = annualCF / 12;
+
+  const capRate         = p.purchase_price > 0 ? annualCF / p.purchase_price : 0;
+  const equity          = p.market_price - p.loan_amount;
+  const cashOnCash      = equity > 0    ? annualCF / equity : 0;
+  const ltvRatio        = p.purchase_price > 0 ? p.loan_amount / p.purchase_price : 0;
+  const expenseRatio    = p.monthly_rent > 0
+    ? (p.total_expenses / Math.max(1, p.total_income)) : 0;
+  const appr            = p.market_price - p.purchase_price;
+  const yearlyApprRatio = (yrs && p.purchase_price > 0)
+    ? (appr / yrs) / p.purchase_price : 0;
+
+  return calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
+};
+
+/**
  * Compute investment score from key ratios.
  * Returns { score, stars, label, cls }
  *
@@ -401,9 +532,12 @@ export const calcInvestmentScore = ({ avgCashFlow, capRate, cashOnCash, expenseR
 
   const fullStars = Math.floor(score / 20);
   const halfStar  = (score % 20) >= 10;
-  const stars = '\u2605'.repeat(fullStars)
-    + (halfStar ? '\u00bd' : '')
-    + '\u2606'.repeat(5 - fullStars - (halfStar ? 1 : 0));
+  // starsData is consumed by <StarRating starsData={...} /> for proper rendering
+  const starsData = {
+    full:  fullStars,
+    half:  halfStar,
+    empty: 5 - fullStars - (halfStar ? 1 : 0),
+  };
 
   let label, cls;
   if      (score >= 85) { label = 'Excellent investment';  cls = 'text-success'; }
@@ -413,5 +547,5 @@ export const calcInvestmentScore = ({ avgCashFlow, capRate, cashOnCash, expenseR
   else if (score >= 25) { label = 'Underperforming';       cls = 'text-warning'; }
   else                  { label = 'Needs attention';       cls = 'text-danger';  }
 
-  return { score, stars, label, cls };
+  return { score, starsData, label, cls };
 };
