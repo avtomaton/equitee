@@ -430,7 +430,7 @@ function Analytics({ filtered }) {
 
       <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="btn btn-secondary btn-small" onClick={refresh}>
-          \u21bb Refresh charts from current filters
+          ↻ Refresh charts from current filters
         </button>
       </div>
     </div>
@@ -721,7 +721,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
                       {col('name')         && <td className="col-fill"><strong>{p.name}</strong></td>}
                       {col('status')       && <td className="col-shrink"><span className={`property-badge ${p.status?.toLowerCase()}`}>{p.status}</span></td>}
                       {col('type')         && <td className="col-shrink">{p.type || '—'}</td>}
-                      {col('location')     && <td className="col-shrink"><TruncatedCell text={`${p.city}, ${p.province}`} maxWidth={110} /></td>}
+                      {col('location')     && <td className="col-shrink"><TruncatedCell text={`${p.city}, ${p.province}`} /></td>}
                       {col('market_price') && <td className="col-shrink">{fmt(p.market_price)}</td>}
                       {col('monthly_rent') && <td className="col-shrink">{p.monthly_rent ? fmt(p.monthly_rent) : <span style={{ color: 'var(--text-tertiary)' }}>—</span>}</td>}
                       {col('total_income') && <td className="col-shrink text-success">{fmt(p.total_income)}</td>}

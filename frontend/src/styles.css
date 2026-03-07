@@ -8,6 +8,7 @@
     --success: #10b981;
     --danger: #ef4444;
     --warning: #f59e0b;
+    --sidenote: #60a5fa;
     --text-primary: #f3f4f6;
     --text-secondary: #9ca3af;
     --text-tertiary: #6b7280;
@@ -843,6 +844,7 @@ input:focus, select:focus, textarea:focus {
 .text-success { color: var(--success); }
 .text-danger { color: var(--danger); }
 .text-warning { color: var(--warning); }
+.text-note { color: var(--sidenote); }
 .text-primary { color: var(--text-primary); }
 .text-secondary { color: var(--text-secondary); }
 
@@ -964,4 +966,150 @@ table td {
   top: var(--tooltip-y, 50%);
   left: var(--tooltip-x, 50%);
   transform: translateY(-110%);
+}
+
+/* ── Evaluator ────────────────────────────────────────────────────────────── */
+
+.eval-section-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-tertiary);
+    margin: 0 0 0.75rem;
+    padding-top: 0.25rem;
+}
+
+.eval-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 0.65rem;
+}
+
+.eval-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.eval-help {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+    font-style: italic;
+    margin-top: -0.1rem;
+}
+
+.eval-input-wrap {
+    display: flex;
+    align-items: center;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.eval-input-wrap:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.eval-affix {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.eval-affix-right {
+    border-right: none;
+    border-left: 1px solid var(--border);
+}
+
+.eval-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.4rem 0.6rem;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    width: 100%;
+}
+
+/* standalone select uses eval-input directly */
+select.eval-input {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    outline: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    width: 100%;
+}
+
+select.eval-input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.eval-computed-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    padding: 0.2rem 0;
+    border-top: 1px solid var(--border);
+    margin-top: 0.15rem;
+}
+
+.eval-computed-row span:last-child {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* Slider rows */
+.eval-slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.eval-slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.eval-slider-label {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.eval-slider-val {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 80px;
+    text-align: right;
+}
+
+.eval-slider {
+    width: 100%;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+    height: 4px;
+}
+
+.eval-slider-range {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    color: var(--text-tertiary);
 }

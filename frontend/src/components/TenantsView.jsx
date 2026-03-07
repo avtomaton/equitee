@@ -9,7 +9,7 @@ function TenantRow({ t, onEdit, onArchive, onRestore, archived, col }) {
   return (
     <tr style={{ opacity: archived ? 0.65 : 1 }}>
       {col('name')        && <td className="col-fill"><strong>{t.name}</strong></td>}
-      {col('property')    && <td className="col-shrink"><TruncatedCell text={t.property_name} maxWidth={120} /></td>}
+      {col('property')    && <td className="col-shrink"><TruncatedCell text={t.property_name} /></td>}
       {!archived && col('status') && (
         <td className="col-shrink">
           <span className={`property-badge ${current ? 'active' : 'badge-warning'}`}>
@@ -18,7 +18,7 @@ function TenantRow({ t, onEdit, onArchive, onRestore, archived, col }) {
         </td>
       )}
       {col('phone')       && <td className="col-shrink">{t.phone || '—'}</td>}
-      {col('email')       && <td className="col-fill"><TruncatedCell text={t.email} maxWidth={140} /></td>}
+      {col('email')       && <td className="col-fill"><TruncatedCell text={t.email} /></td>}
       {col('lease_start') && <td className="col-shrink">{fmtDate(t.lease_start)}</td>}
       {col('lease_end')   && <td className="col-shrink">{t.lease_end ? fmtDate(t.lease_end) : 'Ongoing'}</td>}
       {col('rent')        && <td className="col-shrink">${(t.rent_amount || 0).toLocaleString()}</td>}

@@ -211,7 +211,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
                 {filtered.map(e => (
                   <tr key={e.id}>
                     {col('date')     && <td className="col-shrink">{fmtDate(e.expense_date)}</td>}
-                    {col('property') && <td className="col-fill"><TruncatedCell text={e.property_name} maxWidth={120} /></td>}
+                    {col('property') && <td className="col-fill"><TruncatedCell text={e.property_name} /></td>}
                     {col('amount')   && <td className="col-shrink text-danger">${e.amount.toLocaleString()}</td>}
                     {col('category') && <td className="col-shrink">{e.expense_category}</td>}
                     {col('type')     && <td className="col-shrink">{e.expense_type}</td>}

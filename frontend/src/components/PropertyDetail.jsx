@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { API_URL, isCurrentTenant, fmtDate, yearsHeld, avgMonthly, principalInRange } from '../config.js';
+import { API_URL, isCurrentTenant, fmtDate, yearsHeld, avgMonthly, principalInRange, calcInvestmentScore } from '../config.js';
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
 
@@ -192,6 +192,16 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
         const avg = avgMonthly(income, expenses, avgWindow);
 
+        const annualCashFlow = avg.cashflow * 12;
+        const monthlyRent = property.monthly_rent;
+        const annualRent = monthlyRent * 12;
+        const rentToValue = annualRent / property.purchase_price;
+
+        const capRate = property.purchase_price > 0 ? annualCashFlow / property.purchase_price : 0;
+        const cashOnCash = equity > 0 ? annualCashFlow / equity : 0;
+        const loanToValue = property.purchase_price > 0 ? property.loan_amount / property.purchase_price : 0;
+        const expenseRatio = monthlyRent > 0 ? avg.expenses / monthlyRent : 0;
+
         const monthlyAppr = yearlyAppr !== null ? yearlyAppr / 12 : 0;
         const monthlyGain = avg.cashflow + monthlyAppr;
 
@@ -210,79 +220,159 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           return { label, cls: months < 24 ? 'text-success' : months < 60 ? '' : 'text-danger', tip: null };
         })();
 
-        // Smart tip analysis
-        const tip = (() => {
-          const cf    = avg.cashflow;
-          const mg    = monthlyGain;
-          const sp    = sellingProfit;
-          const ya    = yearlyAppr;
-          const isVac = property.status === 'Vacant';
-          const isRnt = property.status === 'Rented';
+        // Shared aliases used in both investmentScore and tips
+        const avgCashFlow  = avg.cashflow;
+        const ltvRatio     = loanToValue;
+        // yearlyAppr is in dollars — convert to ratio for score thresholds
+        const yearlyApprRatio = (yearlyAppr !== null && property.purchase_price > 0)
+          ? yearlyAppr / property.purchase_price : 0;
 
-          // Vacant too long (if vacant and no income in 30+ days)
-          if (isVac) {
-            const lastIncome = [...income].sort((a,b) => new Date(b.income_date)-new Date(a.income_date))[0];
-            const daysSince  = lastIncome
-              ? (Date.now() - new Date(lastIncome.income_date)) / 86400000 : Infinity;
-            if (daysSince > 30) return {
-              icon: '\u26a0\ufe0f', label: 'Long vacancy',
-              cls: 'text-danger',
-              detail: `Property has been vacant with no income for ${Math.round(daysSince)} days. Consider adjusting rent or marketing.`,
-            };
-          }
+        // ── Investment score ─────────────────────────────────────────────────
+        const investmentScore = calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
 
-          // Losing money on all fronts \u2014 sell to cut losses
-          if (isRnt && cf < 0 && ya !== null && ya < 0) return {
-            icon: '\ud83d\udea8', label: 'Consider selling',
-            cls: 'text-danger',
-            detail: 'Cash flow is negative AND the property is depreciating. Holding longer will likely increase losses.',
-          };
-
-          // Golden cow: rented, cash flow positive, selling profit low or negative
-          if (isRnt && cf > 0 && sp < property.market_price * 0.05) return {
-            icon: '\ud83d\udc4e\ud83d\udcb0', label: 'Golden cow \u2014 keep!',
-            cls: 'text-success',
-            detail: `Strong cash flow ($${Math.round(cf).toLocaleString()}/mo) with low selling profit. This property earns well and selling now would leave little gain.`,
-          };
-
-          // Short time to recover selling profit \u2014 keep
-          if (isRnt && cf > 0 && sp > 0 && sp / cf < 12) return {
-            icon: '\u2b50', label: 'High yield',
-            cls: 'text-success',
-            detail: `At current cash flow you cover the selling profit in under a year. Excellent return \u2014 keep holding.`,
-          };
-
-          // Good total gain but poor cash flow \u2014 consider selling
-          if (isRnt && sp > property.market_price * 0.15 && mg < property.market_price * 0.003) return {
-            icon: '\ud83d\udca1', label: 'Consider selling',
-            cls: 'text-warning',
-            detail: `Significant unrealized gain ($${Math.round(sp).toLocaleString()}) but monthly gain is low. Selling and redeploying capital may yield better returns.`,
-          };
-
-          // Negative monthly gain despite being rented
-          if (isRnt && mg < 0) return {
-            icon: '\ud83d\udcc9', label: 'Negative monthly gain',
-            cls: 'text-danger',
-            detail: `Monthly gain ($${Math.round(mg).toLocaleString()}/mo) is negative after combining cash flow and appreciation. Monitor closely.`,
-          };
-
-          // Strong performer
-          if (mg > 0 && cf > 0 && ya !== null && ya > 0) return {
-            icon: '\ud83d\ude80', label: 'Strong performer',
-            cls: 'text-success',
-            detail: `Positive cash flow, appreciating value, and positive monthly gain. Property is performing well on all metrics.`,
-          };
-
-          return null;
-        })();
-
-        const f  = n => `$${Math.round(n).toLocaleString()}`;
-        const fp = n => `${Number(n).toFixed(1)}%`;
+        const f    = n => `$${Math.round(n).toLocaleString()}`;
+        const fp   = n => `${Number(n).toFixed(1)}%`;
+        const fPct = n => `${(n * 100).toFixed(1)}%`;
         const WOPT = [1, 2, 3, 6, 12];
         const mc = (props) => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
 
+        // ── Smart analysis — always returns array, never null ────────────────
+        // Each item: { icon, label, cls, detail, isPrimary? }
+        const analysis = (() => {
+          const items = [];
+          const isRnt = (property.status || '').toLowerCase() === 'rented';
+          const noData = property.total_income === 0 && property.total_expenses === 0;
+
+          // ── Primary status (exactly one, always present) ──────────────────
+          if (noData) {
+            items.push({ isPrimary: true, icon: '🆕', cls: 'text-secondary', label: 'No data yet',
+              detail: 'No income or expenses have been recorded. Add transactions to start tracking performance.' });
+          } else if (!isRnt) {
+            const lastInc = [...income].sort((a,b) => new Date(b.income_date)-new Date(a.income_date))[0];
+            const daysSince = lastInc ? (Date.now() - new Date(lastInc.income_date)) / 86400000 : Infinity;
+            if (!isFinite(daysSince)) {
+              items.push({ isPrimary: true, icon: '🏠', cls: 'text-danger', label: 'Vacant — no income recorded',
+                detail: 'Property is vacant and no income has ever been recorded. Property is generating zero return.' });
+            } else if (daysSince > 30) {
+              items.push({ isPrimary: true, icon: '⚠️', cls: 'text-danger', label: `Vacant ${Math.round(daysSince)} days`,
+                detail: `Last income was ${Math.round(daysSince)} days ago. Extended vacancy is eroding your returns. Consider adjusting rent price or marketing strategy.` });
+            } else {
+              items.push({ isPrimary: true, icon: '🔄', cls: 'text-warning', label: 'Recently vacated',
+                detail: `Property became vacant ${Math.round(daysSince)} days ago. Monitor closely — short vacancies are normal between tenants.` });
+            }
+          } else if (avgCashFlow < 0 && yearlyAppr !== null && yearlyAppr < 0) {
+            // Worst case: losing on both dimensions
+            items.push({ isPrimary: true, icon: '🚨', cls: 'text-danger', label: 'Losing on all fronts',
+              detail: `Cash flow is ${f(avgCashFlow)}/mo and the property is depreciating ${f(yearlyAppr)}/yr. Every month of holding deepens the loss. Strong case to sell.` });
+          } else if (avgCashFlow < 0 && yearlyAppr !== null && yearlyAppr > 0) {
+            // Negative CF but appreciating — appreciation may or may not compensate
+            items.push({ isPrimary: true, icon: '⚖️', cls: monthlyGain >= 0 ? 'text-warning' : 'text-danger',
+              label: monthlyGain >= 0 ? 'Appreciation covers the gap' : 'Negative cash flow, appreciation insufficient',
+              detail: monthlyGain >= 0
+                ? `Cash is consumed at ${f(Math.abs(avgCashFlow))}/mo but appreciation (${f(yearlyAppr)}/yr = ${f(monthlyAppr)}/mo) more than compensates. Monthly gain: ${f(monthlyGain)}/mo. Watch cash reserves.`
+                : `Cash is consumed at ${f(Math.abs(avgCashFlow))}/mo. Appreciation (${f(yearlyAppr)}/yr = ${f(monthlyAppr)}/mo) only partially offsets this. Net monthly loss: ${f(monthlyGain)}/mo.` });
+          } else if (avgCashFlow < 0 && (yearlyAppr === null || yearlyAppr === 0)) {
+            // Negative CF, no appreciation to help
+            items.push({ isPrimary: true, icon: '📉', cls: 'text-danger', label: 'Negative cash flow',
+              detail: `Expenses exceed income by ${f(Math.abs(avgCashFlow))}/mo with ${yearlyAppr === 0 ? 'no appreciation to compensate' : 'no possession date set to compute appreciation'}. This property is consuming cash.` });
+          } else if (avgCashFlow === 0 && monthlyGain > 0) {
+            // CF exactly breaks even, appreciation carries the gain
+            items.push({ isPrimary: true, icon: '📈', cls: 'text-success', label: 'Breakeven — appreciation-led',
+              detail: `Cash flow is exactly neutral, but appreciation of ${yearlyAppr !== null ? f(yearlyAppr) + '/yr ' : ''}adds ${f(monthlyGain)}/mo in total monthly gain. Self-financing with value growth.` });
+          } else if (avgCashFlow === 0 && monthlyGain <= 0) {
+            // CF zero, no meaningful gain
+            items.push({ isPrimary: true, icon: '➖', cls: 'text-warning', label: 'Breakeven — flat',
+              detail: `Cash flow is zero and ${yearlyAppr !== null && yearlyAppr < 0 ? `depreciation (${f(yearlyAppr)}/yr) is reducing total wealth by ${f(Math.abs(monthlyGain))}/mo` : 'no appreciation. The property is treading water.'}.` });
+          } else {
+            // avgCashFlow > 0 — ordered by specificity
+            if (sellingProfit >= 0 && sellingProfit / avgCashFlow < 12) {
+              items.push({ isPrimary: true, icon: '⭐', cls: 'text-success', label: 'Exceptional yield',
+                detail: `Cash flow of ${f(avgCashFlow)}/mo recovers the entire selling profit in ${Math.round(sellingProfit/avgCashFlow)} months. Rare performance — keep holding.` });
+            } else if (monthlyRent > 0 && sellingProfit < property.market_price * 0.05) {
+              items.push({ isPrimary: true, icon: '🐄', cls: 'text-success', label: 'Golden cow — keep',
+                detail: `Strong cash flow (${f(avgCashFlow)}/mo) but selling today nets only ${f(sellingProfit)}. The property earns far more by holding than by selling.` });
+            } else if (sellingProfit > property.market_price * 0.15 && monthlyGain < property.market_price * 0.003) {
+              items.push({ isPrimary: true, icon: '💡', cls: 'text-warning', label: 'Consider selling',
+                detail: `Unrealized gain of ${f(sellingProfit)} is significant, but monthly gain is only ${f(monthlyGain)}/mo. Capital may work harder elsewhere.` });
+            } else if (monthlyGain < 0) {
+              // avgCashFlow > 0 but severe depreciation overwhelms it
+              items.push({ isPrimary: true, icon: '📊', cls: 'text-warning', label: 'Depreciation eroding gains',
+                detail: `Cash flow is positive (${f(avgCashFlow)}/mo) but depreciation (${yearlyAppr !== null ? f(yearlyAppr)+'/yr' : 'unknown'}) results in a negative monthly gain of ${f(monthlyGain)}/mo.` });
+            } else if (yearlyAppr !== null && yearlyAppr > 0) {
+              // avgCashFlow > 0, yearlyAppr > 0, monthlyGain > 0 — all green
+              items.push({ isPrimary: true, icon: '🚀', cls: 'text-success', label: 'Strong performer',
+                detail: `All metrics positive: cash flow ${f(avgCashFlow)}/mo, appreciation ${f(yearlyAppr)}/yr, monthly gain ${f(monthlyGain)}/mo.` });
+            } else if (yearlyAppr === 0) {
+              // avgCashFlow > 0, flat appreciation
+              items.push({ isPrimary: true, icon: '✅', cls: 'text-success', label: 'Positive cash flow — flat appreciation',
+                detail: `Generating ${f(avgCashFlow)}/mo in cash flow. Market value has not changed since purchase — monthly gain equals cash flow (${f(monthlyGain)}/mo).` });
+            } else if (yearlyAppr === null) {
+              // avgCashFlow > 0, no possession date so appreciation unknown
+              items.push({ isPrimary: true, icon: '✅', cls: 'text-success', label: 'Positive cash flow',
+                detail: `Generating ${f(avgCashFlow)}/mo in cash flow. Set a possession date to also compute appreciation and monthly gain.` });
+            } else {
+              // avgCashFlow > 0, yearlyAppr < 0 but monthlyGain >= 0 (avgCashFlow offsets depreciation and then some)
+              items.push({ isPrimary: true, icon: '⚖️', cls: 'text-success', label: 'Cash flow covers depreciation',
+                detail: `Despite depreciation of ${f(yearlyAppr)}/yr, cash flow (${f(avgCashFlow)}/mo) more than compensates. Net monthly gain: ${f(monthlyGain)}/mo.` });
+            }
+          }
+
+          // ── Secondary suggestions (appended after primary) ────────────────
+
+          // Low cap rate: suggest rent increase
+          if (monthlyRent > 0 && capRate < 0.05) {
+            const targetRent = Math.round(property.market_price * 0.06 / 12);
+            const delta = targetRent - monthlyRent;
+            if (delta > 0) {
+              items.push({ icon: '📈', cls: 'text-warning', label: 'Low cap rate',
+                detail: `Cap rate of ${(capRate*100).toFixed(1)}% is below the 5% threshold. Raising rent by ~$${delta}/mo would push it toward 6%.` });
+            }
+          }
+
+          // High expense ratio
+          if (monthlyRent > 0 && expenseRatio > 0.45) {
+            items.push({ icon: '💸', cls: 'text-danger', label: 'High expense ratio',
+              detail: `Expenses are ${(expenseRatio*100).toFixed(0)}% of rent income. Healthy properties typically sit below 40%. Review recurring maintenance, management, or insurance costs.` });
+          }
+
+          // High LTV — risk flag
+          if (ltvRatio > 0.80 && property.loan_amount > 0) {
+            items.push({ icon: '⚡', cls: 'text-danger', label: 'High leverage risk',
+              detail: `LTV of ${(ltvRatio*100).toFixed(0)}% means only ${(100-ltvRatio*100).toFixed(0)}% equity cushion. A market dip could put the property underwater.` });
+          }
+
+          // Low LTV — refinancing opportunity
+          if (ltvRatio > 0 && ltvRatio < 0.55 && equity > 50000) {
+            items.push({ icon: '🏦', cls: 'text-success', label: 'Refinancing opportunity',
+              detail: `LTV of ${(ltvRatio*100).toFixed(0)}% represents ${f(equity)} in accessible equity. A cash-out refinance could fund another investment without selling.` });
+          }
+
+          // Strong appreciation — equity extraction
+          if (yearlyAppr !== null && yearlyApprRatio > 0.08) {
+            items.push({ icon: '💎', cls: 'text-success', label: 'Strong appreciation',
+              detail: `Property is appreciating at ${(yearlyApprRatio*100).toFixed(1)}%/yr (${f(yearlyAppr)}/yr). Consider leveraging this equity growth for portfolio expansion.` });
+          }
+
+          // Low appreciation + low yield — consider selling
+          if (yearlyAppr !== null && yearlyApprRatio < 0.02 && capRate < 0.04 && property.total_income > 0) {
+            items.push({ icon: '🔻', cls: 'text-danger', label: 'Low yield & low growth',
+              detail: `Cap rate ${(capRate*100).toFixed(1)}% and appreciation ${(yearlyApprRatio*100).toFixed(1)}%/yr are both weak. Capital may perform better in a higher-yielding asset.` });
+          }
+
+          // Cash-on-cash too low
+          if (cashOnCash > 0 && cashOnCash < 0.03 && avgCashFlow > 0) {
+            items.push({ icon: '🔑', cls: 'text-warning', label: 'Low capital efficiency',
+              detail: `Cash-on-cash return of ${(cashOnCash*100).toFixed(1)}% means your equity is barely working. Target is typically 6–8%+.` });
+          }
+
+          return items;
+        })();
+
+
+        const [primary, ...secondary] = analysis;
+
         return (<>
-          {/* Value & Equity */}
+          {/* ── Value & Equity ── */}
           <p className="stat-section-label">Value &amp; Equity</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
             {mc({ label: 'Purchase Price', primary: f(property.purchase_price),
@@ -299,44 +389,130 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
               tooltip: 'Outstanding mortgage or loan balance.' })}
             {property.mortgage_rate > 0 && mc({ label: 'Mortgage Rate', primary: `${property.mortgage_rate}%`,
               tooltip: 'Annual mortgage interest rate.' })}
+            {property.monthly_rent > 0 && mc({ label: 'Monthly Rent', primary: f(property.monthly_rent),
+              tooltip: 'Current monthly rent charged to tenants.' })}
           </div>
 
-          {/* Smart tip */}
-          {tip && (
-            <div style={{
-              display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
-              padding: '0.85rem 1rem', marginBottom: '1.25rem',
-              borderRadius: '8px', border: '1px solid var(--border)',
-              background: 'var(--bg-tertiary)',
-            }}>
-              <span style={{ fontSize: '1.3rem', lineHeight: 1, flexShrink: 0 }}>{tip.icon}</span>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}
-                  className={tip.cls}>{tip.label}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', lineHeight: 1.5 }}>
-                  {tip.detail}
-                </div>
+          {/* ── Investment Ratios ── */}
+          <p className="stat-section-label">Investment Ratios</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({ label: 'Loan-to-Value', primary: fPct(ltvRatio),
+              primaryCls: ltvRatio > 0.80 ? 'text-danger' : ltvRatio > 0.65 ? 'text-warning' : 'text-success',
+              tertiary: ltvRatio > 0.80 ? 'High leverage' : ltvRatio < 0.55 ? 'Low leverage' : 'Moderate leverage',
+              tooltip: 'Loan \u00f7 Market Value.\nMeasures financial risk \u2014 higher LTV = more leverage = more risk.\nLenders typically require LTV \u2264 80%. Below 65% is considered conservative.\nHigh LTV limits refinancing options and increases exposure to market downturns.' })}
+            {mc({ label: 'Cap Rate', primary: fPct(capRate),
+              primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
+              tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
+              tooltip: 'Annual Cash Flow \u00f7 Purchase Price.\nMeasures yield efficiency \u2014 how much return the asset generates relative to its cost, ignoring financing.\nTypical targets: 4\u20136% residential, 6\u20138%+ commercial.\nUseful for comparing properties regardless of how they were financed.' })}
+            {mc({ label: 'Cash-on-Cash', primary: fPct(cashOnCash),
+              primaryCls: cashOnCash > 0.08 ? 'text-success' : cashOnCash > 0.04 ? '' : cashOnCash < 0 ? 'text-danger' : 'text-warning',
+              tertiary: cashOnCash > 0.08 ? 'Strong' : cashOnCash > 0.04 ? 'Moderate' : 'Weak',
+              tooltip: 'Annual Cash Flow \u00f7 Equity.\nMeasures capital efficiency \u2014 how hard your invested equity is working.\nTarget: 6\u201310%+ for most investors.\nUnlike cap rate, this accounts for financing: a heavily mortgaged property can show high CoC even with modest income.' })}
+            {monthlyRent > 0 && mc({ label: 'Expense Ratio', primary: fPct(expenseRatio),
+              primaryCls: expenseRatio < 0.35 ? 'text-success' : expenseRatio < 0.50 ? '' : 'text-danger',
+              tertiary: expenseRatio < 0.35 ? 'Lean operations' : expenseRatio < 0.50 ? 'Normal' : 'High costs',
+              tooltip: 'Avg Monthly Expenses \u00f7 Monthly Rent.\nMeasures operational health \u2014 what fraction of rent is consumed by costs.\nBelow 35%: efficient. 35\u201350%: normal range. Above 50%: review costs.\nHigh ratios often signal management inefficiency, deferred maintenance, or underpriced rent.' })}
+            {monthlyRent > 0 && mc({ label: 'Rent-to-Value', primary: fPct(rentToValue),
+              primaryCls: rentToValue > 0.01 ? 'text-success' : rentToValue > 0.007 ? '' : 'text-danger',
+              tertiary: rentToValue > 0.01 ? 'Strong RTV' : rentToValue > 0.007 ? 'Moderate' : 'Weak RTV',
+              tooltip: 'Annual Rent \u00f7 Purchase Price (the "1% rule" benchmark).\nThe classic 1% rule: monthly rent should be \u22651% of purchase price for a cash-flow-positive property.\n1%+/mo = strong. 0.7\u20131%/mo = moderate. Below 0.7%/mo = challenging to cash flow.\nHigher RTV generally means better income relative to asset cost.' })}
+          </div>
+
+          {/* ── Investment Score ── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap',
+            padding: '0.85rem 1.1rem', marginBottom: '1.25rem',
+            borderRadius: '10px', border: '1px solid var(--border)',
+            background: 'var(--bg-tertiary)',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', minWidth: 130 }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '0.07em', color: 'var(--text-tertiary)' }}>Investment Score</span>
+              <span style={{ fontSize: '2rem', fontWeight: 800, lineHeight: 1 }}
+                className={investmentScore.cls}>{investmentScore.score}<span style={{ fontSize: '1rem', fontWeight: 500, color: 'var(--text-tertiary)' }}>/100</span></span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <span style={{ fontSize: '1.35rem', letterSpacing: '0.05em', color: '#f59e0b' }}>
+                {investmentScore.stars}
+              </span>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}
+                className={investmentScore.cls}>{investmentScore.label}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                Weighted: Cash Flow 30 · Cap Rate 20 · CoC 20 · Expense 15 · LTV 10 · Appreciation 5
+              </span>
+            </div>
+          </div>
+
+          {/* ── Property Analysis (multi-tip) ── */}
+          {/* Primary status */}
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+            padding: '0.9rem 1rem', marginBottom: secondary.length > 0 ? '0.5rem' : '1.25rem',
+            borderRadius: '10px', border: '1px solid var(--border)',
+            background: 'var(--bg-secondary)',
+          }}>
+            <span style={{ fontSize: '1.4rem', lineHeight: 1, flexShrink: 0 }}>{primary.icon}</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem' }} className={primary.cls}>{primary.label}</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '0.3rem', lineHeight: 1.55 }}>
+                {primary.detail}
               </div>
+            </div>
+          </div>
+          {/* Secondary suggestions */}
+          {secondary.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1.25rem' }}>
+              {secondary.map((s, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '0.65rem',
+                  padding: '0.6rem 0.9rem',
+                  borderRadius: '8px', border: '1px solid var(--border)',
+                  background: 'var(--bg-tertiary)',
+                }}>
+                  <span style={{ fontSize: '1.1rem', lineHeight: 1, flexShrink: 0 }}>{s.icon}</span>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: '0.82rem' }} className={s.cls}>{s.label} </span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{s.detail}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Cash flow metrics */}
-          <p className="stat-section-label">Cash Flow &amp; Gain</p>
+          {/* ── Cash Flow & Gain ── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+            <p className="stat-section-label" style={{ margin: 0 }}>Cash Flow &amp; Gain</p>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>window:</span>
+            {WOPT.map(w => (
+              <button key={w} type="button" onClick={() => setAvgWindow(w)}
+                style={{
+                  padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.78rem', cursor: 'pointer',
+                  background: avgWindow === w ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                  color: avgWindow === w ? '#fff' : 'var(--text-secondary)',
+                  border: `1px solid ${avgWindow === w ? 'var(--accent-primary)' : 'var(--border)'}`,
+                }}>{w}M</button>
+            ))}
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>(excludes current month)</span>
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: f(avg.cashflow),
-              primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
+            {mc({ label: `Avg Income (${avgWindow}M)`,   primary: f(avg.income),   primaryCls: 'text-success',
+              tooltip: `Average monthly income over the last ${avgWindow} complete months.` })}
+            {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: f(avg.expenses), primaryCls: 'text-danger',
+              tooltip: `Average monthly expenses over the last ${avgWindow} complete months.` })}
+            {mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: f(avgCashFlow),
+              primaryCls: avgCashFlow >= 0 ? 'text-success' : 'text-danger',
               tooltip: `Average monthly (income \u2212 expenses) over the last ${avgWindow} complete months.` })}
             {mc({ label: 'Monthly Gain', primary: f(monthlyGain) + '/mo',
               primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
-              secondary: yearlyAppr !== null ? `CF ${f(avg.cashflow)} + Appr ${f(monthlyAppr)}/mo` : null,
+              secondary: yearlyAppr !== null ? `CF ${f(avgCashFlow)} + Appr ${f(monthlyAppr)}/mo` : null,
               secondaryCls: 'text-secondary',
-              tooltip: 'Avg Cash Flow + Monthly Appreciation.\nCaptures both income and value growth together.\nMonthly Appreciation = Yearly Appreciation \u00f7 12.' })}
+              tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly \u00f7 12).\nCaptures both income and value growth in one number.\nPositive monthly gain means total wealth is increasing even if cash flow alone is low.' })}
             {mc({ label: 'Time to Sell Profit', primary: timeToProfit.label,
               primaryCls: timeToProfit.cls,
-              tooltip: timeToProfit.tip || 'How many months of avg cash flow needed to equal the current selling profit.\nShorter = better return on holding.' })}
+              tooltip: timeToProfit.tip || 'How many months of avg cash flow needed to equal the current selling profit.\nShorter = better return on holding. Over 5 years may indicate better value in selling.' })}
           </div>
 
-          {/* Income & Expenses */}
+          {/* ── Income & Expenses (all-time) ── */}
           <p className="stat-section-label">Income &amp; Expenses (all-time)</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
             {mc({ label: 'Total Income',   primary: f(property.total_income), primaryCls: 'text-success' })}
@@ -356,12 +532,10 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
               primaryCls: sellingProfit >= 0 ? 'text-success' : 'text-danger',
               secondary: sellingPct !== null ? fp(parseFloat(sellingPct)) + ' of expenses' : null,
               secondaryCls: sellingProfit >= 0 ? 'text-success' : 'text-danger',
-              tooltip: 'Market Value + Total Income \u2212 Total Expenses \u2212 Loan Amount.\nWhat you would net if you sold today.' })}
-            {!isVacant && mc({ label: 'Monthly Rent', primary: f(property.monthly_rent),
-              tooltip: 'Current monthly rent charged.' })}
+              tooltip: 'Market Value + Total Income \u2212 Total Expenses \u2212 Loan Amount.\nWhat you would net if you sold today and paid off the mortgage.' })}
           </div>
 
-          {/* YTD */}
+          {/* ── YTD ── */}
           <p className="stat-section-label">YTD — trailing 12 months</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
             {mc({ label: 'YTD Income',     primary: f(ytdInc), primaryCls: 'text-success' })}
@@ -369,38 +543,15 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
             {mc({ label: 'YTD Balance',    primary: f(ytdBal),
               primaryCls: ytdBal >= 0 ? 'text-success' : 'text-danger' })}
             {mc({ label: 'YTD Principal',  primary: ytdPrin > 0 ? f(ytdPrin) : '\u2014',
-              tertiary: 'From Principal expense records',
-              tooltip: 'Sum of Principal expenses in the trailing 12 months.' })}
+              tertiary: 'From Principal + Mortgage records',
+              tooltip: 'Principal paid in the trailing 12 months.\nIncludes explicit Principal expense records plus the principal portion of Mortgage payments (computed from your mortgage rate).' })}
             {mc({ label: 'YTD Net Exp',    primary: f(ytdNetExp),
               primaryCls: ytdNetExp >= 0 ? 'text-danger' : 'text-success' })}
             {mc({ label: 'YTD Net Profit', primary: f(ytdNetProfit),
               primaryCls: ytdNetProfit >= 0 ? 'text-success' : 'text-danger' })}
           </div>
 
-          {/* Monthly averages */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>
-            <p className="stat-section-label" style={{ margin: 0 }}>Monthly Averages</p>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>window:</span>
-            {WOPT.map(w => (
-              <button key={w} type="button" onClick={() => setAvgWindow(w)}
-                style={{
-                  padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.78rem', cursor: 'pointer',
-                  background: avgWindow === w ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                  color: avgWindow === w ? '#fff' : 'var(--text-secondary)',
-                  border: `1px solid ${avgWindow === w ? 'var(--accent-primary)' : 'var(--border)'}`,
-                }}>{w}M</button>
-            ))}
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>(excludes current month)</span>
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-            {mc({ label: `Avg Income (${avgWindow}M)`,   primary: f(avg.income),   primaryCls: 'text-success' })}
-            {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: f(avg.expenses), primaryCls: 'text-danger' })}
-            {mc({ label: `Avg Cash Flow (${avgWindow}M)`,primary: f(avg.cashflow),
-              primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger' })}
-          </div>
-
-          {/* Appreciation */}
+          {/* ── Appreciation ── */}
           <p className="stat-section-label">Appreciation</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
             {mc({ label: 'Appreciation', primary: f(appr),

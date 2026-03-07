@@ -107,10 +107,10 @@ export default function EventsView({ properties, initialPropertyId }) {
                 {filtered.map(ev => (
                   <tr key={ev.id}>
                     {col('date')      && <td className="col-shrink" style={{ fontSize: '0.8rem' }}>{new Date(ev.created_at).toLocaleString()}</td>}
-                    {col('property')  && <td className="col-fill"><TruncatedCell text={ev.property_name || '—'} maxWidth={110} /></td>}
+                    {col('property')  && <td className="col-fill"><TruncatedCell text={ev.property_name || '—'} /></td>}
                     {col('field')     && <td className="col-shrink" style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{ev.column_name}</td>}
-                    {col('old_value') && <td className="col-fill"><TruncatedCell text={ev.old_value} maxWidth={100} /></td>}
-                    {col('new_value') && <td className="col-fill"><TruncatedCell text={ev.new_value} maxWidth={100} /></td>}
+                    {col('old_value') && <td className="col-fill"><TruncatedCell text={ev.old_value} /></td>}
+                    {col('new_value') && <td className="col-fill"><TruncatedCell text={ev.new_value} /></td>}
                     {col('notes')     && (
                       <td>
                         {editingId === ev.id ? (

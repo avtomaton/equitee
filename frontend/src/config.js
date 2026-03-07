@@ -328,3 +328,90 @@ export const principalInRange = (expenseRecs, currentLoanBalance, annualRatePct,
 
   return explicitPrincipal + mortgagePrincipal;
 };
+
+/**
+ * Monthly mortgage payment using the standard amortization formula.
+ * Returns 0 if any required param is missing or rate is zero.
+ *
+ * @param {number} principal     Loan amount
+ * @param {number} annualRatePct Annual interest rate, e.g. 5.25 for 5.25%
+ * @param {number} amortYears    Amortization period in years
+ */
+export const calcMortgagePayment = (principal, annualRatePct, amortYears) => {
+  if (!principal || !annualRatePct || !amortYears) return 0;
+  const r = annualRatePct / 100 / 12;
+  const n = amortYears * 12;
+  return principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
+};
+
+/**
+ * Compute investment score from key ratios.
+ * Returns { score, stars, label, cls }
+ *
+ * @param {object} p
+ *   avgCashFlow    — monthly net cash flow ($)
+ *   capRate        — cap rate ratio (0.05 = 5%)
+ *   cashOnCash     — cash-on-cash return ratio
+ *   expenseRatio   — expenses / rent ratio
+ *   ltvRatio       — loan-to-value ratio
+ *   yearlyApprRatio — yearly appreciation as fraction of purchase price
+ */
+export const calcInvestmentScore = ({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio }) => {
+  let score = 0;
+
+  // CASH FLOW (30 pts)
+  if      (avgCashFlow > 1000) score += 30;
+  else if (avgCashFlow >  500) score += 24;
+  else if (avgCashFlow >  200) score += 18;
+  else if (avgCashFlow >    0) score += 12;
+  else if (avgCashFlow > -200) score +=  6;
+
+  // CAP RATE (20 pts)
+  if      (capRate > 0.08) score += 20;
+  else if (capRate > 0.06) score += 16;
+  else if (capRate > 0.05) score += 12;
+  else if (capRate > 0.04) score +=  8;
+  else if (capRate > 0.03) score +=  4;
+
+  // CASH ON CASH (20 pts)
+  if      (cashOnCash > 0.12) score += 20;
+  else if (cashOnCash > 0.08) score += 16;
+  else if (cashOnCash > 0.06) score += 12;
+  else if (cashOnCash > 0.04) score +=  8;
+  else if (cashOnCash > 0.02) score +=  4;
+
+  // EXPENSE RATIO (15 pts) — lower is better
+  if      (expenseRatio < 0.30) score += 15;
+  else if (expenseRatio < 0.40) score += 12;
+  else if (expenseRatio < 0.50) score +=  8;
+  else if (expenseRatio < 0.60) score +=  4;
+
+  // LTV (10 pts) — lower is safer
+  if      (ltvRatio < 0.50) score += 10;
+  else if (ltvRatio < 0.65) score +=  8;
+  else if (ltvRatio < 0.75) score +=  6;
+  else if (ltvRatio < 0.85) score +=  3;
+
+  // APPRECIATION (5 pts)
+  if      (yearlyApprRatio > 0.10) score += 5;
+  else if (yearlyApprRatio > 0.05) score += 3;
+  else if (yearlyApprRatio > 0.02) score += 1;
+
+  score = Math.min(100, Math.round(score));
+
+  const fullStars = Math.floor(score / 20);
+  const halfStar  = (score % 20) >= 10;
+  const stars = '\u2605'.repeat(fullStars)
+    + (halfStar ? '\u00bd' : '')
+    + '\u2606'.repeat(5 - fullStars - (halfStar ? 1 : 0));
+
+  let label, cls;
+  if      (score >= 85) { label = 'Excellent investment';  cls = 'text-success'; }
+  else if (score >= 70) { label = 'Healthy property';      cls = 'text-success'; }
+  else if (score >= 55) { label = 'Solid property';        cls = 'text-success'; }
+  else if (score >= 40) { label = 'Average performance';   cls = 'text-warning'; }
+  else if (score >= 25) { label = 'Underperforming';       cls = 'text-warning'; }
+  else                  { label = 'Needs attention';       cls = 'text-danger';  }
+
+  return { score, stars, label, cls };
+};

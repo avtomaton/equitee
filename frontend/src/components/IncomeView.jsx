@@ -196,7 +196,7 @@ export default function IncomeView({ properties, onAddIncome, onEditIncome, init
                 {filtered.map(i => (
                   <tr key={i.id}>
                     {col('date')     && <td className="col-shrink">{fmtDate(i.income_date)}</td>}
-                    {col('property') && <td className="col-fill"><TruncatedCell text={i.property_name} maxWidth={120} /></td>}
+                    {col('property') && <td className="col-fill"><TruncatedCell text={i.property_name} /></td>}
                     {col('amount')   && <td className="col-shrink text-success">${i.amount.toLocaleString()}</td>}
                     {col('type')     && <td className="col-shrink">{i.income_type}</td>}
                     {col('notes')    && <td className="col-fill"><TruncatedCell text={i.notes} /></td>}

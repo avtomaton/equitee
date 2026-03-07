@@ -10,14 +10,14 @@ import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 
-import PropertyModal  from './modals/PropertyModal.jsx';
+import EvaluatorView  from './components/EvaluatorView.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
 import IncomeModal    from './modals/IncomeModal.jsx';
 import TenantModal    from './modals/TenantModal.jsx';
 
 // ── URL routing helpers ───────────────────────────────────────────────────────
 
-const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail'];
+const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator'];
 
 const getViewFromHash = () => {
   const hash = window.location.hash.replace('#', '');
@@ -153,6 +153,9 @@ export default function App() {
 
       case 'events':
         return <EventsView properties={properties} initialPropertyId={jumpPropertyId} />;
+
+      case 'evaluator':
+        return <EvaluatorView />;
 
       case 'property-detail':
         return <PropertyDetail
