@@ -1,5 +1,5 @@
 import StarRating from './StarRating.jsx';
-import { yearsHeld, calcInvestmentScore } from '../config.js';
+import { yearsHeld, calcSimpleHealth } from '../config.js';
 
 // Health badge derived from investment score
 function HealthBadge({ score }) {
@@ -55,19 +55,8 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
     };
   })();
 
-  // Investment score for health badge
-  const investmentScore = (() => {
-    if (avgCashFlow == null) return null;
-    const annualNOI      = (avgNOI ?? avgCashFlow) * 12;
-    const capRate        = property.purchase_price > 0 ? annualNOI / property.purchase_price : 0;
-    const cashOnCash     = equity > 0 ? avgCashFlow * 12 / equity : 0;
-    const ltvRatio       = property.purchase_price > 0 ? property.loan_amount / property.purchase_price : 0;
-    const expenseRatio   = property.monthly_rent > 0
-      ? (property.total_expenses / Math.max(1, property.total_income)) : 0;
-    const yearlyApprRatio = (yrs && property.purchase_price > 0)
-      ? yearlyAppr / property.purchase_price : 0;
-    return calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
-  })();
+  // Investment score — uses calcSimpleHealth for consistency with the Properties table view
+  const investmentScore = calcSimpleHealth(property);
 
   const eqCls = equityPct !== null
     ? (parseFloat(equityPct) >= 50 ? 'text-success'
@@ -126,10 +115,25 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
           pct={equityPct !== null ? `${equityPct}%` : null} pctCls={eqCls} />
 
         <Div />
-        {/* 2. Rent, vacancy & cash flow */}
+        {/* 2. Rent, NOI actual vs potential, vacancy & cash flow */}
         {property.monthly_rent > 0 && (
           <Row label="Rent/mo" value={fmt(property.monthly_rent)} />
         )}
+        {avgNOI != null && (() => {
+          const potentialNOI = property.monthly_rent > 0 && avgCashFlow != null
+            ? property.monthly_rent - (avgCashFlow - avgNOI)  // avgNOI = avgIncome - avgOpEx
+            : null;
+          // Simple: potential = rent - avg operating expenses (approx from avgNOI + avgCashFlow)
+          const cls = avgNOI >= 0 ? 'text-success' : 'text-danger';
+          return (
+            <Row label="Avg NOI/mo"
+              value={fmt(avgNOI)}
+              valueCls={cls}
+              pct={property.monthly_rent > 0 ? `of ${fmt(property.monthly_rent)}` : null}
+              pctCls={avgNOI >= property.monthly_rent * 0.5 ? 'text-success' : avgNOI >= property.monthly_rent * 0.2 ? '' : 'text-warning'}
+            />
+          );
+        })()}
         {econVacancy !== null && (
           <Row label="Econ. Vacancy"
             value={`${econVacancy.toFixed(1)}%`}
@@ -156,6 +160,19 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
         <Row label="Time to Profit"
           value={timeToProfit.label}
           valueCls={timeToProfit.cls} />
+        {/* Cap rate: actual vs potential */}
+        {avgNOI != null && property.purchase_price > 0 && (() => {
+          const capRate = avgNOI * 12 / property.purchase_price;
+          const capCls  = capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger';
+          const potCap  = property.monthly_rent > 0 ? property.monthly_rent * 12 / property.purchase_price : null;
+          return (
+            <Row label="Cap Rate"
+              value={`${(capRate * 100).toFixed(1)}%`}
+              valueCls={capCls}
+              pct={potCap !== null ? `pot. ${(potCap * 100).toFixed(1)}%` : null}
+              pctCls={capRate >= potCap * 0.9 ? 'text-success' : 'text-warning'} />
+          );
+        })()}
 
         <Div />
         {/* 4. Income / expenses / balance */}

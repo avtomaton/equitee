@@ -119,12 +119,15 @@ export default function Dashboard({ properties, onPropertyClick }) {
         .reduce((s, r) => s + r.amount, 0);
     });
 
+    // Potential (rent-based) portfolio monthly rent
+    const totalMonthlyRent = properties.reduce((s, p) => s + (p.monthly_rent || 0), 0);
+
     return {
       market, purchase, loan, income, expenses, equity, equityPct, loanPct,
       appr, apprPct, yearlyAppr, yearlyApprPct, projectedYE,
       totalNetExp, netProfit, balance, roi, sellingProfit,
       ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdNetProfit,
-      occupied, occupancyPct, ytdIncomeByProp,
+      occupied, occupancyPct, ytdIncomeByProp, totalMonthlyRent,
     };
   }, [properties, allIncome, allExpenses]);
 
@@ -133,11 +136,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
     avgMonthly(allIncome, allExpenses, avgWindow),
   [allIncome, allExpenses, avgWindow]);
 
-  // DSCR: avg monthly NOI / avg monthly mortgage payments
-  const dscr = useMemo(() => {
-    if (avg.mortgage <= 0) return null;
-    return avg.noi / avg.mortgage;
-  }, [avg]);
+
 
   // Per-property avg (3-month window) for PropertyCard
   const perPropAvg = useMemo(() => {
@@ -289,19 +288,70 @@ export default function Dashboard({ properties, onPropertyClick }) {
       {/* Row 1: Core monthly metrics */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
         {mc({ label: `Avg Income (${avgWindow}M)`,   primary: fmt(avg.income),   primaryCls: 'text-success',
-          tooltip: `Average monthly income over the last ${avgWindow} complete months.` })}
+          secondary: agg.totalMonthlyRent > 0 ? `Potential: ${fmt(agg.totalMonthlyRent)}/mo` : null,
+          secondaryCls: agg.totalMonthlyRent > 0
+            ? (avg.income >= agg.totalMonthlyRent * 0.92 ? 'text-success' : avg.income >= agg.totalMonthlyRent * 0.75 ? 'text-warning' : 'text-danger')
+            : '',
+          tooltip: `Average monthly income over the last ${avgWindow} complete months.\n"Potential" is sum of all monthly rents — shows the income gap if any vacancy exists.` })}
         {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: fmt(avg.expenses), primaryCls: 'text-danger',
           tooltip: `Average monthly expenses over the last ${avgWindow} complete months.` })}
         {mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: fmt(avg.cashflow),
           primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
           tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.` })}
-        {mc({ label: `Avg NOI (${avgWindow}M)`, primary: fmt(avg.noi),
-          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-          tertiary: 'Excl. mortgage & principal',
-          tooltip: `Net Operating Income: avg monthly income minus all operating expenses, excluding mortgage and principal payments.\nThis is financing-agnostic — useful for comparing asset performance regardless of how the property is financed.\nAverage over the last ${avgWindow} complete months.` })}
+        {(() => {
+          const potentialNOI = agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent - avg.noiExpenses : null;
+          return mc({ label: `Avg NOI (${avgWindow}M)`, primary: fmt(avg.noi),
+            primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
+            secondary: potentialNOI !== null ? `Potential: ${fmt(potentialNOI)}/mo` : 'Excl. mortgage & principal',
+            secondaryCls: potentialNOI !== null
+              ? (avg.noi >= potentialNOI * 0.92 ? 'text-success' : avg.noi >= potentialNOI * 0.75 ? 'text-warning' : 'text-danger')
+              : '',
+            tooltip: `Net Operating Income: avg monthly income minus all operating expenses, excluding mortgage and principal.\nFinancing-agnostic — useful for comparing asset performance regardless of how the property is financed.\n"Potential" = total monthly rent minus avg operating expenses (100% occupancy benchmark).\nAverage over the last ${avgWindow} complete months.` });
+        })()}
       </div>
 
-      {/* Row 2: Ratio metrics */}
+      {/* Row 2: Key investment ratios */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
+        {(() => {
+          const annualNOI      = avg.noi * 12;
+          const capRate        = agg.market > 0 ? annualNOI / agg.market : null;
+          const potentialNOI   = agg.totalMonthlyRent > 0 ? (agg.totalMonthlyRent - avg.noiExpenses) * 12 : null;
+          const potentialCap   = (potentialNOI !== null && agg.market > 0) ? potentialNOI / agg.market : null;
+          const oer            = avg.income > 0 ? avg.noiExpenses / avg.income : null;
+          const potentialOER   = agg.totalMonthlyRent > 0 ? avg.noiExpenses / agg.totalMonthlyRent : null;
+          const dscr           = avg.mortgage > 0 ? avg.noi / avg.mortgage : null;
+          return (<>
+            {capRate !== null && mc({
+              label: `Cap Rate (${avgWindow}M)`,
+              primary: `${(capRate * 100).toFixed(1)}%`,
+              primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
+              secondary: potentialCap !== null ? `Potential: ${(potentialCap * 100).toFixed(1)}%` : null,
+              secondaryCls: potentialCap !== null
+                ? (capRate >= potentialCap * 0.92 ? 'text-success' : capRate >= potentialCap * 0.75 ? 'text-warning' : 'text-danger')
+                : '',
+              tertiary: capRate > 0.07 ? 'Strong' : capRate > 0.04 ? 'Moderate' : 'Weak',
+              tooltip: `Portfolio Cap Rate = annualised NOI ÷ total market value.\nActual uses recorded income. "Potential" uses total monthly rent at 100% occupancy.\nGap reveals revenue lost to vacancy or non-payment across the portfolio.` })}
+            {oer !== null && mc({
+              label: `OER (${avgWindow}M)`,
+              primary: `${(oer * 100).toFixed(1)}%`,
+              primaryCls: oer < 0.35 ? 'text-success' : oer < 0.50 ? '' : 'text-danger',
+              secondary: potentialOER !== null ? `On rent: ${(potentialOER * 100).toFixed(1)}%` : null,
+              secondaryCls: potentialOER !== null
+                ? (potentialOER < 0.35 ? 'text-success' : potentialOER < 0.50 ? '' : 'text-danger')
+                : '',
+              tertiary: oer < 0.35 ? 'Efficient' : oer < 0.50 ? 'Normal' : 'High costs',
+              tooltip: `Operating Expense Ratio = avg monthly operating costs ÷ avg monthly income.\n"On rent" uses total monthly rent as denominator for a vacancy-neutral view.\nBelow 35%: lean. 35–50%: normal. Above 50%: review costs.` })}
+            {dscr !== null && mc({
+              label: `DSCR (${avgWindow}M)`,
+              primary: dscr.toFixed(2) + 'x',
+              primaryCls: dscr >= 1.25 ? 'text-success' : dscr >= 1.0 ? 'text-warning' : 'text-danger',
+              tertiary: dscr >= 1.25 ? 'Healthy coverage' : dscr >= 1.0 ? 'Marginal' : 'Below 1x',
+              tooltip: `Debt Service Coverage Ratio = avg monthly NOI ÷ avg monthly mortgage payments.\n≥ 1.25x: healthy. 1.0–1.25x: marginal. < 1.0x: income doesn't cover debt service.` })}
+          </>);
+        })()}
+      </div>
+
+      {/* Row 3: Gain + Time to Profit */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {(() => {
           const monthlyAppr = agg.yearlyAppr / 12;
@@ -310,13 +360,6 @@ export default function Dashboard({ properties, onPropertyClick }) {
             primaryCls: mg >= 0 ? 'text-success' : 'text-danger',
             tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly / 12). Captures income and value growth in one number.' });
         })()}
-        {dscr !== null && mc({
-          label: `DSCR (${avgWindow}M)`,
-          primary: dscr.toFixed(2) + 'x',
-          primaryCls: dscr >= 1.25 ? 'text-success' : dscr >= 1.0 ? 'text-warning' : 'text-danger',
-          tertiary: dscr >= 1.25 ? 'Healthy coverage' : dscr >= 1.0 ? 'Marginal' : 'Insufficient coverage',
-          tooltip: `Debt Service Coverage Ratio = avg monthly NOI ÷ avg monthly mortgage payments.\nMeasures how well operating income covers debt obligations.\n≥ 1.25x: lenders consider this healthy.\n1.0–1.25x: marginal — little cushion.\n< 1.0x: NOI doesn't cover the mortgage; property is cash-flow dependent on reserves.\nAverage over the last ${avgWindow} complete months.`,
-        })}
         {(() => {
           const sp = agg.sellingProfit; const cf = avg.cashflow;
           let label, cls;
