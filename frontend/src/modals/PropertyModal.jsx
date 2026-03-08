@@ -2,25 +2,36 @@ import { useState } from 'react';
 import { API_URL, PROVINCES, INITIAL_OPTIONS, formatPostalCode } from '../config.js';
 
 const toFormState = (p) => p ? {
-  name:          p.name           ?? '',
-  province:      p.province       ?? '',
-  city:          p.city           ?? '',
-  address:       p.address        ?? '',
-  postalCode:    p.postal_code    ?? p.postalCode    ?? '',
-  parking:       p.parking        ?? '',
-  purchasePrice: p.purchase_price ?? p.purchasePrice ?? 0,
-  marketPrice:   p.market_price   ?? p.marketPrice   ?? 0,
-  loanAmount:    p.loan_amount    ?? p.loanAmount    ?? 0,
-  mortgageRate:  p.mortgage_rate  ?? p.mortgageRate  ?? 0,
-  monthlyRent:   p.monthly_rent   ?? p.monthlyRent   ?? 0,
-  possDate:      p.poss_date      ?? p.possDate      ?? '',
-  status:        p.status         ?? 'Rented',
-  type:          p.type           ?? 'Condo',
-  notes:         p.notes           ?? '',
+  name:                 p.name                 ?? '',
+  province:             p.province             ?? '',
+  city:                 p.city                 ?? '',
+  address:              p.address              ?? '',
+  postalCode:           p.postal_code          ?? p.postalCode          ?? '',
+  parking:              p.parking              ?? '',
+  purchasePrice:        p.purchase_price       ?? p.purchasePrice       ?? 0,
+  marketPrice:          p.market_price         ?? p.marketPrice         ?? 0,
+  loanAmount:           p.loan_amount          ?? p.loanAmount          ?? 0,
+  mortgageRate:         p.mortgage_rate        ?? p.mortgageRate        ?? 0,
+  monthlyRent:          p.monthly_rent         ?? p.monthlyRent         ?? 0,
+  possDate:             p.poss_date            ?? p.possDate            ?? '',
+  status:               p.status               ?? 'Rented',
+  type:                 p.type                 ?? 'Condo',
+  notes:                p.notes                ?? '',
+  expectedCondoFees:    p.expected_condo_fees        ?? p.expectedCondoFees      ?? 0,
+  expectedInsurance:    p.expected_insurance         ?? p.expectedInsurance      ?? 0,
+  expectedUtilities:    p.expected_utilities         ?? p.expectedUtilities      ?? 0,
+  expectedMiscExpenses: p.expected_misc_expenses     ?? p.expectedMiscExpenses   ?? 0,
+  expectedAppreciationPct: p.expected_appreciation_pct ?? p.expectedAppreciationPct ?? 0,
+  annualPropertyTax:    p.annual_property_tax      ?? p.annualPropertyTax    ?? 0,
+  mortgagePayment:      p.mortgage_payment         ?? p.mortgagePayment      ?? 0,
+  mortgageFrequency:    p.mortgage_frequency       ?? p.mortgageFrequency    ?? 'monthly',
 } : {
   name: '', province: '', city: '', address: '', postalCode: '',
   parking: '', purchasePrice: 0, marketPrice: 0, loanAmount: 0, mortgageRate: 0,
   monthlyRent: 0, possDate: '', status: 'Rented', type: 'Condo', notes: '',
+  expectedCondoFees: 0, expectedInsurance: 0, expectedUtilities: 0, expectedMiscExpenses: 0,
+  expectedAppreciationPct: 0, annualPropertyTax: 0,
+  mortgagePayment: 0, mortgageFrequency: 'monthly',
 };
 
 export default function PropertyModal({ property, onClose, onSave }) {
@@ -249,6 +260,90 @@ export default function PropertyModal({ property, onClose, onSave }) {
               <label>Notes</label>
               <textarea rows="3" value={formData.notes} onChange={e => set('notes', e.target.value)}
                 placeholder="Any additional notes about this property…" />
+            </div>
+
+            {/* ── Mortgage payment details ── */}
+            <div className="form-group full-width" style={{ gridColumn: '1 / -1' }}>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.9rem', marginTop: '0.25rem' }}>
+                <p style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.07em', color: 'var(--text-tertiary)', margin: '0 0 0.65rem' }}>
+                  Mortgage Payment
+                  <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: '0.5rem' }}>
+                    — enables expected cash flow, DSCR, and quick-fill in expense entry
+                  </span>
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Payment Amount ($)</label>
+                    <input type="number" min="0" step="0.01" value={formData.mortgagePayment}
+                      onChange={e => set('mortgagePayment', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Frequency</label>
+                    <select value={formData.mortgageFrequency} onChange={e => set('mortgageFrequency', e.target.value)}>
+                      <option value="monthly">Monthly</option>
+                      <option value="semi-monthly">Semi-monthly (24/yr)</option>
+                      <option value="bi-weekly">Bi-weekly (26/yr)</option>
+                      <option value="weekly">Weekly (52/yr)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Expected monthly costs ── */}
+            <div className="form-group full-width" style={{ gridColumn: '1 / -1' }}>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.9rem', marginTop: '0.25rem' }}>
+                <p style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.07em', color: 'var(--text-tertiary)', margin: '0 0 0.65rem' }}>
+                  Expected Monthly Costs &amp; Growth
+                  <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: '0.5rem' }}>
+                    — used to compute target NOI, cap rate, DSCR, CoC, and appreciation benchmarks
+                  </span>
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Condo Fees/mo ($)
+                      <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>HOA / strata</span>
+                    </label>
+                    <input type="number" min="0" step="0.01" value={formData.expectedCondoFees}
+                      onChange={e => set('expectedCondoFees', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Insurance/mo ($)</label>
+                    <input type="number" min="0" step="0.01" value={formData.expectedInsurance}
+                      onChange={e => set('expectedInsurance', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Utilities/mo ($)
+                      <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>hydro, gas, water…</span>
+                    </label>
+                    <input type="number" min="0" step="0.01" value={formData.expectedUtilities}
+                      onChange={e => set('expectedUtilities', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Misc Expenses/mo ($)
+                      <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>contingency, other</span>
+                    </label>
+                    <input type="number" min="0" step="0.01" value={formData.expectedMiscExpenses}
+                      onChange={e => set('expectedMiscExpenses', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Annual Property Tax ($)</label>
+                    <input type="number" min="0" step="0.01" value={formData.annualPropertyTax}
+                      onChange={e => set('annualPropertyTax', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Expected Yearly Appreciation (%)
+                      <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>of purchase price</span>
+                    </label>
+                    <input type="number" min="0" max="50" step="0.1"
+                      value={formData.expectedAppreciationPct}
+                      placeholder="e.g. 3.5"
+                      onChange={e => set('expectedAppreciationPct', parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

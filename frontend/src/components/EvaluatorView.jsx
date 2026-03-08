@@ -1,7 +1,7 @@
 import StarRating from './StarRating.jsx';
 import { useState, useMemo } from 'react';
 import MetricCard from './MetricCard.jsx';
-import { calcInvestmentScore, calcMortgagePayment, calcIRR } from '../config.js';
+import { calcInvestmentScore, calcMortgagePayment, calcIRR } from '../metrics.js';
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 

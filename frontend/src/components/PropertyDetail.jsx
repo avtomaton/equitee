@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { API_URL, isCurrentTenant, fmtDate, yearsHeld, avgMonthly, principalInRange, calcInvestmentScore, calcIRR, buildPropertyIRRCashFlows } from '../config.js';
+import { API_URL, isCurrentTenant, fmtDate } from '../config.js';
+import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected, expGapCls, calcIRR, buildPropertyIRRCashFlows } from '../metrics.js';
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
 import StarRating from './StarRating.jsx';
@@ -241,26 +242,20 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           return calcIRR(cfs);
         })();
 
-        // ── Potential (rent-based) metrics for expected vs actual comparison ──
-        // These show what the property *should* achieve at 100% occupancy vs what it actually earns.
-        const potentialMonthlyNOI = monthlyRent > 0 ? monthlyRent - avg.noiExpenses : null;
-        const annualPotentialNOI  = potentialMonthlyNOI !== null ? potentialMonthlyNOI * 12 : null;
-        const potentialCapRate    = (annualPotentialNOI !== null && property.purchase_price > 0)
-          ? annualPotentialNOI / property.purchase_price : null;
-        const potentialOER        = monthlyRent > 0 && monthlyRent > 0 ? avg.noiExpenses / monthlyRent : null;
-        // Income gap: how much less per month vs potential
-        const incomeGap = monthlyRent > 0 ? monthlyRent - avg.income : null;
-        const incomeGapPct = (monthlyRent > 0 && incomeGap !== null) ? incomeGap / monthlyRent * 100 : null;
+        // ── Monthly gain = cash flow + appreciation ─────────────────────────────
+        const expected       = calcExpected(property, avg.mortgage);
+        const monthlyAppr    = yearlyAppr !== null ? yearlyAppr / 12 : 0;
+        const monthlyGain    = avg.cashflow + monthlyAppr;
 
-        const fPotential = (actual, potential, higherIsBetter = true) => {
-          if (potential == null) return null;
-          const better = higherIsBetter ? actual >= potential * 0.95 : actual <= potential * 1.05;
-          const cls = better ? 'text-success' : Math.abs(actual - potential) / (Math.abs(potential) || 1) < 0.15 ? 'text-warning' : 'text-danger';
-          return { cls };
-        };
-
-        const monthlyAppr = yearlyAppr !== null ? yearlyAppr / 12 : 0;
-        const monthlyGain = avg.cashflow + monthlyAppr;
+        // Expected appreciation (from property's expected_appreciation_pct field)
+        const expApprPct     = property.expected_appreciation_pct || 0;
+        const expYearlyAppr  = expApprPct > 0 ? property.purchase_price * expApprPct / 100 : null;
+        const expMonthlyAppr = expYearlyAppr !== null ? expYearlyAppr / 12 : null;
+        // Expected monthly gain = expected CF + expected appreciation
+        const expMonthlyCF   = expected?.monthlyCF ?? null;
+        const expMonthlyGain = (expMonthlyCF !== null && expMonthlyAppr !== null)
+          ? expMonthlyCF + expMonthlyAppr
+          : expMonthlyCF !== null ? expMonthlyCF : null;
 
         // Time to reach selling profit via cash flow
         // Returns { months, label, cls }
@@ -285,13 +280,38 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           ? yearlyAppr / property.purchase_price : 0;
 
         // ── Investment score ─────────────────────────────────────────────────
-        const investmentScore = calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
+        // Use calcSimpleHealth for score — identical to the score shown on
+        // PropertyCards and the Properties table, so they always match.
+        const investmentScore = calcSimpleHealth(property);
+
+        // ── Expected (budgeted) metrics from property's cost fields — declared above ──
 
         const f    = n => `$${Math.round(n).toLocaleString()}`;
         const fp   = n => `${Number(n).toFixed(1)}%`;
         const fPct = n => `${(n * 100).toFixed(1)}%`;
         const WOPT = [1, 2, 3, 6, 12];
         const mc = (props) => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
+
+        /**
+         * Build secondary + tertiary props for a metric card showing an expected value.
+         * actual, exp  — both in the same units (dollars or fraction)
+         * colorFn      — fn(value) → CSS class for the expected value itself (independent coloring)
+         * fmtFn        — formatter for display (f or fPct)
+         * label        — prefix label, e.g. "Exp:"
+         * hiIsGood     — true if higher actual > expected is better (income, NOI, cap rate)
+         * absThresh    — absolute difference below which the gap is negligible
+         */
+        const expProps = (actual, exp, colorFn, fmtFn, label = 'Exp:', hiIsGood = true, absThresh = 25) => {
+          if (exp == null) return {};
+          const expCls              = colorFn(exp);
+          const { cls: gapCls, gapStr } = expGapCls(actual, exp, hiIsGood, absThresh);
+          return {
+            secondary:    `${label} ${fmtFn(exp)}`,
+            secondaryCls: expCls,
+            tertiary:     gapStr || undefined,
+            tertiaryCls:  gapStr ? gapCls : undefined,
+          };
+        };
 
         // ── Smart analysis — always returns array, never null ────────────────
         // Each item: { icon, label, cls, detail, isPrimary? }
@@ -456,92 +476,127 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
             {mc({ label: 'Loan-to-Value', primary: fPct(ltvRatio),
               primaryCls: ltvRatio > 0.80 ? 'text-danger' : ltvRatio > 0.65 ? 'text-warning' : 'text-success',
               tertiary: ltvRatio > 0.80 ? 'High leverage' : ltvRatio < 0.55 ? 'Low leverage' : 'Moderate leverage',
-              tooltip: 'Loan \u00f7 Market Value.\nMeasures financial risk \u2014 higher LTV = more leverage = more risk.\nLenders typically require LTV \u2264 80%. Below 65% is considered conservative.' })}
+              tooltip: 'Loan ÷ Market Value.\nHigher LTV = more risk. Lenders prefer ≤ 80%. Below 65% is conservative.' })}
             {mc({
               label: 'Cap Rate',
               primary: fPct(capRate),
               primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-              secondary: potentialCapRate !== null ? `Potential: ${fPct(potentialCapRate)}` : null,
-              secondaryCls: potentialCapRate !== null
-                ? (capRate >= potentialCapRate * 0.92 ? 'text-success' : capRate >= potentialCapRate * 0.75 ? 'text-warning' : 'text-danger')
-                : '',
-              tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-              tooltip: 'Annual NOI \u00f7 Purchase Price.\nActual: uses recorded income. Potential: uses monthly rent (100% occupancy).\nGap between actual and potential reveals vacancy impact on yield.' })}
+              ...expProps(capRate, expected?.capRate,
+                v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct),
+              tooltip: 'Annual NOI ÷ Purchase Price.\nExp uses budgeted fixed costs + utilities + tax/12 as op-ex at full occupancy.\n4–6% residential, 6–8%+ commercial.' })}
             {mc({
               label: 'Cash-on-Cash',
               primary: fPct(cashOnCash),
               primaryCls: cashOnCash > 0.08 ? 'text-success' : cashOnCash > 0.04 ? '' : cashOnCash < 0 ? 'text-danger' : 'text-warning',
-              tertiary: cashOnCash > 0.08 ? 'Strong' : cashOnCash > 0.04 ? 'Moderate' : 'Weak',
-              tooltip: 'Annual Cash Flow \u00f7 Equity.\nMeasures capital efficiency \u2014 how hard your invested equity is working.\nTarget: 6\u201310%+ for most investors.' })}
-            {monthlyRent > 0 && mc({ label: 'Expense Ratio', primary: fPct(expenseRatio),
+              ...expProps(cashOnCash, expected?.cashOnCash,
+                v => v > 0.08 ? 'text-success' : v > 0.04 ? '' : v < 0 ? 'text-danger' : 'text-warning', fPct),
+              tooltip: 'Annual Cash Flow ÷ Equity.\nExp uses budgeted op-ex + actual mortgage vs equity.\nTarget: 6–10%+.' })}
+            {monthlyRent > 0 && mc({
+              label: 'Expense Ratio',
+              primary: fPct(expenseRatio),
               primaryCls: expenseRatio < 0.35 ? 'text-success' : expenseRatio < 0.50 ? '' : 'text-danger',
-              tertiary: expenseRatio < 0.35 ? 'Lean operations' : expenseRatio < 0.50 ? 'Normal' : 'High costs',
-              tooltip: 'Avg Monthly Expenses \u00f7 Monthly Rent.\nMeasures what fraction of rent is consumed by all costs (including mortgage).\nBelow 35%: efficient. 35\u201350%: normal range. Above 50%: review costs.' })}
+              ...expProps(expenseRatio, expected?.expenseRatio,
+                v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct),
+              tooltip: 'Avg Monthly Expenses ÷ Monthly Rent.\nIncludes all costs incl. mortgage. Below 35%: efficient.\nExp = (budgeted op-ex + actual mortgage) ÷ monthly rent.' })}
             {monthlyRent > 0 && mc({ label: 'Rent-to-Value', primary: fPct(rentToValue),
               primaryCls: rentToValue > 0.01 ? 'text-success' : rentToValue > 0.007 ? '' : 'text-danger',
               tertiary: rentToValue > 0.01 ? 'Strong RTV' : rentToValue > 0.007 ? 'Moderate' : 'Weak RTV',
-              tooltip: 'Annual Rent \u00f7 Purchase Price (the "1% rule" benchmark).\nThe classic 1% rule: monthly rent should be \u22651% of purchase price for a cash-flow-positive property.\n1%+/mo = strong. 0.7\u20131%/mo = moderate. Below 0.7%/mo = challenging to cash flow.' })}
+              tooltip: 'Annual Rent ÷ Purchase Price.\nThe 1% rule: monthly rent ≥ 1% of purchase price for healthy cash flow.' })}
           </div>
 
           {/* ── Operating & Vacancy Metrics ── */}
           <p className="stat-section-label">Operating &amp; Vacancy Metrics</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+
+          {/* Row 1: Dollar averages + Cap Rate + DSCR */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
             {mc({
               label: `Avg NOI (${avgWindow}M)`,
               primary: f(avg.noi) + '/mo',
               primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-              secondary: potentialMonthlyNOI !== null
-                ? `Potential: ${f(potentialMonthlyNOI)}/mo`
-                : `${f(annualNOI)}/yr`,
-              secondaryCls: potentialMonthlyNOI !== null
-                ? (avg.noi >= potentialMonthlyNOI * 0.92 ? 'text-success' : avg.noi >= potentialMonthlyNOI * 0.75 ? 'text-warning' : 'text-danger')
-                : '',
-              tooltip: 'Net Operating Income = avg monthly income \u2212 operating expenses (excluding mortgage & principal).\nFinancing-agnostic \u2014 captures what the asset earns before debt service.\n"Potential" shows expected NOI at 100% occupancy at listed rent with current expense levels.' })}
+              ...expProps(avg.noi, expected?.monthlyNOI,
+                v => v >= 0 ? 'text-success' : 'text-danger', v => f(v) + '/mo'),
+              tooltip: 'Net Operating Income = avg monthly income − op-ex (excl. mortgage & principal).\nExp uses budgeted fixed costs + utilities + property tax/12.' })}
+            {mc({
+              label: `Avg Cash Flow (${avgWindow}M)`,
+              primary: f(avg.cashflow) + '/mo',
+              primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
+              ...expProps(avg.cashflow, expected?.monthlyCF,
+                v => v >= 0 ? 'text-success' : 'text-danger', v => f(v) + '/mo'),
+              tooltip: 'Avg monthly (income − all expenses incl. mortgage).\nExp = budgeted NOI − actual avg mortgage.' })}
+            {mc({
+              label: `Avg Expenses (${avgWindow}M)`,
+              primary: f(avg.expenses) + '/mo',
+              primaryCls: avg.expenses > avg.income * 0.85 ? 'text-danger' : avg.expenses > avg.income * 0.65 ? 'text-warning' : '',
+              ...expProps(avg.expenses, expected?.monthlyExpenses,
+                v => v < (monthlyRent * 0.65) ? '' : v < (monthlyRent * 0.85) ? 'text-warning' : 'text-danger',
+                v => f(v) + '/mo'),
+              tooltip: 'Avg total monthly expenses (all categories).\nExp = budgeted op-ex + actual avg mortgage payment.' })}
             {mc({
               label: 'Cap Rate',
               primary: fPct(capRate),
               primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-              secondary: potentialCapRate !== null
-                ? `Potential: ${fPct(potentialCapRate)}`
-                : null,
-              secondaryCls: potentialCapRate !== null
-                ? (capRate >= potentialCapRate * 0.92 ? 'text-success' : capRate >= potentialCapRate * 0.75 ? 'text-warning' : 'text-danger')
-                : '',
+              ...expProps(capRate, expected?.capRate,
+                v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct),
               tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-              tooltip: 'Annual NOI \u00f7 Purchase Price.\nActual uses recorded income. "Potential" uses monthly rent as income at 100% occupancy.\nA gap between actual and potential signals vacancy or lost rent.' })}
-            {avg.income > 0 && mc({
-              label: 'OER',
-              primary: fPct(oer),
-              primaryCls: oer < 0.35 ? 'text-success' : oer < 0.50 ? '' : 'text-danger',
-              secondary: potentialOER !== null && Math.abs(oer - potentialOER) > 0.005
-                ? `On rent: ${fPct(potentialOER)}`
-                : null,
-              secondaryCls: potentialOER !== null
-                ? (potentialOER < 0.35 ? 'text-success' : potentialOER < 0.50 ? '' : 'text-danger')
-                : '',
-              tertiary: oer < 0.35 ? 'Efficient' : oer < 0.50 ? 'Normal' : 'High',
-              tooltip: 'Operating Expense Ratio = avg monthly operating costs (excl. mortgage & principal) \u00f7 avg monthly gross income.\n"On rent" variant uses monthly_rent as denominator — shows true operational efficiency if fully occupied.\nBelow 35%: lean. 35\u201350%: industry standard. Above 50%: review costs.' })}
-            {irr !== null && mc({
-              label: 'IRR',
-              primary: fPct(irr),
-              primaryCls: irr > 0.15 ? 'text-success' : irr > 0.08 ? '' : irr < 0 ? 'text-danger' : 'text-warning',
-              tertiary: irr > 0.15 ? 'Excellent' : irr > 0.08 ? 'Good' : irr < 0 ? 'Loss' : 'Below target',
-              tooltip: 'Internal Rate of Return \u2014 the annualised discount rate that makes the NPV of all cash flows zero.\nCalculated from possession date to today using actual monthly net cash flows, with current equity as the terminal value.\nGold standard for investment performance \u2014 accounts for timing of every cash flow.\nTarget: 10\u201315%+ for real estate.' })}
-            {econVacancy !== null && mc({
-              label: 'Economic Vacancy',
-              primary: `${Math.min(econVacancy, 100).toFixed(1)}%`,
-              primaryCls: econVacancy > 10 ? 'text-danger' : econVacancy > 4 ? 'text-warning' : 'text-success',
-              tertiary: econVacancy > 10 ? 'High loss' : econVacancy > 4 ? 'Moderate' : 'Low',
-              tooltip: 'Lost rent YTD \u00f7 Annual potential rent.\n= (Monthly Rent \u00d7 12 \u2212 YTD income) \u00f7 (Monthly Rent \u00d7 12).\nMeasures actual revenue lost to vacancy and non-payment in the trailing 12 months.\nCapped at 100%. Target: below 5%.' })}
-            {maintCapexRatio !== null && mc({
-              label: 'Maint+CapEx Ratio',
-              primary: fPct(maintCapexRatio),
-              primaryCls: maintCapexRatio < 0.05 ? 'text-success' : maintCapexRatio < 0.12 ? '' : 'text-danger',
-              tertiary: maintCapexRatio < 0.05 ? 'Low' : maintCapexRatio < 0.12 ? 'Normal' : 'High',
-              tooltip: 'YTD Maintenance + Capital Expenditure expenses \u00f7 Annual gross rental income.\nTracks how much of rental income is consumed by upkeep and improvements.\nIndustry rule of thumb: 5\u201310% of gross rent. Above 15% may signal deferred maintenance backlog.' })}
+              tooltip: 'Annual NOI ÷ Purchase Price. Actual vs budgeted expected.' })}
+            {mc({
+              label: `DSCR (${avgWindow}M)`,
+              primary: avg.mortgage > 0 ? (avg.noi / avg.mortgage).toFixed(2) + 'x' : '—',
+              primaryCls: avg.mortgage > 0
+                ? (avg.noi / avg.mortgage >= 1.25 ? 'text-success' : avg.noi / avg.mortgage >= 1.0 ? 'text-warning' : 'text-danger')
+                : 'text-secondary',
+              ...(avg.mortgage > 0 ? expProps(avg.noi / avg.mortgage, expected?.dscr,
+                v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger',
+                v => v.toFixed(2) + 'x', 'Exp:', true, 0.05) : {}),
+              tertiary: avg.mortgage <= 0
+                ? (expected?.dscr != null ? `Exp: ${expected.dscr.toFixed(2)}x — no mortgage records yet` : 'No mortgage expenses recorded')
+                : undefined,
+              tooltip: 'Debt Service Coverage = NOI ÷ mortgage payment.\n≥ 1.25x: healthy. 1.0–1.25x: marginal. < 1.0x: income doesn’t cover debt.\nRequires Mortgage expense records in the selected window.' })}
           </div>
 
-          {/* ── Investment Score ── */}
+          {/* Row 2: Ratios, IRR, vacancy */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {mc({
+              label: 'OER',
+              primary: avg.income > 0 ? fPct(oer) : '—',
+              primaryCls: avg.income > 0 ? (oer < 0.35 ? 'text-success' : oer < 0.50 ? '' : 'text-danger') : 'text-secondary',
+              ...(avg.income > 0 ? expProps(oer, expected?.oer,
+                v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false) : {}),
+              tertiary: avg.income <= 0 ? 'No income in selected window' : (oer < 0.35 ? 'Efficient' : oer < 0.50 ? 'Normal' : 'High'),
+              tooltip: 'Operating Expense Ratio = avg op-ex ÷ avg gross income.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.\nExp uses budgeted op-ex ÷ monthly rent.' })}
+            {mc({
+              label: 'IRR',
+              primary: irr !== null ? fPct(irr) : '—',
+              primaryCls: irr !== null
+                ? (irr > 0.15 ? 'text-success' : irr > 0.08 ? '' : irr < 0 ? 'text-danger' : 'text-warning')
+                : 'text-secondary',
+              tertiary: irr !== null
+                ? (irr > 0.15 ? 'Excellent' : irr > 0.08 ? 'Good' : irr < 0 ? 'Loss' : 'Below target')
+                : (!property.poss_date ? 'No possession date set' : 'Need ≥ 2 months of records'),
+              tooltip: 'Internal Rate of Return — annualised rate making NPV of all cash flows zero.\nCalculated from possession date using actual monthly net CFs + current equity as terminal value.\nTarget: 10–15%+ for real estate.' })}
+            {mc({
+              label: 'Economic Vacancy',
+              primary: econVacancy !== null ? `${Math.min(econVacancy, 100).toFixed(1)}%` : '—',
+              primaryCls: econVacancy !== null
+                ? (econVacancy > 10 ? 'text-danger' : econVacancy > 4 ? 'text-warning' : 'text-success')
+                : 'text-secondary',
+              tertiary: econVacancy !== null
+                ? (econVacancy > 10 ? 'High loss' : econVacancy > 4 ? 'Moderate' : 'Low')
+                : 'Set monthly rent to compute',
+              tooltip: 'Lost rent YTD ÷ Annual potential rent.\nCapped at 100%. Target: < 5%.' })}
+            {mc({
+              label: 'Maint+CapEx Ratio',
+              primary: maintCapexRatio !== null ? fPct(maintCapexRatio) : '—',
+              primaryCls: maintCapexRatio !== null
+                ? (maintCapexRatio < 0.05 ? 'text-success' : maintCapexRatio < 0.12 ? '' : 'text-danger')
+                : 'text-secondary',
+              tertiary: maintCapexRatio !== null
+                ? (maintCapexRatio < 0.05 ? 'Low' : maintCapexRatio < 0.12 ? 'Normal' : 'High')
+                : 'Set monthly rent to compute',
+              tooltip: 'YTD Maint + CapEx ÷ Annual gross rental income.\nNorm: 5–10% of gross rent. Above 15% may signal deferred maintenance.' })}
+          </div>
+
+                    {/* ── Investment Score ── */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap',
             padding: '0.85rem 1.1rem', marginBottom: '1.25rem',
@@ -627,10 +682,33 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
               primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
               secondary: yearlyAppr !== null ? `CF ${f(avgCashFlow)} + Appr ${f(monthlyAppr)}/mo` : null,
               secondaryCls: 'text-secondary',
-              tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly \u00f7 12).\nCaptures both income and value growth in one number.\nPositive monthly gain means total wealth is increasing even if cash flow alone is low.' })}
-            {mc({ label: 'Time to Sell Profit', primary: timeToProfit.label,
-              primaryCls: timeToProfit.cls,
-              tooltip: timeToProfit.tip || 'How many months of avg cash flow needed to equal the current selling profit.\nShorter = better return on holding. Over 5 years may indicate better value in selling.' })}
+              ...(() => {
+                if (expMonthlyGain == null) return {};
+                const cls = expMonthlyGain >= 0 ? 'text-success' : 'text-danger';
+                const { cls: gapCls, gapStr } = expGapCls(monthlyGain, expMonthlyGain, true, 50);
+                return {
+                  secondary:    `Exp: ${f(expMonthlyGain)}/mo`,
+                  secondaryCls: cls,
+                  tertiary:     gapStr || undefined,
+                  tertiaryCls:  gapStr ? gapCls : undefined,
+                };
+              })(),
+              tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly \u00f7 12).\nCaptures both income and value growth in one number.\nExp uses budgeted operating costs, expected mortgage, and expected appreciation %.' })}
+            {(() => {
+              // Time to profit with expected variant
+              const expLabel = (() => {
+                if (expMonthlyGain == null || expMonthlyGain <= 0) return null;
+                if (sellingProfit <= 0) return null;
+                const mo = sellingProfit / expMonthlyGain;
+                return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo / 12).toFixed(1)} yr`;
+              })();
+              return mc({ label: 'Time to Sell Profit', primary: timeToProfit.label,
+                primaryCls: timeToProfit.cls,
+                secondary: expLabel,
+                secondaryCls: expLabel ? 'text-success' : '',
+                tooltip: (timeToProfit.tip || 'How many months of avg cash flow needed to equal the current selling profit.') +
+                  (expLabel ? '\nExp uses budgeted monthly gain (CF + appreciation).' : '') });
+            })()}
           </div>
 
           {/* ── Income & Expenses (all-time) ── */}
@@ -681,10 +759,20 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
               secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
               tooltip: 'Market Value \u2212 Purchase Price.' })}
             {mc({ label: 'Yearly Appr.', primary: yearlyAppr !== null ? f(yearlyAppr) + '/yr' : '\u2014',
-              primaryCls: yearlyAppr !== null ? (yearlyAppr >= 0 ? 'text-success' : 'text-danger') : '',
-              secondary: yearlyApprPct !== null ? fp(yearlyApprPct) + '/yr of purchase' : null,
+              primaryCls: yearlyAppr !== null ? (yearlyAppr >= 0 ? 'text-success' : 'text-danger') : 'text-secondary',
+              secondary: yearlyApprPct !== null ? fp(yearlyApprPct) + '/yr' : null,
               secondaryCls: yearlyAppr !== null && yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-              tooltip: 'Appreciation \u00f7 years held since possession date.' })}
+              ...(() => {
+                if (expYearlyAppr == null) return {};
+                const { cls: gapCls, gapStr } = expGapCls(yearlyAppr ?? 0, expYearlyAppr, true, 200);
+                return {
+                  secondary:    `Exp: ${f(expYearlyAppr)}/yr (${expApprPct}%/yr)`,
+                  secondaryCls: expYearlyAppr >= 0 ? 'text-success' : 'text-danger',
+                  tertiary:     gapStr || (yearlyAppr === null ? 'No possession date — cannot compute' : undefined),
+                  tertiaryCls:  gapStr ? gapCls : undefined,
+                };
+              })(),
+              tooltip: 'Appreciation \u00f7 years held since possession date.\nExp uses your expected yearly appreciation % of purchase price.' })}
             {mc({ label: 'Projected Year-End', primary: f(projectedYE),
               tertiary: 'Linear extrapolation via yearly appreciation',
               tooltip: 'Current value + remaining year fraction \u00d7 yearly appreciation.' })}

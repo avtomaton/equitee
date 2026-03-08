@@ -1,5 +1,5 @@
 import StarRating from './StarRating.jsx';
-import { yearsHeld, calcSimpleHealth } from '../config.js';
+import { yearsHeld, calcSimpleHealth, calcExpected } from '../metrics.js';
 
 // Health badge derived from investment score
 function HealthBadge({ score }) {
@@ -57,6 +57,10 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
 
   // Investment score — uses calcSimpleHealth for consistency with the Properties table view
   const investmentScore = calcSimpleHealth(property);
+
+  // Expected (budgeted) metrics — null if no cost fields entered
+  // Pass 0 for avgMortgage since we don't have per-property window avg here
+  const expected = calcExpected(property, 0);
 
   const eqCls = equityPct !== null
     ? (parseFloat(equityPct) >= 50 ? 'text-success'
@@ -120,18 +124,22 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
           <Row label="Rent/mo" value={fmt(property.monthly_rent)} />
         )}
         {avgNOI != null && (() => {
-          const potentialNOI = property.monthly_rent > 0 && avgCashFlow != null
-            ? property.monthly_rent - (avgCashFlow - avgNOI)  // avgNOI = avgIncome - avgOpEx
-            : null;
-          // Simple: potential = rent - avg operating expenses (approx from avgNOI + avgCashFlow)
           const cls = avgNOI >= 0 ? 'text-success' : 'text-danger';
+          const expNOI = expected?.monthlyNOI;
+          const expCls = expNOI != null ? (expNOI >= 0 ? 'text-success' : 'text-danger') : null;
+          const pctLabel = expNOI != null
+            ? <span className={expCls} style={{ fontSize: '0.72rem' }}>exp {fmt(expNOI)}</span>
+            : (property.monthly_rent > 0
+              ? <span style={{ fontSize: '0.72rem', opacity: 0.6 }}>of {fmt(property.monthly_rent)} rent</span>
+              : null);
           return (
-            <Row label="Avg NOI/mo"
-              value={fmt(avgNOI)}
-              valueCls={cls}
-              pct={property.monthly_rent > 0 ? `of ${fmt(property.monthly_rent)}` : null}
-              pctCls={avgNOI >= property.monthly_rent * 0.5 ? 'text-success' : avgNOI >= property.monthly_rent * 0.2 ? '' : 'text-warning'}
-            />
+            <div className="pc-row">
+              <span className="pc-label">Avg NOI/mo</span>
+              <span className="pc-right">
+                <span className={`pc-value ${cls}`}>{fmt(avgNOI)}</span>
+                {pctLabel && <span className="pc-pct">{pctLabel}</span>}
+              </span>
+            </div>
           );
         })()}
         {econVacancy !== null && (
@@ -160,17 +168,18 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
         <Row label="Time to Profit"
           value={timeToProfit.label}
           valueCls={timeToProfit.cls} />
-        {/* Cap rate: actual vs potential */}
+        {/* Cap rate: actual vs expected */}
         {avgNOI != null && property.purchase_price > 0 && (() => {
           const capRate = avgNOI * 12 / property.purchase_price;
           const capCls  = capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger';
-          const potCap  = property.monthly_rent > 0 ? property.monthly_rent * 12 / property.purchase_price : null;
+          const expCap  = expected?.capRate;
+          const expCls  = expCap != null ? (expCap > 0.07 ? 'text-success' : expCap > 0.04 ? '' : 'text-danger') : null;
           return (
             <Row label="Cap Rate"
               value={`${(capRate * 100).toFixed(1)}%`}
               valueCls={capCls}
-              pct={potCap !== null ? `pot. ${(potCap * 100).toFixed(1)}%` : null}
-              pctCls={capRate >= potCap * 0.9 ? 'text-success' : 'text-warning'} />
+              pct={expCap != null ? `exp ${(expCap * 100).toFixed(1)}%` : null}
+              pctCls={expCls || ''} />
           );
         })()}
 

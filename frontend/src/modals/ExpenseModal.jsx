@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { API_URL, INITIAL_OPTIONS } from '../config.js';
+import { monthlyMortgageEquiv } from '../metrics.js';
 
 const toFormState = (expense, property) => expense ? {
   property_id:      expense.property_id ?? '',
@@ -14,10 +15,50 @@ const toFormState = (expense, property) => expense ? {
   amount: 0, expense_type: '', expense_category: '', notes: '',
 };
 
+const QUICK_BTN_STYLE = {
+  padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem',
+  cursor: 'pointer', fontWeight: 600, border: '1px solid var(--accent-primary)',
+  background: 'rgba(59,130,246,0.1)', color: 'var(--accent-primary)',
+  transition: 'background 0.15s',
+};
+
 export default function ExpenseModal({ expense, properties, property, onClose, onSave }) {
   const [formData, setFormData] = useState(() => toFormState(expense, property));
 
   const set = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
+
+  // Current selected property object (for quick-fill)
+  const selectedProp = useMemo(() =>
+    properties.find(p => String(p.id) === String(formData.property_id)) ?? null,
+  [properties, formData.property_id]);
+
+  // Quick-fill helpers
+  const quickFill = (patch) => setFormData(prev => ({ ...prev, ...patch }));
+
+  const fillCondoFees = () => {
+    if (!selectedProp?.expected_condo_fees) return;
+    quickFill({
+      amount:           selectedProp.expected_condo_fees,
+      expense_category: 'Management',
+      expense_type:     'Recurrent',
+      notes:            'Condo fees',
+    });
+  };
+
+  const fillMortgage = () => {
+    if (!selectedProp?.mortgage_payment) return;
+    const monthly = monthlyMortgageEquiv(selectedProp.mortgage_payment, selectedProp.mortgage_frequency);
+    quickFill({
+      amount:           parseFloat(monthly.toFixed(2)),
+      expense_category: 'Mortgage',
+      expense_type:     'Recurrent',
+      notes:            `Mortgage payment (${selectedProp.mortgage_frequency || 'monthly'})`,
+    });
+  };
+
+  const hasCondoFees  = selectedProp?.expected_condo_fees > 0;
+  const hasMortgage   = selectedProp?.mortgage_payment > 0;
+  const showQuickFill = !expense && (hasCondoFees || hasMortgage);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -66,6 +107,32 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
               <label>Date *</label>
               <input type="date" value={formData.expense_date} onChange={(e) => set('expense_date', e.target.value)} required />
             </div>
+
+            {/* Quick-fill buttons — shown only when adding and property has relevant data */}
+            {showQuickFill && (
+              <div className="form-group full-width" style={{ marginBottom: '0.25rem' }}>
+                <label style={{ marginBottom: '0.4rem', display: 'block' }}>
+                  Quick-fill
+                  <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.4rem', fontSize: '0.72rem' }}>
+                    — pre-fills amount, category &amp; type from property settings
+                  </span>
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {hasCondoFees && (
+                    <button type="button" style={QUICK_BTN_STYLE} onClick={fillCondoFees}>
+                      🏢 Condo Fees &nbsp;<span style={{ opacity: 0.7, fontWeight: 400 }}>${selectedProp.expected_condo_fees}/mo</span>
+                    </button>
+                  )}
+                  {hasMortgage && (
+                    <button type="button" style={QUICK_BTN_STYLE} onClick={fillMortgage}>
+                      🏦 Mortgage Payment &nbsp;<span style={{ opacity: 0.7, fontWeight: 400 }}>
+                        ${selectedProp.mortgage_payment}/{selectedProp.mortgage_frequency || 'mo'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="form-group">
               <label>Amount *</label>

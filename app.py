@@ -36,11 +36,19 @@ def init_db():
             monthly_rent REAL NOT NULL,
             poss_date TEXT NOT NULL,
             status TEXT NOT NULL,
+            expected_condo_fees REAL DEFAULT 0,
+            expected_insurance REAL DEFAULT 0,
+            expected_utilities REAL DEFAULT 0,
+            expected_misc_expenses REAL DEFAULT 0,
+            expected_appreciation_pct REAL DEFAULT 0,
+            annual_property_tax REAL DEFAULT 0,
             mortgage_rate REAL DEFAULT 0,
+            mortgage_payment REAL DEFAULT 0,
+            mortgage_frequency TEXT DEFAULT 'monthly',
             notes TEXT,
-            is_archived INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_archived INTEGER DEFAULT 0
         )
     ''')
 
@@ -137,6 +145,14 @@ def select_from_properties():
                   p.monthly_rent,
                   p.notes,
                   p.is_archived,
+                  p.expected_condo_fees,
+                  p.expected_insurance,
+                  p.expected_utilities,
+                  p.expected_misc_expenses,
+                  p.expected_appreciation_pct,
+                  p.annual_property_tax,
+                  p.mortgage_payment,
+                  p.mortgage_frequency,
                   IFNULL((SELECT SUM(amount) FROM expenses WHERE property_id = p.id), 0) AS total_expenses,
                   IFNULL((SELECT SUM(amount) FROM income WHERE property_id = p.id), 0) AS total_income
                FROM properties p
@@ -188,15 +204,26 @@ def create_property():
         cursor.execute('''
             INSERT INTO properties (name, province, city, address, postal_code,
                                     parking, purchase_price, market_price,
-                                    loan_amount, mortgage_rate, poss_date, monthly_rent, status, type, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    loan_amount, mortgage_rate, poss_date, monthly_rent, status, type, notes,
+                                    expected_condo_fees, expected_insurance, expected_utilities, expected_misc_expenses,
+                                    expected_appreciation_pct, annual_property_tax,
+                                    mortgage_payment, mortgage_frequency)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['name'], data['province'], data['city'], data['address'],
             data['postalCode'], data.get('parking', ''),
             data['purchasePrice'], data['marketPrice'], data['loanAmount'],
             data.get('mortgageRate', 0),
             data['possDate'], data['monthlyRent'], data['status'],
-            data.get('type', 'Condo'), data.get('notes', '')
+            data.get('type', 'Condo'), data.get('notes', ''),
+            data.get('expectedCondoFees', 0),
+            data.get('expectedInsurance', 0),
+            data.get('expectedUtilities', 0),
+            data.get('expectedMiscExpenses', 0),
+            data.get('expectedAppreciationPct', 0),
+            data.get('annualPropertyTax', 0),
+            data.get('mortgagePayment', 0),
+            data.get('mortgageFrequency', 'monthly'),
         ))
         property_id = cursor.lastrowid
         conn.commit()
@@ -222,20 +249,28 @@ def update_property(property_id):
         old_property = dict(old_property)
 
         field_mapping = {
-            'name':           data['name'],
-            'province':       data['province'],
-            'city':           data['city'],
-            'address':        data['address'],
-            'postal_code':    data['postalCode'],
-            'parking':        data.get('parking', ''),
-            'purchase_price': data['purchasePrice'],
-            'market_price':   data['marketPrice'],
-            'loan_amount':    data['loanAmount'],
-            'mortgage_rate':  data.get('mortgageRate', 0),
-            'poss_date':      data['possDate'],
-            'monthly_rent':   data['monthlyRent'],
-            'status':         data['status'],
-            'type':           data.get('type', 'Condo'),
+            'name':                  data['name'],
+            'province':              data['province'],
+            'city':                  data['city'],
+            'address':               data['address'],
+            'postal_code':           data['postalCode'],
+            'parking':               data.get('parking', ''),
+            'purchase_price':        data['purchasePrice'],
+            'market_price':          data['marketPrice'],
+            'loan_amount':           data['loanAmount'],
+            'mortgage_rate':         data.get('mortgageRate', 0),
+            'poss_date':             data['possDate'],
+            'monthly_rent':          data['monthlyRent'],
+            'status':                data['status'],
+            'type':                  data.get('type', 'Condo'),
+            'expected_condo_fees':       data.get('expectedCondoFees', 0),
+            'expected_insurance':        data.get('expectedInsurance', 0),
+            'expected_utilities':        data.get('expectedUtilities', 0),
+            'expected_misc_expenses':    data.get('expectedMiscExpenses', 0),
+            'expected_appreciation_pct': data.get('expectedAppreciationPct', 0),
+            'annual_property_tax':       data.get('annualPropertyTax', 0),
+            'mortgage_payment':          data.get('mortgagePayment', 0),
+            'mortgage_frequency':        data.get('mortgageFrequency', 'monthly'),
         }
 
         for column, new_value in field_mapping.items():
@@ -256,7 +291,11 @@ def update_property(property_id):
             UPDATE properties
             SET name=?, province=?, city=?, address=?, postal_code=?, parking=?,
                 purchase_price=?, market_price=?, loan_amount=?, mortgage_rate=?, poss_date=?,
-                monthly_rent=?, status=?, type=?, notes=?, updated_at=CURRENT_TIMESTAMP
+                monthly_rent=?, status=?, type=?, notes=?,
+                expected_condo_fees=?, expected_insurance=?, expected_utilities=?, expected_misc_expenses=?,
+                expected_appreciation_pct=?, annual_property_tax=?,
+                mortgage_payment=?, mortgage_frequency=?,
+                updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         ''', (
             data['name'], data['province'], data['city'], data['address'],
@@ -264,7 +303,16 @@ def update_property(property_id):
             data['purchasePrice'], data['marketPrice'], data['loanAmount'],
             data.get('mortgageRate', 0),
             data['possDate'], data['monthlyRent'], data['status'],
-            data.get('type', 'Condo'), data.get('notes', ''), property_id
+            data.get('type', 'Condo'), data.get('notes', ''),
+            data.get('expectedCondoFees', 0),
+            data.get('expectedInsurance', 0),
+            data.get('expectedUtilities', 0),
+            data.get('expectedMiscExpenses', 0),
+            data.get('expectedAppreciationPct', 0),
+            data.get('annualPropertyTax', 0),
+            data.get('mortgagePayment', 0),
+            data.get('mortgageFrequency', 'monthly'),
+            property_id
         ))
         conn.commit()
         cursor.execute(select_from_properties() + ' WHERE p.id = ?', (property_id,))

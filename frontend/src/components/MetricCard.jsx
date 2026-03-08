@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
  *   label      — card title
  *   tooltip    — hover tooltip text (\n for newlines)
  */
-export default function MetricCard({ label, primary, primaryCls, secondary, secondaryCls, tertiary, tooltip, style }) {
+export default function MetricCard({ label, primary, primaryCls, secondary, secondaryCls, tertiary, tertiaryCls, tooltip, style }) {
   const [tip, setTip] = useState(null);
   const iconRef = useRef(null);
 
@@ -42,7 +42,7 @@ export default function MetricCard({ label, primary, primaryCls, secondary, seco
       )}
 
       {tertiary && (
-        <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: '0.35rem', lineHeight: 1.4 }}>
+        <div className={tertiaryCls || ''} style={{ fontSize: '0.72rem', color: tertiaryCls ? undefined : 'var(--text-tertiary)', marginTop: '0.35rem', lineHeight: 1.4 }}>
           {tertiary}
         </div>
       )}

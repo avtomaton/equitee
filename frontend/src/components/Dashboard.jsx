@@ -6,6 +6,7 @@ import {
 import PropertyCard from './PropertyCard.jsx';
 import MetricCard from './MetricCard.jsx';
 import { API_URL, calcMetrics, avgMonthly, yearsHeld, principalInRange } from '../config.js';
+import { calcExpected } from '../metrics.js';
 
 const TT  = { background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6' };
 const fmt  = n  => `$${Math.round(n).toLocaleString()}`;
@@ -122,12 +123,30 @@ export default function Dashboard({ properties, onPropertyClick }) {
     // Potential (rent-based) portfolio monthly rent
     const totalMonthlyRent = properties.reduce((s, p) => s + (p.monthly_rent || 0), 0);
 
+    // Portfolio-level expected (budgeted) operating costs from property fields
+    // Only properties that have at least one expected cost field filled in are counted.
+    const totalExpectedOpEx = properties.reduce((s, p) => {
+      const fixed = p.expected_condo_fees || 0;
+      const utils = (p.expected_insurance || 0) + (p.expected_utilities || 0) + (p.expected_misc_expenses || 0);
+      const tax   = p.annual_property_tax  || 0;
+      return (fixed + utils + tax > 0) ? s + fixed + utils + tax / 12 : s;
+    }, 0);
+    // Number of properties with expected cost data
+    const propertiesWithExpected = properties.filter(p =>
+      (p.expected_condo_fees || 0) + (p.expected_insurance || 0) + (p.expected_utilities || 0) + (p.expected_misc_expenses || 0) + (p.annual_property_tax || 0) > 0
+    ).length;
+    // Portfolio expected yearly appreciation (sum across properties that have pct set)
+    const totalExpectedYearlyAppr = properties.reduce((s, p) =>
+      p.expected_appreciation_pct > 0 ? s + p.purchase_price * p.expected_appreciation_pct / 100 : s
+    , 0);
+
     return {
       market, purchase, loan, income, expenses, equity, equityPct, loanPct,
       appr, apprPct, yearlyAppr, yearlyApprPct, projectedYE,
       totalNetExp, netProfit, balance, roi, sellingProfit,
       ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdNetProfit,
       occupied, occupancyPct, ytdIncomeByProp, totalMonthlyRent,
+      totalExpectedOpEx, propertiesWithExpected, totalExpectedYearlyAppr,
     };
   }, [properties, allIncome, allExpenses]);
 
@@ -287,66 +306,94 @@ export default function Dashboard({ properties, onPropertyClick }) {
 
       {/* Row 1: Core monthly metrics */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {mc({ label: `Avg Income (${avgWindow}M)`,   primary: fmt(avg.income),   primaryCls: 'text-success',
-          secondary: agg.totalMonthlyRent > 0 ? `Potential: ${fmt(agg.totalMonthlyRent)}/mo` : null,
-          secondaryCls: agg.totalMonthlyRent > 0
-            ? (avg.income >= agg.totalMonthlyRent * 0.92 ? 'text-success' : avg.income >= agg.totalMonthlyRent * 0.75 ? 'text-warning' : 'text-danger')
-            : '',
-          tooltip: `Average monthly income over the last ${avgWindow} complete months.\n"Potential" is sum of all monthly rents — shows the income gap if any vacancy exists.` })}
-        {mc({ label: `Avg Expenses (${avgWindow}M)`, primary: fmt(avg.expenses), primaryCls: 'text-danger',
-          tooltip: `Average monthly expenses over the last ${avgWindow} complete months.` })}
-        {mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: fmt(avg.cashflow),
-          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.` })}
         {(() => {
-          const potentialNOI = agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent - avg.noiExpenses : null;
+          // Expected income = total monthly rent (full occupancy)
+          const expInc = agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null;
+          const gap    = expInc ? ((expInc - avg.income) / expInc * 100).toFixed(0) : null;
+          return mc({ label: `Avg Income (${avgWindow}M)`, primary: fmt(avg.income), primaryCls: 'text-success',
+            secondary: expInc ? `Exp: ${fmt(expInc)}/mo` : null,
+            secondaryCls: 'text-success',
+            tertiary: gap && Math.abs(gap) > 10 ? `▼ ${gap}% below expected rent` : null,
+            tooltip: `Average monthly income over the last ${avgWindow} months.\nExp = sum of all monthly rents at 100% occupancy.` });
+        })()}
+        {(() => {
+          // Expected expenses = sum of budgeted op-ex + avg actual mortgage
+          const expOpEx = agg.totalExpectedOpEx;
+          const expExp  = expOpEx > 0 ? expOpEx + avg.mortgage : null;
+          const expCls  = expExp != null ? (expExp < agg.totalMonthlyRent * 0.65 ? '' : expExp < agg.totalMonthlyRent * 0.85 ? 'text-warning' : 'text-danger') : '';
+          return mc({ label: `Avg Expenses (${avgWindow}M)`, primary: fmt(avg.expenses), primaryCls: 'text-danger',
+            secondary: expExp ? `Exp: ${fmt(expExp)}/mo` : null,
+            secondaryCls: expCls,
+            tooltip: `Average monthly expenses over the last ${avgWindow} months.\nExp = budgeted fixed+utilities+tax/12 + avg mortgage (${agg.propertiesWithExpected} of ${properties.length} props have cost data).` });
+        })()}
+        {(() => {
+          // Expected cash flow = expected NOI - avg mortgage (portfolio level)
+          const expOpEx = agg.totalExpectedOpEx;
+          const expNOI  = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
+          const expCF   = expNOI != null ? expNOI - avg.mortgage : null;
+          const expCls  = expCF != null ? (expCF >= 0 ? 'text-success' : 'text-danger') : '';
+          const gap     = expCF != null && expCF !== 0 ? ((expCF - avg.cashflow) / Math.abs(expCF) * 100).toFixed(0) : null;
+          return mc({ label: `Avg Cash Flow (${avgWindow}M)`, primary: fmt(avg.cashflow),
+            primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
+            secondary: expCF != null ? `Exp: ${fmt(expCF)}/mo` : null,
+            secondaryCls: expCls,
+            tertiary: gap && Math.abs(gap) > 15 ? `▼ ${Math.abs(gap)}% vs expected` : null,
+            tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} months.\nExp = budgeted NOI minus avg mortgage.` });
+        })()}
+        {(() => {
+          const expOpEx      = agg.totalExpectedOpEx;
+          const expNOI       = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
+          const expNOICls    = expNOI != null ? (expNOI >= 0 ? 'text-success' : 'text-danger') : '';
+          const gap          = expNOI != null && expNOI !== 0 ? ((expNOI - avg.noi) / Math.abs(expNOI) * 100).toFixed(0) : null;
           return mc({ label: `Avg NOI (${avgWindow}M)`, primary: fmt(avg.noi),
             primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-            secondary: potentialNOI !== null ? `Potential: ${fmt(potentialNOI)}/mo` : 'Excl. mortgage & principal',
-            secondaryCls: potentialNOI !== null
-              ? (avg.noi >= potentialNOI * 0.92 ? 'text-success' : avg.noi >= potentialNOI * 0.75 ? 'text-warning' : 'text-danger')
-              : '',
-            tooltip: `Net Operating Income: avg monthly income minus all operating expenses, excluding mortgage and principal.\nFinancing-agnostic — useful for comparing asset performance regardless of how the property is financed.\n"Potential" = total monthly rent minus avg operating expenses (100% occupancy benchmark).\nAverage over the last ${avgWindow} complete months.` });
+            secondary: expNOI != null ? `Exp: ${fmt(expNOI)}/mo` : 'Excl. mortgage & principal',
+            secondaryCls: expNOICls,
+            tertiary: gap && Math.abs(gap) > 15 ? `▼ ${Math.abs(gap)}% vs expected` : null,
+            tooltip: `Net Operating Income: avg monthly income minus all op-ex, excl. mortgage and principal.\nExp = total monthly rent minus budgeted op-ex at full occupancy.` });
         })()}
       </div>
 
       {/* Row 2: Key investment ratios */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
         {(() => {
-          const annualNOI      = avg.noi * 12;
-          const capRate        = agg.market > 0 ? annualNOI / agg.market : null;
-          const potentialNOI   = agg.totalMonthlyRent > 0 ? (agg.totalMonthlyRent - avg.noiExpenses) * 12 : null;
-          const potentialCap   = (potentialNOI !== null && agg.market > 0) ? potentialNOI / agg.market : null;
-          const oer            = avg.income > 0 ? avg.noiExpenses / avg.income : null;
-          const potentialOER   = agg.totalMonthlyRent > 0 ? avg.noiExpenses / agg.totalMonthlyRent : null;
-          const dscr           = avg.mortgage > 0 ? avg.noi / avg.mortgage : null;
+          const annualNOI  = avg.noi * 12;
+          const capRate    = agg.market > 0 ? annualNOI / agg.market : null;
+          const expOpEx    = agg.totalExpectedOpEx;
+          const expCap     = (expOpEx > 0 && agg.market > 0)
+            ? (agg.totalMonthlyRent - expOpEx) * 12 / agg.market : null;
+          const oer        = avg.income > 0 ? avg.noiExpenses / avg.income : null;
+          const expOER     = (expOpEx > 0 && agg.totalMonthlyRent > 0)
+            ? expOpEx / agg.totalMonthlyRent : null;
+          const dscr       = avg.mortgage > 0 ? avg.noi / avg.mortgage : null;
+          const expNOI     = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
+          const expDSCR    = (expNOI != null && avg.mortgage > 0) ? expNOI / avg.mortgage : null;
+          const fPct = v => `${(v * 100).toFixed(1)}%`;
           return (<>
             {capRate !== null && mc({
               label: `Cap Rate (${avgWindow}M)`,
-              primary: `${(capRate * 100).toFixed(1)}%`,
+              primary: fPct(capRate),
               primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-              secondary: potentialCap !== null ? `Potential: ${(potentialCap * 100).toFixed(1)}%` : null,
-              secondaryCls: potentialCap !== null
-                ? (capRate >= potentialCap * 0.92 ? 'text-success' : capRate >= potentialCap * 0.75 ? 'text-warning' : 'text-danger')
-                : '',
+              secondary: expCap != null ? `Exp: ${fPct(expCap)}` : null,
+              secondaryCls: expCap != null ? (expCap > 0.07 ? 'text-success' : expCap > 0.04 ? '' : 'text-danger') : '',
               tertiary: capRate > 0.07 ? 'Strong' : capRate > 0.04 ? 'Moderate' : 'Weak',
-              tooltip: `Portfolio Cap Rate = annualised NOI ÷ total market value.\nActual uses recorded income. "Potential" uses total monthly rent at 100% occupancy.\nGap reveals revenue lost to vacancy or non-payment across the portfolio.` })}
+              tooltip: `Portfolio Cap Rate = annualised NOI ÷ total market value.\nExp = budgeted NOI (${agg.propertiesWithExpected} props) at full occupancy.` })}
             {oer !== null && mc({
               label: `OER (${avgWindow}M)`,
-              primary: `${(oer * 100).toFixed(1)}%`,
+              primary: fPct(oer),
               primaryCls: oer < 0.35 ? 'text-success' : oer < 0.50 ? '' : 'text-danger',
-              secondary: potentialOER !== null ? `On rent: ${(potentialOER * 100).toFixed(1)}%` : null,
-              secondaryCls: potentialOER !== null
-                ? (potentialOER < 0.35 ? 'text-success' : potentialOER < 0.50 ? '' : 'text-danger')
-                : '',
+              secondary: expOER != null ? `Exp: ${fPct(expOER)}` : null,
+              secondaryCls: expOER != null ? (expOER < 0.35 ? 'text-success' : expOER < 0.50 ? '' : 'text-danger') : '',
               tertiary: oer < 0.35 ? 'Efficient' : oer < 0.50 ? 'Normal' : 'High costs',
-              tooltip: `Operating Expense Ratio = avg monthly operating costs ÷ avg monthly income.\n"On rent" uses total monthly rent as denominator for a vacancy-neutral view.\nBelow 35%: lean. 35–50%: normal. Above 50%: review costs.` })}
+              tooltip: `Operating Expense Ratio = avg op-ex ÷ avg income.\nExp uses budgeted operating costs ÷ total monthly rent.` })}
             {dscr !== null && mc({
               label: `DSCR (${avgWindow}M)`,
               primary: dscr.toFixed(2) + 'x',
               primaryCls: dscr >= 1.25 ? 'text-success' : dscr >= 1.0 ? 'text-warning' : 'text-danger',
+              secondary: expDSCR != null ? `Exp: ${expDSCR.toFixed(2)}x` : null,
+              secondaryCls: expDSCR != null ? (expDSCR >= 1.25 ? 'text-success' : expDSCR >= 1.0 ? 'text-warning' : 'text-danger') : '',
               tertiary: dscr >= 1.25 ? 'Healthy coverage' : dscr >= 1.0 ? 'Marginal' : 'Below 1x',
-              tooltip: `Debt Service Coverage Ratio = avg monthly NOI ÷ avg monthly mortgage payments.\n≥ 1.25x: healthy. 1.0–1.25x: marginal. < 1.0x: income doesn't cover debt service.` })}
+              tooltip: `Debt Service Coverage = avg monthly NOI ÷ avg mortgage.\n≥ 1.25x: healthy. 1.0–1.25x: marginal. < 1.0x: income doesn't cover debt.` })}
           </>);
         })()}
       </div>
@@ -356,9 +403,18 @@ export default function Dashboard({ properties, onPropertyClick }) {
         {(() => {
           const monthlyAppr = agg.yearlyAppr / 12;
           const mg = avg.cashflow + monthlyAppr;
+          // Expected: budgeted CF + expected appreciation
+          const expOpEx   = agg.totalExpectedOpEx;
+          const expNOI    = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
+          const expCF     = expNOI != null ? expNOI - avg.mortgage : null;
+          const expApprMo = agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr / 12 : null;
+          const expMG     = expCF != null ? expCF + (expApprMo ?? 0) : null;
+          const expCls    = expMG != null ? (expMG >= 0 ? 'text-success' : 'text-danger') : '';
           return mc({ label: 'Monthly Gain', primary: fmt(mg) + '/mo',
             primaryCls: mg >= 0 ? 'text-success' : 'text-danger',
-            tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly / 12). Captures income and value growth in one number.' });
+            secondary:  expMG != null ? `Exp: ${fmt(expMG)}/mo` : null,
+            secondaryCls: expCls,
+            tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly / 12). Captures income and value growth in one number.\nExp uses budgeted costs + expected appreciation %.' });
         })()}
         {(() => {
           const sp = agg.sellingProfit; const cf = avg.cashflow;
@@ -366,8 +422,18 @@ export default function Dashboard({ properties, onPropertyClick }) {
           if (sp <= 0)      { label = '—'; cls = ''; }
           else if (cf <= 0) { label = cf < 0 ? '∞ (losing)' : '—'; cls = 'text-danger'; }
           else { const mo = sp / cf; label = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; cls = mo < 24 ? 'text-success' : mo < 60 ? '' : 'text-danger'; }
+          // Expected time to profit using expected monthly gain
+          const expOpEx   = agg.totalExpectedOpEx;
+          const expNOI    = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
+          const expCF     = expNOI != null ? expNOI - avg.mortgage : null;
+          const expApprMo = agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr / 12 : null;
+          const expMG     = expCF != null ? expCF + (expApprMo ?? 0) : null;
+          const expLabel  = (sp > 0 && expMG != null && expMG > 0)
+            ? (() => { const mo = sp / expMG; return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo/12).toFixed(1)} yr`; })()
+            : null;
           return mc({ label: 'Time to Sell Profit', primary: label, primaryCls: cls,
-            tooltip: 'Months of avg cash flow to equal portfolio selling profit.' });
+            secondary: expLabel, secondaryCls: expLabel ? 'text-success' : '',
+            tooltip: 'Months of avg cash flow to equal portfolio selling profit.\nExp uses budgeted monthly gain (CF + appreciation).' });
         })()}
       </div>
 

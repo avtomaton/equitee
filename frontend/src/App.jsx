@@ -11,6 +11,7 @@ import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 
 import EvaluatorView  from './components/EvaluatorView.jsx';
+import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
 import IncomeModal    from './modals/IncomeModal.jsx';
 import TenantModal    from './modals/TenantModal.jsx';
@@ -69,7 +70,10 @@ export default function App() {
       setLoading(true);
       const res = await fetch(`${API_URL}/properties`);
       if (!res.ok) throw new Error('Failed to fetch');
-      setProperties(await res.json());
+      const fresh = await res.json();
+      setProperties(fresh);
+      // Keep selectedProperty in sync so PropertyDetail shows updated values
+      setSelectedProperty(prev => prev ? (fresh.find(p => p.id === prev.id) ?? prev) : null);
     } catch (err) {
       console.error(err);
       showAlert('Failed to load data', 'error');

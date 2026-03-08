@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { API_URL, INITIAL_OPTIONS } from '../config.js';
 
 const toFormState = (income, property) => income ? {
@@ -13,10 +13,35 @@ const toFormState = (income, property) => income ? {
   amount: 0, income_type: '', notes: '',
 };
 
+const QUICK_BTN_STYLE = {
+  padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem',
+  cursor: 'pointer', fontWeight: 600, border: '1px solid var(--accent-primary)',
+  background: 'rgba(59,130,246,0.1)', color: 'var(--accent-primary)',
+  transition: 'background 0.15s',
+};
+
 export default function IncomeModal({ income, properties, property, onClose, onSave }) {
   const [formData, setFormData] = useState(() => toFormState(income, property));
 
   const set = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
+
+  // Current selected property object (for quick-fill)
+  const selectedProp = useMemo(() =>
+    properties.find(p => String(p.id) === String(formData.property_id)) ?? null,
+  [properties, formData.property_id]);
+
+  const fillRent = () => {
+    if (!selectedProp?.monthly_rent) return;
+    setFormData(prev => ({
+      ...prev,
+      amount:      selectedProp.monthly_rent,
+      income_type: 'Rent',
+      notes:       'Monthly rent',
+    }));
+  };
+
+  const hasRent        = selectedProp?.monthly_rent > 0;
+  const showQuickFill  = !income && hasRent;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -64,6 +89,25 @@ export default function IncomeModal({ income, properties, property, onClose, onS
               <label>Date *</label>
               <input type="date" value={formData.income_date} onChange={(e) => set('income_date', e.target.value)} required />
             </div>
+
+            {/* Quick-fill buttons */}
+            {showQuickFill && (
+              <div className="form-group full-width" style={{ marginBottom: '0.25rem' }}>
+                <label style={{ marginBottom: '0.4rem', display: 'block' }}>
+                  Quick-fill
+                  <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.4rem', fontSize: '0.72rem' }}>
+                    — pre-fills amount and type from property settings
+                  </span>
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {hasRent && (
+                    <button type="button" style={QUICK_BTN_STYLE} onClick={fillRent}>
+                      🏠 Rent &nbsp;<span style={{ opacity: 0.7, fontWeight: 400 }}>${selectedProp.monthly_rent}/mo</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="form-group">
               <label>Amount *</label>
