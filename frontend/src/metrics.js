@@ -341,6 +341,35 @@ export const expGapCls = (actual, exp, higherIsBetter = true, absThreshold = 25,
   };
 };
 
+/**
+ * Build MetricCard {secondary, secondaryCls, tertiary, tertiaryCls} for an expected-vs-actual
+ * comparison.  Returns {} when exp is null/undefined so callers can spread safely.
+ *
+ * colorFn(v) → CSS class for the expected value itself (independent of gap direction)
+ * fmtFn(v)   → display string for the expected value
+ * hiIsGood   → true when a higher actual is better than expected (income, NOI, cap rate…)
+ * absThresh  → absolute scale below which any gap is negligible
+ */
+export function expGap(actual, exp, colorFn, fmtFn, label = 'Exp:', hiIsGood = true, absThresh = 25) {
+  if (exp == null) return {};
+  const expCls = colorFn(exp);
+  const { cls: gapCls, gapStr } = expGapCls(actual, exp, hiIsGood, absThresh);
+  return {
+    secondary:    `${label} ${fmtFn(exp)}`,
+    secondaryCls: expCls,
+    ...(gapStr ? { tertiary: gapStr, tertiaryCls: gapCls } : {}),
+  };
+}
+
+/** Whole months remaining in the current calendar year (inclusive of current month) */
+export const monthsLeftInYear = () => 12 - new Date().getMonth();
+
+/** Fraction of the current calendar year that hasn't elapsed yet (0–1) */
+export const yearFracRemaining = () => {
+  const now = new Date();
+  return (new Date(now.getFullYear() + 1, 0, 1) - now) / (365.25 * 86400000);
+};
+
 // ── Investment scoring ────────────────────────────────────────────────────────
 
 /**
