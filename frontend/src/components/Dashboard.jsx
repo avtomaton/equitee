@@ -5,33 +5,17 @@ import {
 } from 'recharts';
 import PropertyCard from './PropertyCard.jsx';
 import MetricCard from './MetricCard.jsx';
+import KPICard from './KPICard.jsx';
+import { fmt, fmtM, fp, fPct, mc, SectionLabel, WindowPicker, WINDOW_OPTIONS, wLabel, ltvColor } from './uiHelpers.jsx';
+import FinancialPeriodSection from './FinancialPeriodSection.jsx';
 import { API_URL, calcMetrics, avgMonthly, yearsHeld, principalInRange } from '../config.js';
 import { calcExpected, expGap, monthsLeftInYear, yearFracRemaining } from '../metrics.js';
 
 const TT   = { background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6' };
-const fmt  = n => `$${Math.round(n).toLocaleString()}`;
-const fmtM = n => n === 0 ? '—' : fmt(n) + '/mo';
-const fmtP = n => `${Number(n).toFixed(1)}%`;
-const fPct = v => `${(v * 100).toFixed(1)}%`;
 const sn   = s => s.length > 14 ? s.slice(0, 14) + '\u2026' : s;
 
-const WINDOW_OPTIONS = [1, 2, 3, 6, 12];
 
-const SectionLabel = ({ children, style }) => (
-  <p className="stat-section-label" style={style}>{children}</p>
-);
 
-function KPICard({ label, primary, primaryCls = '', secondary, secondaryCls = '', tertiary, tooltip, accentColor }) {
-  const border = accentColor ? `2px solid ${accentColor}` : '1px solid var(--border)';
-  return (
-    <div className="metric-card" style={{ flex: '1 1 170px', minWidth: 155, borderTop: border }}>
-      <div className="metric-label">{label}</div>
-      <div className={`metric-primary ${primaryCls}`}>{primary}</div>
-      {secondary && <div className={`metric-secondary ${secondaryCls}`}>{secondary}</div>}
-      {tertiary  && <div className="metric-tertiary">{tertiary}</div>}
-    </div>
-  );
-}
 
 export default function Dashboard({ properties, onPropertyClick }) {
   const [allIncome,   setAllIncome]   = useState([]);
@@ -96,6 +80,11 @@ export default function Dashboard({ properties, onPropertyClick }) {
       const dt = new Date(y, m - 1, day);
       return dt >= ytdStart && dt <= ytdEnd;
     };
+    const allTimePrin = properties.reduce((sum, p) => {
+      const pe = allExpenses.filter(r => r.property_id === p.id);
+      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date());
+    }, 0);
+
     const ytdInc  = allIncome.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
     const ytdExp  = allExpenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
     const ytdBal  = ytdInc - ytdExp;
@@ -136,6 +125,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
       market, purchase, loan, income, expenses, equity, equityPct, loanPct,
       appr, apprPct, yearlyAppr, yearlyApprPct, monthlyApprAgg, projectedYE,
       totalNetExp, netBalance, balance, roi, sellingProfit,
+      allTimePrin,
       ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdNetBalance,
       occupied, occupancyPct, ytdIncomeByProp, totalMonthlyRent,
       totalExpectedOpEx, propertiesWithExpected, totalExpectedYearlyAppr, expYearlyApprPct,
@@ -168,7 +158,6 @@ export default function Dashboard({ properties, onPropertyClick }) {
     name: sn(p.name), Equity: p.market_price - p.loan_amount, Loan: p.loan_amount,
   }));
 
-  const mc = (props) => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
 
   return (
     <>
@@ -182,35 +171,51 @@ export default function Dashboard({ properties, onPropertyClick }) {
       {/* ── Portfolio KPIs ── */}
       <SectionLabel>Portfolio Snapshot</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        <KPICard label="Portfolio Value" primary={fmt(agg.market)}
-          accentColor="#3b82f6"
-          tooltip="Sum of current market values across all properties." />
+        {(() => {
+          const apprCls = agg.appr >= 0 ? 'text-success' : 'text-danger';
+          const apprSign = agg.appr >= 0 ? '+' : '';
+          return <KPICard label="Portfolio Value" primary={fmt(agg.market)}
+            secondary={agg.appr !== 0 ? apprSign + fmt(agg.appr) + (agg.apprPct !== null ? ' (' + agg.apprPct.toFixed(1) + '%)' : '') : null}
+            secondaryCls={apprCls}
+            accentColor="#3b82f6"
+            tooltip={`Sum of current market values across all properties.\nTotal appreciation: ${fmt(agg.appr)} (${agg.apprPct !== null ? agg.apprPct.toFixed(1) + '%' : 'n/a'} over purchase price of ${fmt(agg.purchase)}.`} />;
+        })()}
         <KPICard label="Total Equity" primary={fmt(agg.equity)}
           primaryCls={agg.equity >= 0 ? 'text-success' : 'text-danger'}
-          secondary={agg.equityPct !== null ? fmtP(agg.equityPct) + ' of value' : null}
+          secondary={agg.equityPct !== null ? fp(agg.equityPct) + ' of value' : null}
           accentColor="#10b981"
-          tooltip="Market Value − Loan. Equity grows as properties appreciate and loans are paid down." />
-        <KPICard label="Total Loan" primary={fmt(agg.loan)}
-          primaryCls="text-danger"
-          secondary={agg.loanPct !== null ? fmtP(agg.loanPct) + ' LTV' : null}
-          accentColor="#ef4444"
-          tooltip="Total outstanding loan balances. LTV = loan as a share of portfolio value." />
+          tooltip="Your ownership stake across all properties.\nFormula: Total Market Value − Total Outstanding Loans.\nGrows as properties appreciate and mortgages are paid down." />
+        {(() => {
+          const ltv = ltvColor(agg.loanPct ?? 0);
+          return <KPICard label="Total Loan" primary={fmt(agg.loan)}
+            primaryCls="text-danger"
+            secondary={agg.loanPct !== null ? fp(agg.loanPct) + ' LTV' : null}
+            secondaryCls={agg.loanPct !== null ? ltv.cls : ''}
+            accentColor="#ef4444"
+            tooltip="Total outstanding mortgage balances across all properties.\nLTV = Total Loans ÷ Portfolio Value.\nBelow 65%: conservative leverage. 65–80%: normal. Above 80%: high risk — may require mortgage insurance." />;
+        })()}
         <KPICard label="Occupancy"
-          primary={agg.occupancyPct !== null ? fmtP(agg.occupancyPct) : '—'}
+          primary={agg.occupancyPct !== null ? fp(agg.occupancyPct) : '—'}
           primaryCls={agg.occupancyPct !== null && agg.occupancyPct >= 90 ? 'text-success' : agg.occupancyPct >= 70 ? '' : 'text-danger'}
           secondary={`${agg.occupied} of ${properties.length} properties`}
           accentColor={agg.occupancyPct >= 90 ? '#10b981' : agg.occupancyPct >= 70 ? '#f59e0b' : '#ef4444'}
-          tooltip="Properties not marked Vacant ÷ total properties. Target 90%+ for a healthy portfolio." />
-        <KPICard label="Net Balance" primary={fmt(agg.netBalance)}
+          tooltip="Share of properties currently occupied (not marked Vacant).\nTarget 90%+ for healthy cash flow. Each vacant unit reduces income while fixed costs continue." />
+        <KPICard label="Operating Profit" primary={fmt(agg.netBalance)}
           primaryCls={agg.netBalance >= 0 ? 'text-success' : 'text-danger'}
-          secondary={agg.roi !== null ? fmtP(agg.roi) + ' ROI' : null}
+          secondary={agg.roi !== null ? fp(agg.roi) + ' ROI' : null}
           secondaryCls={agg.roi !== null && agg.roi >= 0 ? 'text-success' : 'text-danger'}
           accentColor={agg.netBalance >= 0 ? '#10b981' : '#ef4444'}
-          tooltip="Total Income minus non-equity-building expenses (everything except down payments and principal). ROI = Net Balance ÷ Portfolio Value." />
-        <KPICard label="Selling Profit" primary={fmt(agg.sellingProfit)}
-          primaryCls={agg.sellingProfit >= 0 ? 'text-success' : 'text-danger'}
-          accentColor={agg.sellingProfit >= 0 ? '#10b981' : '#ef4444'}
-          tooltip="Market Value + Total Income − Total Expenses − Outstanding Loans. The net amount you would pocket if you sold the entire portfolio today and repaid all mortgages." />
+          tooltip="All-time income minus all operating expenses (excluding equity-building capital like down payments and principal).\nThis is the true profit from running the portfolio, ignoring financing structure.\nROI = Operating Profit ÷ Portfolio Value." />
+        {(() => {
+          const np = agg.sellingProfit;
+          const npPct = agg.balance !== 0 ? (np / Math.abs(agg.balance) * 100) : null;
+          return <KPICard label="Net Position" primary={fmt(np)}
+            primaryCls={np >= 0 ? 'text-success' : 'text-danger'}
+            secondary={npPct !== null ? npPct.toFixed(1) + '% of net spending' : null}
+            secondaryCls={npPct !== null ? (npPct >= 0 ? 'text-success' : 'text-danger') : ''}
+            accentColor={np >= 0 ? '#10b981' : '#ef4444'}
+            tooltip={`What you would walk away with after selling all properties and clearing all mortgages today.\nFormula: Portfolio Value + All Income − All Expenses − All Loans.\n${npPct !== null ? `% = Net Position ÷ |all-time spending balance| (|Income − Expenses|).` : ''}\nPositive = you're ahead overall; negative = still in the hole.`} />;
+        })()}
       </div>
 
       {/* ── Appreciation ── */}
@@ -218,7 +223,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {mc({ label: 'Total Appreciation', primary: fmt(agg.appr),
           primaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.apprPct !== null ? fmtP(agg.apprPct) + ' of purchase price' : null,
+          secondary: agg.apprPct !== null && agg.purchase > 0 ? agg.apprPct.toFixed(1) + '% from ' + fmt(agg.purchase) : null,
           secondaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
           tooltip: 'Total unrealised gain: current Market Value minus original Purchase Price across all properties.' })}
         {(() => {
@@ -228,11 +233,11 @@ export default function Dashboard({ properties, onPropertyClick }) {
             label: 'Yearly Appreciation',
             primary: fmt(actual),
             primaryCls: actual >= 0 ? 'text-success' : 'text-danger',
-            secondary: agg.yearlyApprPct !== null ? fmtP(agg.yearlyApprPct) + ' per year' : null,
+            secondary: agg.yearlyApprPct !== null ? fp(agg.yearlyApprPct) + ' per year' : null,
             secondaryCls: actual >= 0 ? 'text-success' : 'text-danger',
             ...expGap(actual, exp,
               v => v >= 0 ? 'text-success' : 'text-danger',
-              v => fmt(v) + (agg.expYearlyApprPct ? ' (' + fmtP(agg.expYearlyApprPct) + '/yr)' : ''),
+              v => fmt(v) + (agg.expYearlyApprPct ? ' (' + fp(agg.expYearlyApprPct) + '/yr)' : ''),
               'Exp:', true, 500),
             tooltip: 'Annualised appreciation per property, summed. Computed as (Market − Purchase) ÷ years since possession.\nExp = sum of (purchase price × expected appreciation %) across properties where that is set.' });
         })()}
@@ -242,9 +247,9 @@ export default function Dashboard({ properties, onPropertyClick }) {
         {(() => {
           const ml  = monthsLeftInYear();
           const yfr = yearFracRemaining();
-          // Run-rate: current selling profit + avg cash flow × months left + appr × year frac left
+          // Run-rate: current Net Position + avg cash flow × months left + appr × year frac left
           const runRate = agg.sellingProfit + avg.cashflow * ml + agg.monthlyApprAgg * ml;
-          // Budgeted: current selling profit + expected CF × months left + expected appr × year frac left
+          // Budgeted: current Net Position + expected CF × months left + expected appr × year frac left
           const expOpEx   = agg.totalExpectedOpEx;
           const expNOI    = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
           const expCF     = expNOI != null ? expNOI - avg.mortgage : null;
@@ -259,67 +264,28 @@ export default function Dashboard({ properties, onPropertyClick }) {
               v => v >= 0 ? 'text-success' : 'text-danger',
               v => fmt(v),
               'Budget:', true, 1000) : {}),
-            tooltip: `Projected selling profit at December 31st.\n\nRun-rate: current selling profit + avg monthly cash flow × ${ml} months left + avg monthly appreciation × ${ml} months.\nBudget: same but using expected (budgeted) monthly cash flow and appreciation.\n\nThis is what you would net if you sold everything at year-end, assuming current rates hold.` });
+            tooltip: `Projected Net Position at December 31st.\n\nRun-rate: current Net Position + avg monthly cash flow × ${ml} months left + avg monthly appreciation × ${ml} months.\nBudget: same but using expected (budgeted) monthly cash flow and appreciation.\n\nThis is what you would net if you sold everything at year-end, assuming current rates hold.` });
         })()}
       </div>
 
       {/* ── Income & Expenses (all-time) ── */}
       <SectionLabel>Income &amp; Expenses (all-time)</SectionLabel>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'Total Income',   primary: fmt(agg.income),   primaryCls: 'text-success',
-          tooltip: 'All recorded income across all properties since inception.' })}
-        {mc({ label: 'Total Expenses', primary: fmt(agg.expenses), primaryCls: 'text-danger',
-          tooltip: 'All recorded expenses including down payments and principal repayments.' })}
-        {mc({ label: 'Total Balance',  primary: fmt(agg.balance),
-          primaryCls: agg.balance >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total Income − Total Expenses (raw cash in/out, no adjustments).' })}
-        {mc({ label: 'Net Expenses',   primary: fmt(agg.totalNetExp),
-          primaryCls: agg.totalNetExp >= 0 ? 'text-danger' : 'text-success',
-          tooltip: 'Total Expenses minus down payments. Shows the ongoing operating cost burden above the initial capital you deployed.' })}
-        {mc({ label: 'Net Balance',    primary: fmt(agg.netBalance),
-          primaryCls: agg.netBalance >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.roi !== null ? fmtP(agg.roi) + ' ROI' : null,
-          secondaryCls: agg.roi !== null && agg.roi >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total Income minus non-equity-building expenses (i.e., Net Expenses). ROI = Net Balance ÷ Portfolio Market Value.' })}
-      </div>
+      <FinancialPeriodSection
+        income={agg.income} expenses={agg.expenses} netExpenses={agg.totalNetExp}
+        balance={agg.balance} operatingProfit={agg.netBalance} roi={agg.roi}
+        principal={agg.allTimePrin} scope="portfolio" />
 
       {/* ── YTD ── */}
       <SectionLabel>YTD — trailing 12 months</SectionLabel>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'YTD Income',       primary: fmt(agg.ytdInc),  primaryCls: 'text-success',
-          tooltip: 'Income recorded in the trailing 12-month window.' })}
-        {mc({ label: 'YTD Expenses',     primary: fmt(agg.ytdExp),  primaryCls: 'text-danger',
-          tooltip: 'Expenses recorded in the trailing 12-month window, including principal and down payments.' })}
-        {mc({ label: 'YTD Balance',      primary: fmt(agg.ytdBal),
-          primaryCls: agg.ytdBal >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'YTD Income minus YTD Expenses (raw, no adjustments).' })}
-        {mc({ label: 'YTD Principal',    primary: agg.ytdPrin > 0 ? fmt(agg.ytdPrin) : '\u2014',
-          tertiary: 'Equity-building payments',
-          tooltip: 'Principal repayments in the trailing 12 months. This is equity you own, not a true cost.' })}
-        {mc({ label: 'YTD Net Expenses', primary: fmt(agg.ytdNetExp),
-          primaryCls: agg.ytdNetExp >= 0 ? 'text-danger' : 'text-success',
-          tooltip: 'YTD Expenses minus YTD Principal. The operating cost burden excluding equity-building payments.' })}
-        {mc({ label: 'YTD Net Balance',  primary: fmt(agg.ytdNetBalance),
-          primaryCls: agg.ytdNetBalance >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'YTD Income minus YTD Net Expenses. The true operating profit in the trailing 12 months.' })}
-      </div>
+      <FinancialPeriodSection prefix="YTD "
+        income={agg.ytdInc} expenses={agg.ytdExp} netExpenses={agg.ytdNetExp}
+        balance={agg.ytdBal} operatingProfit={agg.ytdNetBalance}
+        principal={agg.ytdPrin} scope="portfolio" />
 
       {/* ── Monthly Averages & Key Ratios ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>
         <SectionLabel style={{ margin: 0 }}>Monthly Averages &amp; Key Ratios</SectionLabel>
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>window:</span>
-        {WINDOW_OPTIONS.map(w => (
-          <button key={w} type="button" onClick={() => setAvgWindow(w)}
-            style={{
-              padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.78rem', cursor: 'pointer',
-              background: avgWindow === w ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-              color: avgWindow === w ? '#fff' : 'var(--text-secondary)',
-              border: `1px solid ${avgWindow === w ? 'var(--accent-primary)' : 'var(--border)'}`,
-            }}>{w}M</button>
-        ))}
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
-          (excludes current month)
-        </span>
+        <WindowPicker value={avgWindow} onChange={setAvgWindow} />
       </div>
 
       {/* Row 1: Core monthly metrics */}
@@ -327,19 +293,19 @@ export default function Dashboard({ properties, onPropertyClick }) {
         {(() => {
           const expInc = agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null;
           return mc({ label: `Avg Income (${avgWindow}M)`,
-            primary: fmtM(avg.income), primaryCls: 'text-success',
+            primary: fmt(avg.income), primaryCls: 'text-success',
             ...expGap(avg.income, expInc,
-              () => 'text-success', v => fmtM(v), 'Exp:', true, 50),
+              () => 'text-success', v => fmt(v), 'Exp:', true, 50),
             tooltip: `Average monthly income over the last ${avgWindow} complete months.\nExp = sum of all current monthly rents at 100% occupancy. Gap indicates how far below potential rent income sits.` });
         })()}
         {(() => {
           const expOpEx = agg.totalExpectedOpEx;
           const expExp  = expOpEx > 0 ? expOpEx + avg.mortgage : null;
           return mc({ label: `Avg Expenses (${avgWindow}M)`,
-            primary: fmtM(avg.expenses), primaryCls: 'text-danger',
+            primary: fmt(avg.expenses), primaryCls: 'text-danger',
             ...expGap(avg.expenses, expExp,
               v => v < agg.totalMonthlyRent * 0.65 ? '' : v < agg.totalMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
-              v => fmtM(v), 'Exp:', false, 50),
+              v => fmt(v), 'Exp:', false, 50),
             tooltip: `Average monthly expenses over the last ${avgWindow} complete months.\nExp = budgeted op-ex (${agg.propertiesWithExpected} of ${properties.length} props) + avg mortgage. Lower than expected is better.` });
         })()}
         {(() => {
@@ -347,20 +313,20 @@ export default function Dashboard({ properties, onPropertyClick }) {
           const expNOI  = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
           const expCF   = expNOI != null ? expNOI - avg.mortgage : null;
           return mc({ label: `Avg Cash Flow (${avgWindow}M)`,
-            primary: fmtM(avg.cashflow),
+            primary: fmt(avg.cashflow),
             primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
             ...expGap(avg.cashflow, expCF,
-              v => v >= 0 ? 'text-success' : 'text-danger', v => fmtM(v), 'Exp:', true, 50),
+              v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
             tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.\nExp = budgeted NOI minus average mortgage payment. Higher than expected is better.` });
         })()}
         {(() => {
           const expOpEx   = agg.totalExpectedOpEx;
           const expNOI    = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
           return mc({ label: `Avg NOI (${avgWindow}M)`,
-            primary: fmtM(avg.noi),
+            primary: fmt(avg.noi),
             primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
             ...expGap(avg.noi, expNOI,
-              v => v >= 0 ? 'text-success' : 'text-danger', v => fmtM(v), 'Exp:', true, 50),
+              v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
             tooltip: `Net Operating Income: avg monthly income minus all op-ex, excluding mortgage and principal.\nExp = total monthly rent minus budgeted operating expenses at full occupancy.` });
         })()}
       </div>
@@ -408,7 +374,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
         })()}
       </div>
 
-      {/* Row 3: Monthly gain + selling profit + time to profit */}
+      {/* Row 3: Monthly gain + net position + payback/break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {(() => {
           const mg      = avg.cashflow + agg.monthlyApprAgg;
@@ -417,32 +383,53 @@ export default function Dashboard({ properties, onPropertyClick }) {
           const expCF   = expNOI != null ? expNOI - avg.mortgage : null;
           const expApprMo = agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr / 12 : null;
           const expMG   = expCF != null ? expCF + (expApprMo ?? 0) : null;
-          return mc({ label: 'Monthly Gain', primary: fmtM(mg),
+          return mc({ label: 'Monthly Gain', primary: fmt(mg),
             primaryCls: mg >= 0 ? 'text-success' : 'text-danger',
             ...expGap(mg, expMG,
-              v => v >= 0 ? 'text-success' : 'text-danger', v => fmtM(v), 'Exp:', true, 50),
+              v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
             tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12). Combines income and value growth in one number.\nExp uses budgeted operating costs + expected appreciation %.' });
         })()}
-        {mc({ label: 'Selling Profit', primary: fmt(agg.sellingProfit),
+        {mc({ label: 'Net Position', primary: fmt(agg.sellingProfit),
           primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
           tooltip: 'Market Value + Total Income − Total Expenses − Loans. Net proceeds if you sold everything today and cleared all mortgages.' })}
         {(() => {
-          const sp = agg.sellingProfit; const cf = avg.cashflow;
-          let label, cls;
-          if (sp <= 0)      { label = '—'; cls = ''; }
-          else if (cf <= 0) { label = cf < 0 ? '\u221e (losing)' : '—'; cls = 'text-danger'; }
-          else { const mo = sp / cf; label = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; cls = mo < 24 ? 'text-success' : mo < 60 ? '' : 'text-danger'; }
-          const expOpEx   = agg.totalExpectedOpEx;
-          const expNOI    = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
-          const expCF     = expNOI != null ? expNOI - avg.mortgage : null;
+          // Payback period: down payment ÷ avg cash flow
+          const downPmt = agg.purchase - agg.loan;
+          const pp = avg.cashflow > 0 ? downPmt / avg.cashflow : null;
+          const ppLabel = pp == null ? (avg.cashflow <= 0 ? '∞ (no CF)' : '—')
+            : pp < 12 ? `${Math.round(pp)} mo` : `${(pp/12).toFixed(1)} yr`;
+          const ppCls = pp == null ? 'text-danger' : pp < 36 ? 'text-success' : pp < 84 ? '' : 'text-danger';
+          const totalExpCF = properties.reduce((s, p) => {
+            const e = calcExpected(p, perPropAvg[p.id]?.mortgage ?? 0);
+            return e ? s + e.monthlyCF : s;
+          }, 0);
+          const expPP     = totalExpCF > 0 ? downPmt / totalExpCF : null;
+          const expPPLabel = expPP != null
+            ? (expPP < 12 ? `Exp: ${Math.round(expPP)} mo` : `Exp: ${(expPP/12).toFixed(1)} yr`) : null;
+          return mc({ label: 'Payback Period', primary: ppLabel, primaryCls: ppCls,
+            secondary: expPPLabel, secondaryCls: expPPLabel ? 'text-success' : '',
+            tooltip: `Time to recover the total down payment (${fmt(downPmt)}) via average monthly cash flow.\nMeasures how long your initial capital is at risk.\nExp uses budgeted cash flow.` });
+        })()}
+        {(() => {
+          // Break-even: time until Net Position reaches 0 via monthly gain
+          const np = agg.sellingProfit;
+          const mg = avg.cashflow + agg.monthlyApprAgg;
+          const totalExpCF3 = properties.reduce((s, p) => {
+            const e = calcExpected(p, perPropAvg[p.id]?.mortgage ?? 0);
+            return e ? s + e.monthlyCF : s;
+          }, 0);
           const expApprMo = agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr / 12 : null;
-          const expMG     = expCF != null ? expCF + (expApprMo ?? 0) : null;
-          const expLabel  = sp > 0 && expMG != null && expMG > 0
-            ? (() => { const mo = sp / expMG; return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo/12).toFixed(1)} yr`; })()
+          const expMG     = totalExpCF3 > 0 ? totalExpCF3 + (expApprMo ?? 0) : null;
+          const downPmtBE = agg.purchase - agg.loan;
+          let beLabel, beCls;
+          if (mg <= 0) { beLabel = '∞ (no growth)'; beCls = 'text-danger'; }
+          else { const mo = downPmtBE / mg; beLabel = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; beCls = mo < 36 ? 'text-success' : mo < 84 ? '' : 'text-danger'; }
+          const expBE = (expMG != null && expMG > 0)
+            ? (() => { const mo = downPmtBE / expMG; return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo/12).toFixed(1)} yr`; })()
             : null;
-          return mc({ label: 'Time to Sell Profit', primary: label, primaryCls: cls,
-            secondary: expLabel, secondaryCls: expLabel ? 'text-success' : '',
-            tooltip: 'How many months of average cash flow equal the current portfolio selling profit.\nA rough payback period — shorter is better.\nExp uses the budgeted monthly gain (cash flow + appreciation).' });
+          return mc({ label: 'Break-even', primary: beLabel, primaryCls: beCls,
+            secondary: expBE, secondaryCls: expBE ? 'text-success' : '',
+            tooltip: `Time to recoup the total down payment (${fmt(downPmtBE)}) via monthly gain (cash flow + appreciation). Always ≤ Payback Period since gain ≥ cash flow.\nExp uses budgeted monthly gain.` });
         })()}
       </div>
 

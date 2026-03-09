@@ -26,28 +26,45 @@ export const yearsHeld = (p) => {
  * Financing-agnostic: captures what the asset earns before debt service.
  */
 export const avgMonthly = (incomeRecs, expenseRecs, windowMonths = 3) => {
-  const now   = new Date();
-  const end   = new Date(now.getFullYear(), now.getMonth(), 1);
-  const start = new Date(end);
-  start.setMonth(start.getMonth() - windowMonths);
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  // windowMonths === 0 means all-time
+  const allTime = windowMonths === 0;
+  const start = allTime ? null : (() => {
+    const s = new Date(end); s.setMonth(s.getMonth() - windowMonths); return s;
+  })();
 
   const inWindow = (dateStr) => {
     if (!dateStr) return false;
     const [y, m, d] = dateStr.split('-').map(Number);
     const dt = new Date(y, m - 1, d);
-    return dt >= start && dt < end;
+    return (allTime || dt >= start) && dt < end;
   };
 
-  const income         = incomeRecs.filter(r => inWindow(r.income_date)).reduce((s, r) => s + r.amount, 0);
-  const expenses       = expenseRecs.filter(r => inWindow(r.expense_date)).reduce((s, r) => s + r.amount, 0);
-  const noiExpenses    = expenseRecs
+  const income        = incomeRecs.filter(r => inWindow(r.income_date)).reduce((s, r) => s + r.amount, 0);
+  const expenses      = expenseRecs.filter(r => inWindow(r.expense_date)).reduce((s, r) => s + r.amount, 0);
+  const noiExpenses   = expenseRecs
     .filter(r => inWindow(r.expense_date) && !['Mortgage', 'Principal'].includes(r.expense_category))
     .reduce((s, r) => s + r.amount, 0);
-  const mortgageTotal  = expenseRecs
+  const mortgageTotal = expenseRecs
     .filter(r => inWindow(r.expense_date) && r.expense_category === 'Mortgage')
     .reduce((s, r) => s + r.amount, 0);
 
-  const w = windowMonths > 0 ? windowMonths : 1;
+  // Divisor: window months, or span from earliest record to now for all-time
+  let w = windowMonths > 0 ? windowMonths : 1;
+  if (allTime) {
+    const dates = [
+      ...incomeRecs.map(r => r.income_date),
+      ...expenseRecs.map(r => r.expense_date),
+    ].filter(Boolean).sort();
+    if (dates.length) {
+      const [y, m] = dates[0].split('-').map(Number);
+      const earliest = new Date(y, m - 1, 1);
+      w = Math.max(1, Math.round((end - earliest) / (1000 * 60 * 60 * 24 * 30.44)));
+    }
+  }
+
   return {
     income:      income      / w,
     expenses:    expenses    / w,
