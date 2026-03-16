@@ -248,31 +248,42 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           ? expMonthlyCF + expMonthlyAppr
           : expMonthlyCF !== null ? expMonthlyCF : null;
 
-        // Payback Period: time to return initial down payment via cash flow
+        // Payback Period: time until all expenses (including principal) are recovered via cash flow.
+        // Numerator = total expenses still to be recovered = total_expenses − total_income.
+        // When total_expenses > total_income we still owe money; cashflow repays it.
         const paybackPeriod = (() => {
           if (avg.cashflow <= 0) return null;
-          const months = downPmt / avg.cashflow;
+          const outstanding = property.total_expenses - property.total_income;
+          if (outstanding <= 0) return { months: 0, label: 'Recovered', cls: 'text-success' };
+          const months = outstanding / avg.cashflow;
           return { months, label: months < 12 ? `${Math.round(months)} mo` : `${(months / 12).toFixed(1)} yr`,
             cls: months < 36 ? 'text-success' : months < 84 ? '' : 'text-danger' };
         })();
         const expPayback = (() => {
           if (expMonthlyCF == null || expMonthlyCF <= 0) return null;
-          const months = downPmt / expMonthlyCF;
+          const outstanding = property.total_expenses - property.total_income;
+          if (outstanding <= 0) return 'Exp: Recovered';
+          const months = outstanding / expMonthlyCF;
           return months < 12 ? `Exp: ${Math.round(months)} mo` : `Exp: ${(months / 12).toFixed(1)} yr`;
         })();
 
-        // Break-even: time to recoup down payment via monthly gain (CF + appreciation)
-        // Uses same numerator as payback so break-even ≤ payback when appreciation > 0
+        // Break-even: time until net position (income − expenses + equity appreciation) reaches zero.
+        // Net position = market_price + total_income − total_expenses − loan_amount (i.e. sellingProfit).
+        // If already positive, already broken even. If negative, monthly gain closes the gap.
         const breakEven = (() => {
+          const netPos = sellingProfit; // market + income − expenses − loan
+          if (netPos >= 0) return { label: 'Reached', cls: 'text-success' };
           const mg = monthlyGain; // CF + appreciation
           if (mg <= 0) return { label: '\u221e (no growth)', cls: 'text-danger' };
-          const months = downPmt / mg;
+          const months = -netPos / mg;
           return { label: months < 12 ? `${Math.round(months)} mo` : `${(months / 12).toFixed(1)} yr`,
             cls: months < 36 ? 'text-success' : months < 84 ? '' : 'text-danger' };
         })();
         const expBreakEven = (() => {
           if (expMonthlyGain == null || expMonthlyGain <= 0) return null;
-          const months = downPmt / expMonthlyGain;
+          const netPos = sellingProfit;
+          if (netPos >= 0) return 'Exp: Reached';
+          const months = -netPos / expMonthlyGain;
           return months < 12 ? `Exp: ${Math.round(months)} mo` : `Exp: ${(months / 12).toFixed(1)} yr`;
         })();
 
@@ -577,11 +588,11 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
               primaryCls: paybackPeriod ? paybackPeriod.cls : 'text-danger',
               secondary: expPayback,
               secondaryCls: expPayback ? 'text-success' : '',
-              tooltip: `Time to recover your down payment (${f(downPmt)}) via avg monthly cash flow.\nA rough measure of how long your initial capital is at risk.\nExp uses budgeted cash flow.` })}
+              tooltip: `Time until all recorded expenses (including principal payments) are fully recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${f(property.total_expenses)} − ${f(property.total_income)}).\nExp uses budgeted cash flow.` })}
             {mc({ label: 'Break-even',
               primary: breakEven.label, primaryCls: breakEven.cls,
               secondary: expBreakEven, secondaryCls: expBreakEven ? 'text-success' : '',
-              tooltip: 'Time until Net Position reaches zero — i.e. until cumulative monthly gain (cash flow + appreciation) erases the current paper loss.\nIf Net Position is already positive, the property has already broken even.\nExp uses budgeted monthly gain.' })}
+              tooltip: 'Time until Net Position (Market Value + Income − Expenses − Loan) reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nIf Net Position is already ≥ 0, break-even has been reached.\nExp uses budgeted monthly gain.' })}
           </div>
 
           {/* Row 2: NOI, expenses, cap rate, DSCR */}

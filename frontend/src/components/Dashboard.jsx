@@ -393,25 +393,29 @@ export default function Dashboard({ properties, onPropertyClick }) {
           primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
           tooltip: 'Market Value + Total Income − Total Expenses − Loans. Net proceeds if you sold everything today and cleared all mortgages.' })}
         {(() => {
-          // Payback period: down payment ÷ avg cash flow
-          const downPmt = agg.purchase - agg.loan;
-          const pp = avg.cashflow > 0 ? downPmt / avg.cashflow : null;
-          const ppLabel = pp == null ? (avg.cashflow <= 0 ? '∞ (no CF)' : '—')
+          // Payback period: (total expenses − total income) ÷ avg cash flow
+          // i.e. how long until every dollar spent (including principal) is recovered
+          const outstanding = agg.expenses - agg.income;
+          const pp = avg.cashflow > 0
+            ? (outstanding <= 0 ? 0 : outstanding / avg.cashflow)
+            : null;
+          const ppLabel = pp === null ? (avg.cashflow <= 0 ? '∞ (no CF)' : '—')
+            : pp === 0 ? 'Recovered'
             : pp < 12 ? `${Math.round(pp)} mo` : `${(pp/12).toFixed(1)} yr`;
-          const ppCls = pp == null ? 'text-danger' : pp < 36 ? 'text-success' : pp < 84 ? '' : 'text-danger';
+          const ppCls = pp === null ? 'text-danger' : pp === 0 ? 'text-success' : pp < 36 ? 'text-success' : pp < 84 ? '' : 'text-danger';
           const totalExpCF = properties.reduce((s, p) => {
             const e = calcExpected(p, perPropAvg[p.id]?.mortgage ?? 0);
             return e ? s + e.monthlyCF : s;
           }, 0);
-          const expPP     = totalExpCF > 0 ? downPmt / totalExpCF : null;
+          const expPP     = totalExpCF > 0 ? (outstanding <= 0 ? 0 : outstanding / totalExpCF) : null;
           const expPPLabel = expPP != null
-            ? (expPP < 12 ? `Exp: ${Math.round(expPP)} mo` : `Exp: ${(expPP/12).toFixed(1)} yr`) : null;
+            ? (expPP === 0 ? 'Exp: Recovered' : expPP < 12 ? `Exp: ${Math.round(expPP)} mo` : `Exp: ${(expPP/12).toFixed(1)} yr`) : null;
           return mc({ label: 'Payback Period', primary: ppLabel, primaryCls: ppCls,
             secondary: expPPLabel, secondaryCls: expPPLabel ? 'text-success' : '',
-            tooltip: `Time to recover the total down payment (${fmt(downPmt)}) via average monthly cash flow.\nMeasures how long your initial capital is at risk.\nExp uses budgeted cash flow.` });
+            tooltip: `Time until all recorded expenses are recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(agg.expenses)} − ${fmt(agg.income)}).\nExp uses budgeted cash flow.` });
         })()}
         {(() => {
-          // Break-even: time until Net Position reaches 0 via monthly gain
+          // Break-even: time until net position (sellingProfit) reaches 0 via monthly gain
           const np = agg.sellingProfit;
           const mg = avg.cashflow + agg.monthlyApprAgg;
           const totalExpCF3 = properties.reduce((s, p) => {
@@ -420,16 +424,16 @@ export default function Dashboard({ properties, onPropertyClick }) {
           }, 0);
           const expApprMo = agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr / 12 : null;
           const expMG     = totalExpCF3 > 0 ? totalExpCF3 + (expApprMo ?? 0) : null;
-          const downPmtBE = agg.purchase - agg.loan;
           let beLabel, beCls;
-          if (mg <= 0) { beLabel = '∞ (no growth)'; beCls = 'text-danger'; }
-          else { const mo = downPmtBE / mg; beLabel = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; beCls = mo < 36 ? 'text-success' : mo < 84 ? '' : 'text-danger'; }
-          const expBE = (expMG != null && expMG > 0)
-            ? (() => { const mo = downPmtBE / expMG; return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo/12).toFixed(1)} yr`; })()
-            : null;
+          if (np >= 0) { beLabel = 'Reached'; beCls = 'text-success'; }
+          else if (mg <= 0) { beLabel = '∞ (no growth)'; beCls = 'text-danger'; }
+          else { const mo = -np / mg; beLabel = mo < 12 ? `${Math.round(mo)} mo` : `${(mo/12).toFixed(1)} yr`; beCls = mo < 36 ? 'text-success' : mo < 84 ? '' : 'text-danger'; }
+          const expBE = (expMG != null && expMG > 0 && np < 0)
+            ? (() => { const mo = -np / expMG; return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo/12).toFixed(1)} yr`; })()
+            : (np >= 0 ? 'Exp: Reached' : null);
           return mc({ label: 'Break-even', primary: beLabel, primaryCls: beCls,
             secondary: expBE, secondaryCls: expBE ? 'text-success' : '',
-            tooltip: `Time to recoup the total down payment (${fmt(downPmtBE)}) via monthly gain (cash flow + appreciation). Always ≤ Payback Period since gain ≥ cash flow.\nExp uses budgeted monthly gain.` });
+            tooltip: `Time until Net Position (Market Value + Income − Expenses − Loans) reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.` });
         })()}
       </div>
 

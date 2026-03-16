@@ -9,10 +9,12 @@ const toFormState = (expense, property) => expense ? {
   expense_type:     expense.expense_type ?? '',
   expense_category: expense.expense_category ?? '',
   notes: expense.notes ?? '',
+  tax_deductible: expense.tax_deductible === undefined ? true : Boolean(expense.tax_deductible),
 } : {
   property_id:      property?.id ?? '',
   expense_date:     new Date().toISOString().split('T')[0],
   amount: 0, expense_type: '', expense_category: '', notes: '',
+  tax_deductible: true,
 };
 
 const QUICK_BTN_STYLE = {
@@ -27,13 +29,27 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
 
   const set = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
 
+  // When category changes, auto-set tax_deductible: Mortgage/Principal → false, everything else → true
+  const NON_DEDUCTIBLE_CATEGORIES = ['Mortgage', 'Principal'];
+  const setCategory = (category) => setFormData((prev) => ({
+    ...prev,
+    expense_category: category,
+    tax_deductible: category === '' ? prev.tax_deductible : !NON_DEDUCTIBLE_CATEGORIES.includes(category),
+  }));
+
   // Current selected property object (for quick-fill)
   const selectedProp = useMemo(() =>
     properties.find(p => String(p.id) === String(formData.property_id)) ?? null,
   [properties, formData.property_id]);
 
-  // Quick-fill helpers
-  const quickFill = (patch) => setFormData(prev => ({ ...prev, ...patch }));
+  // Quick-fill helpers — also derives tax_deductible from category when present
+  const quickFill = (patch) => setFormData(prev => {
+    const merged = { ...prev, ...patch };
+    if ('expense_category' in patch && patch.expense_category !== '') {
+      merged.tax_deductible = !NON_DEDUCTIBLE_CATEGORIES.includes(patch.expense_category);
+    }
+    return merged;
+  });
 
   const fillCondoFees = () => {
     if (!selectedProp?.expected_condo_fees) return;
@@ -74,7 +90,8 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
           amount:          formData.amount,
           expenseType:     formData.expense_type,
           expenseCategory: formData.expense_category,
-          notes: formData.notes,
+          notes:           formData.notes,
+          taxDeductible:   formData.tax_deductible,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -142,7 +159,7 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
 
             <div className="form-group">
               <label>Category *</label>
-              <select value={formData.expense_category} onChange={(e) => set('expense_category', e.target.value)} required>
+              <select value={formData.expense_category} onChange={(e) => setCategory(e.target.value)} required>
                 <option value="">Select Category</option>
                 {INITIAL_OPTIONS.expenseCategories.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -159,6 +176,21 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
             <div className="form-group full-width">
               <label>Notes</label>
               <textarea rows="3" value={formData.notes} onChange={(e) => set('notes', e.target.value)} />
+            </div>
+
+            <div className="form-group full-width">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.tax_deductible}
+                  onChange={(e) => set('tax_deductible', e.target.checked)}
+                  style={{ width: '1rem', height: '1rem', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                />
+                Tax deductible
+                <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>
+                  — uncheck if this expense cannot be claimed as a tax deduction
+                </span>
+              </label>
             </div>
           </div>
 

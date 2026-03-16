@@ -199,23 +199,31 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
           <div className="table-scroll-wrap">
             <table>
               <thead><tr>
-                {col('date')     && <th className="col-shrink">Date</th>}
-                {col('property') && <th className="col-fill">Property</th>}
-                {col('amount')   && <th className="col-shrink">Amount</th>}
-                {col('category') && <th className="col-shrink">Category</th>}
-                {col('type')     && <th className="col-shrink">Type</th>}
-                {col('notes')    && <th className="col-fill">Notes</th>}
+                {col('date')          && <th className="col-shrink">Date</th>}
+                {col('property')      && <th className="col-fill">Property</th>}
+                {col('amount')        && <th className="col-shrink">Amount</th>}
+                {col('category')      && <th className="col-shrink">Category</th>}
+                {col('type')          && <th className="col-shrink">Type</th>}
+                {col('tax_deductible') && <th className="col-shrink" title="Tax Deductible">Tax Ded.</th>}
+                {col('notes')         && <th className="col-fill">Notes</th>}
                 <th style={{ width: 52 }}></th>
               </tr></thead>
               <tbody>
-                {filtered.map(e => (
+                  {filtered.map(e => (
                   <tr key={e.id}>
-                    {col('date')     && <td className="col-shrink">{fmtDate(e.expense_date)}</td>}
-                    {col('property') && <td className="col-fill"><TruncatedCell text={e.property_name} /></td>}
-                    {col('amount')   && <td className="col-shrink text-danger">${e.amount.toLocaleString()}</td>}
-                    {col('category') && <td className="col-shrink">{e.expense_category}</td>}
-                    {col('type')     && <td className="col-shrink">{e.expense_type}</td>}
-                    {col('notes')    && <td className="col-fill"><TruncatedCell text={e.notes} /></td>}
+                    {col('date')           && <td className="col-shrink">{fmtDate(e.expense_date)}</td>}
+                    {col('property')       && <td className="col-fill"><TruncatedCell text={e.property_name} /></td>}
+                    {col('amount')         && <td className="col-shrink text-danger">${e.amount.toLocaleString()}</td>}
+                    {col('category')       && <td className="col-shrink">{e.expense_category}</td>}
+                    {col('type')           && <td className="col-shrink">{e.expense_type}</td>}
+                    {col('tax_deductible') && (
+                      <td className="col-shrink" style={{ textAlign: 'center' }}>
+                        {e.tax_deductible === 0 || e.tax_deductible === false
+                          ? <span title="Not tax deductible" style={{ color: 'var(--text-tertiary)' }}>✗</span>
+                          : <span title="Tax deductible" style={{ color: 'var(--color-success, #22c55e)' }}>✓</span>}
+                      </td>
+                    )}
+                    {col('notes')          && <td className="col-fill"><TruncatedCell text={e.notes} /></td>}
                     <td>
                       <div className="row-actions">
                         <button className="btn btn-secondary btn-icon" title="Edit"   onClick={() => onEditExpense(e)}>✏️</button>

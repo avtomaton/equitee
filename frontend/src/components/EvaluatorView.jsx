@@ -287,10 +287,21 @@ export default function EvaluatorView() {
     const monthlyAppr      = yearlyAppr / 12;
     const monthlyGain      = avgCashFlow + monthlyAppr;
 
-    // Time to recover down payment (break-even on cash investment)
-    const breakEven = (() => {
+    // Payback: time to recover all cash invested via cash flow alone
+    const payback = (() => {
       if (avgCashFlow <= 0) return { label: avgCashFlow < 0 ? '∞ (losing)' : '—', cls: 'text-danger' };
       const mo = cashInvested / avgCashFlow;
+      return {
+        label: mo < 12 ? `${Math.round(mo)} mo` : `${(mo / 12).toFixed(1)} yr`,
+        cls: mo < 60 ? 'text-success' : mo < 120 ? '' : 'text-danger',
+      };
+    })();
+
+    // Break-even: when net position (−cashInvested + cumulative gain) reaches 0
+    // i.e. cashInvested recovered via monthly gain (cash flow + appreciation)
+    const breakEven = (() => {
+      if (monthlyGain <= 0) return { label: monthlyGain < 0 ? '∞ (losing)' : '—', cls: 'text-danger' };
+      const mo = cashInvested / monthlyGain;
       return {
         label: mo < 12 ? `${Math.round(mo)} mo` : `${(mo / 12).toFixed(1)} yr`,
         cls: mo < 60 ? 'text-success' : mo < 120 ? '' : 'text-danger',
@@ -347,7 +358,7 @@ export default function EvaluatorView() {
       avgCashFlow, annualGrossRent, annualNetOpIncome, capRate, cashOnCash,
       ltvRatio, equity, expenseRatio, rentToValue,
       yearlyAppr, yearlyApprRatio, monthlyAppr, monthlyGain,
-      cashInvested, breakEven, projections, score, analysis, grm, irr10,
+      cashInvested, payback, breakEven, projections, score, analysis, grm, irr10,
     };
   }, [inputs, scenario]);
 
@@ -469,8 +480,10 @@ export default function EvaluatorView() {
               secondary: `CF ${fmt(m.avgCashFlow)} + Appr ${fmt(m.monthlyAppr)}`,
               secondaryCls: 'text-secondary',
               tooltip: 'Cash Flow + Monthly Appreciation.\nCaptures income and value growth together.' })}
+            {mc({ label: 'Payback Period', primary: m.payback.label, primaryCls: m.payback.cls,
+              tooltip: 'Time for cumulative cash flow to recover all cash invested (down payment + one-off costs).\nUses cash flow only — does not include appreciation.' })}
             {mc({ label: 'Break-even', primary: m.breakEven.label, primaryCls: m.breakEven.cls,
-              tooltip: 'Months of cash flow needed to recover total cash invested (down payment + one-off costs).' })}
+              tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways ≤ Payback Period since gain ≥ cash flow.' })}
           </div>
 
           {/* Score */}

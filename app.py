@@ -60,6 +60,7 @@ def init_db():
             expense_type TEXT NOT NULL,
             expense_category TEXT NOT NULL,
             notes TEXT,
+            tax_deductible INTEGER NOT NULL DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
@@ -378,10 +379,11 @@ def create_expense():
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO expenses (property_id, expense_date, amount, expense_type, expense_category, notes)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO expenses (property_id, expense_date, amount, expense_type, expense_category, notes, tax_deductible)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (data['propertyId'], data['expenseDate'], data['amount'],
-              data['expenseType'], data['expenseCategory'], data.get('notes', '')))
+              data['expenseType'], data['expenseCategory'], data.get('notes', ''),
+              1 if data.get('taxDeductible', True) else 0))
         expense_id = cursor.lastrowid
         conn.commit()
         cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
@@ -404,11 +406,12 @@ def update_expense(expense_id):
         cursor.execute('''
             UPDATE expenses
             SET property_id=?, expense_date=?, amount=?, expense_type=?,
-                expense_category=?, notes=?, updated_at=CURRENT_TIMESTAMP
+                expense_category=?, notes=?, tax_deductible=?, updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         ''', (data['propertyId'], data['expenseDate'], data['amount'],
               data['expenseType'], data['expenseCategory'],
-              data.get('notes', ''), expense_id))
+              data.get('notes', ''), 1 if data.get('taxDeductible', True) else 0,
+              expense_id))
         conn.commit()
         cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
         updated = dict(cursor.fetchone())
