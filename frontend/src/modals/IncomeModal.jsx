@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react';
 import { API_URL, INITIAL_OPTIONS } from '../config.js';
+import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
 
 const toFormState = (income, property) => income ? {
   property_id: income.property_id ?? '',
   income_date: income.income_date ?? new Date().toISOString().split('T')[0],
   amount:      income.amount ?? 0,
   income_type: income.income_type ?? '',
-  notes: income.notes ?? '',
+  notes:       income.notes ?? '',
 } : {
   property_id: property?.id ?? '',
   income_date: new Date().toISOString().split('T')[0],
@@ -23,53 +24,40 @@ const QUICK_BTN_STYLE = {
 export default function IncomeModal({ income, properties, property, onClose, onSave }) {
   const [formData, setFormData] = useState(() => toFormState(income, property));
 
-  const set = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
+  const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
-  // Current selected property object (for quick-fill)
   const selectedProp = useMemo(() =>
     properties.find(p => String(p.id) === String(formData.property_id)) ?? null,
   [properties, formData.property_id]);
 
   const fillRent = () => {
     if (!selectedProp?.monthly_rent) return;
-    setFormData(prev => ({
-      ...prev,
-      amount:      selectedProp.monthly_rent,
-      income_type: 'Rent',
-      notes:       'Monthly rent',
-    }));
+    setFormData(prev => ({ ...prev, amount: selectedProp.monthly_rent, income_type: 'Rent', notes: 'Monthly rent' }));
   };
 
-  const hasRent        = selectedProp?.monthly_rent > 0;
-  const showQuickFill  = !income && hasRent;
+  const hasRent       = selectedProp?.monthly_rent > 0;
+  const showQuickFill = !income && hasRent;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const url    = income ? `${API_URL}/income/${income.id}` : `${API_URL}/income`;
       const method = income ? 'PUT' : 'POST';
-      const res    = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          propertyId:  formData.property_id,
-          incomeDate:  formData.income_date,
-          amount:      formData.amount,
-          incomeType:  formData.income_type,
-          notes: formData.notes,
+          propertyId: formData.property_id, incomeDate: formData.income_date,
+          amount: formData.amount, incomeType: formData.income_type, notes: formData.notes,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       onSave();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to save income');
-    }
+    } catch (err) { console.error(err); alert('Failed to save income'); }
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">{income ? 'Edit Income' : 'Add New Income'}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -79,18 +67,17 @@ export default function IncomeModal({ income, properties, property, onClose, onS
           <div className="form-grid">
             <div className="form-group">
               <label>Property *</label>
-              <select value={formData.property_id} onChange={(e) => set('property_id', e.target.value)} required>
+              <select value={formData.property_id} onChange={e => set('property_id', e.target.value)} required>
                 <option value="">Select Property</option>
-                {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
 
             <div className="form-group">
               <label>Date *</label>
-              <input type="date" value={formData.income_date} onChange={(e) => set('income_date', e.target.value)} required />
+              <DateInput value={formData.income_date} onChange={e => set('income_date', e.target.value)} required />
             </div>
 
-            {/* Quick-fill buttons */}
             {showQuickFill && (
               <div className="form-group full-width" style={{ marginBottom: '0.25rem' }}>
                 <label style={{ marginBottom: '0.4rem', display: 'block' }}>
@@ -112,20 +99,21 @@ export default function IncomeModal({ income, properties, property, onClose, onS
             <div className="form-group">
               <label>Amount *</label>
               <input type="number" step="0.01" min="0" value={formData.amount}
-                onChange={(e) => set('amount', parseFloat(e.target.value) || 0)} required />
+                onChange={e => set('amount', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} required />
             </div>
 
             <div className="form-group">
               <label>Type *</label>
-              <select value={formData.income_type} onChange={(e) => set('income_type', e.target.value)} required>
+              <select value={formData.income_type} onChange={e => set('income_type', e.target.value)} required>
                 <option value="">Select Type</option>
-                {INITIAL_OPTIONS.incomeTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                {INITIAL_OPTIONS.incomeTypes.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
 
             <div className="form-group full-width">
               <label>Notes</label>
-              <textarea rows="3" value={formData.notes} onChange={(e) => set('notes', e.target.value)} />
+              <textarea rows="3" value={formData.notes} onChange={e => set('notes', e.target.value)} />
             </div>
           </div>
 
@@ -135,6 +123,6 @@ export default function IncomeModal({ income, properties, property, onClose, onS
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

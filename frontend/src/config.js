@@ -16,7 +16,7 @@ export const INITIAL_OPTIONS = {
   propertyTypes:     ['Condo', 'House', 'Townhouse', 'Duplex', 'Commercial', 'Land'],
   expenseCategories: ['Mortgage', 'Principal', 'Management', 'Maintenance', 'Insurance',
                       'Utilities', 'Tax', 'Capital', 'Other'],
-  expenseTypes:      ['Recurrent', 'One-time'],
+  expenseTypes:      ['Recurrent', 'One-off'],
   incomeTypes:       ['Rent', 'Deposit', 'Parking', 'Laundry', 'Other'],
 };
 

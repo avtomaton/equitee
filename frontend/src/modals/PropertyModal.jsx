@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
 import { API_URL, PROVINCES, INITIAL_OPTIONS } from '../config.js';
 import { formatPostalCode } from '../utils.js';
 
@@ -119,7 +120,7 @@ export default function PropertyModal({ property, onClose, onSave }) {
       : undefined;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <ModalOverlay onClose={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">{property ? 'Edit Property' : 'Add New Property'}</h2>
@@ -193,21 +194,24 @@ export default function PropertyModal({ property, onClose, onSave }) {
             <div className="form-group">
               <label>Purchase Price *</label>
               <input type="number" min="0" step="0.01" value={formData.purchasePrice}
-                onChange={e => set('purchasePrice', parseFloat(e.target.value) || 0)} />
+                onChange={e => set('purchasePrice', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} />
             </div>
 
             {/* Market price */}
             <div className="form-group">
               <label>Market Price *</label>
               <input type="number" min="0" step="0.01" value={formData.marketPrice}
-                onChange={e => set('marketPrice', parseFloat(e.target.value) || 0)} />
+                onChange={e => set('marketPrice', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} />
             </div>
 
             {/* Loan amount */}
             <div className="form-group">
               <label>Loan Amount *</label>
               <input type="number" min="0" step="0.01" value={formData.loanAmount}
-                onChange={e => set('loanAmount', parseFloat(e.target.value) || 0)} />
+                onChange={e => set('loanAmount', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} />
             </div>
 
             {/* Mortgage rate */}
@@ -216,7 +220,8 @@ export default function PropertyModal({ property, onClose, onSave }) {
               <input type="number" min="0" max="30" step="0.01"
                 value={formData.mortgageRate}
                 placeholder="e.g. 5.25"
-                onChange={e => set('mortgageRate', parseFloat(e.target.value) || 0)} />
+                onChange={e => set('mortgageRate', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} />
             </div>
 
             {/* Monthly rent — with vacancy/rented highlighting */}
@@ -253,7 +258,7 @@ export default function PropertyModal({ property, onClose, onSave }) {
             {/* Possession date */}
             <div className="form-group">
               <label>Possession Date *</label>
-              <input type="date" value={formData.possDate} onChange={e => set('possDate', e.target.value)} />
+              <DateInput value={formData.possDate} onChange={e => set('possDate', e.target.value)} />
               {err('possDate')}
             </div>
 
@@ -277,7 +282,8 @@ export default function PropertyModal({ property, onClose, onSave }) {
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Payment Amount ($)</label>
                     <input type="number" min="0" step="0.01" value={formData.mortgagePayment}
-                      onChange={e => set('mortgagePayment', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('mortgagePayment', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Frequency</label>
@@ -308,31 +314,36 @@ export default function PropertyModal({ property, onClose, onSave }) {
                       <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>HOA / strata</span>
                     </label>
                     <input type="number" min="0" step="0.01" value={formData.expectedCondoFees}
-                      onChange={e => set('expectedCondoFees', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('expectedCondoFees', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Insurance/mo ($)</label>
                     <input type="number" min="0" step="0.01" value={formData.expectedInsurance}
-                      onChange={e => set('expectedInsurance', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('expectedInsurance', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Utilities/mo ($)
                       <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>hydro, gas, water…</span>
                     </label>
                     <input type="number" min="0" step="0.01" value={formData.expectedUtilities}
-                      onChange={e => set('expectedUtilities', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('expectedUtilities', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Misc Expenses/mo ($)
                       <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: '0.3rem', fontSize: '0.72rem' }}>contingency, other</span>
                     </label>
                     <input type="number" min="0" step="0.01" value={formData.expectedMiscExpenses}
-                      onChange={e => set('expectedMiscExpenses', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('expectedMiscExpenses', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Annual Property Tax ($)</label>
                     <input type="number" min="0" step="0.01" value={formData.annualPropertyTax}
-                      onChange={e => set('annualPropertyTax', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('annualPropertyTax', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Expected Yearly Appreciation (%)
@@ -341,7 +352,8 @@ export default function PropertyModal({ property, onClose, onSave }) {
                     <input type="number" min="0" max="50" step="0.1"
                       value={formData.expectedAppreciationPct}
                       placeholder="e.g. 3.5"
-                      onChange={e => set('expectedAppreciationPct', parseFloat(e.target.value) || 0)} />
+                      onChange={e => set('expectedAppreciationPct', parseFloat(e.target.value) || 0)}
+                      onFocus={selectOnFocus} />
                   </div>
                 </div>
               </div>
@@ -354,6 +366,6 @@ export default function PropertyModal({ property, onClose, onSave }) {
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
