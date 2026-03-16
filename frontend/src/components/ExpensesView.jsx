@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import StatCard from './StatCard.jsx';
-import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS, mergeOptions, getDateRanges, isDateInRange, fmtDate } from '../config.js';
+import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
+import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
+import { fmtDate } from './uiHelpers.jsx';
 import { useColumnVisibility } from '../hooks.js';
 
 export default function ExpensesView({ properties, onAddExpense, onEditExpense, initialPropertyId }) {
@@ -30,17 +32,8 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
 
   const [filterCategories, setFilterCategories] = useState(INITIAL_OPTIONS.expenseCategories);
   const [filterTypes,      setFilterTypes]      = useState(INITIAL_OPTIONS.expenseTypes);
-  const catInit = useRef(false), typInit = useRef(false);
-
-  useEffect(() => {
-    if (!catInit.current && allCategories.length) { setFilterCategories(allCategories); catInit.current = true; }
-    else setFilterCategories(c => mergeOptions(c, allCategories));
-  }, [allCategories]);
-
-  useEffect(() => {
-    if (!typInit.current && allTypes.length) { setFilterTypes(allTypes); typInit.current = true; }
-    else setFilterTypes(t => mergeOptions(t, allTypes));
-  }, [allTypes]);
+  useEffect(() => { setFilterCategories(c => mergeOptions(c, allCategories)); }, [allCategories]);
+  useEffect(() => { setFilterTypes(t => mergeOptions(t, allTypes)); }, [allTypes]);
 
   useEffect(() => { if (properties.length > 0) loadExpenses(); }, [properties]);
 

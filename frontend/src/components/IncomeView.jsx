@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import StatCard from './StatCard.jsx';
-import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS, mergeOptions, getDateRanges, isDateInRange, fmtDate } from '../config.js';
+import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
+import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
+import { fmtDate } from './uiHelpers.jsx';
 import { useColumnVisibility } from '../hooks.js';
 
 export default function IncomeView({ properties, onAddIncome, onEditIncome, initialPropertyId }) {
@@ -27,12 +29,7 @@ export default function IncomeView({ properties, onAddIncome, onEditIncome, init
     mergeOptions(INITIAL_OPTIONS.incomeTypes, income.map(i => i.income_type)), [income]);
 
   const [filterTypes, setFilterTypes] = useState(INITIAL_OPTIONS.incomeTypes);
-  const typInit = useRef(false);
-
-  useEffect(() => {
-    if (!typInit.current && allTypes.length) { setFilterTypes(allTypes); typInit.current = true; }
-    else setFilterTypes(t => mergeOptions(t, allTypes));
-  }, [allTypes]);
+  useEffect(() => { setFilterTypes(t => mergeOptions(t, allTypes)); }, [allTypes]);
 
   useEffect(() => { if (properties.length > 0) loadIncome(); }, [properties]);
 

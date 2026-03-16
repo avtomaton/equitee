@@ -1,15 +1,24 @@
 import MetricCard from './MetricCard.jsx';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
-export const fmt  = n => `$${Math.round(n).toLocaleString()}`;
-export const fmtM = n => n === 0 ? '—' : fmt(n) + '/mo';
-export const fp   = n => `${Number(n).toFixed(1)}%`;
-export const fPct = v => `${(v * 100).toFixed(1)}%`;
+export const fmt    = n => `$${Math.round(n).toLocaleString()}`;
+export const fmtM   = n => n === 0 ? '—' : fmt(n) + '/mo';
+export const fp     = n => `${Number(n).toFixed(1)}%`;
+export const fPct   = v => `${(v * 100).toFixed(1)}%`;
+export const fmtDate = (str) => {
+  if (!str) return '—';
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString();
+};
+
+// ── Chart tooltip style (shared across Dashboard, PropertiesView, etc.) ───────
+export const CHART_TOOLTIP_STYLE = {
+  background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',
+};
 
 // ── LTV helpers ───────────────────────────────────────────────────────────────
 /** Returns {cls, accent} color tokens for an LTV ratio (0–1) or percentage (0–100). */
 export const ltvColor = (ltv) => {
-  // accept either 0-1 ratio or 0-100 percent
   const pct = ltv > 1 ? ltv : ltv * 100;
   if (pct < 65) return { cls: 'text-success', accent: '#10b981' };
   if (pct < 80) return { cls: '',             accent: '#f59e0b' };
@@ -30,10 +39,6 @@ export const SectionLabel = ({ children, style }) => (
 );
 
 // ── WindowPicker ──────────────────────────────────────────────────────────────
-/**
- * Row of window-selector buttons.
- * Props: value (number), onChange (fn), options (array, defaults to WINDOW_OPTIONS)
- */
 export function WindowPicker({ value, onChange, options = WINDOW_OPTIONS }) {
   return (
     <>

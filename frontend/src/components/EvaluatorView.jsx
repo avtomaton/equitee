@@ -100,17 +100,17 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
       detail: 'Fill in expected monthly rent to compute cash flow and all derived metrics.' });
   } else if (avgCashFlow < 0 && yearlyApprRatio < 0.02) {
     items.push({ isPrimary: true, icon: '🚨', cls: 'text-danger', label: 'Negative cash flow, weak appreciation',
-      detail: `This property would cost ${f(Math.abs(avgCashFlow))}/mo to hold, with only ${fmtP(yearlyApprRatio * 100)}% annual appreciation. Both income and growth are insufficient.` });
+      detail: `This property would cost ${fmt(Math.abs(avgCashFlow))}/mo to hold, with only ${fmtP(yearlyApprRatio * 100)}% annual appreciation. Both income and growth are insufficient.` });
   } else if (avgCashFlow < 0 && yearlyApprRatio >= 0.02) {
     const breakEvenYears = Math.abs(avgCashFlow * 12) / (marketValue * yearlyApprRatio);
     items.push({ isPrimary: true, icon: '⚖️', cls: monthlyGain >= 0 ? 'text-warning' : 'text-danger',
       label: monthlyGain >= 0 ? 'Appreciation-led — negative cash flow' : 'Cash flow insufficient, appreciation too weak',
       detail: monthlyGain >= 0
-        ? `Property costs ${f(Math.abs(avgCashFlow))}/mo but appreciation adds ${f(yearlyAppr / 12)}/mo. Monthly gain: ${f(monthlyGain)}/mo. Requires strong cash reserves.`
-        : `Cash drain (${f(Math.abs(avgCashFlow))}/mo) exceeds appreciation gains (${f(yearlyAppr / 12)}/mo). Net monthly loss: ${f(monthlyGain)}/mo.` });
+        ? `Property costs ${fmt(Math.abs(avgCashFlow))}/mo but appreciation adds ${fmt(yearlyAppr / 12)}/mo. Monthly gain: ${fmt(monthlyGain)}/mo. Requires strong cash reserves.`
+        : `Cash drain (${fmt(Math.abs(avgCashFlow))}/mo) exceeds appreciation gains (${fmt(yearlyAppr / 12)}/mo). Net monthly loss: ${fmt(monthlyGain)}/mo.` });
   } else if (avgCashFlow === 0) {
     items.push({ isPrimary: true, icon: '➖', cls: 'text-warning', label: 'Breakeven cash flow',
-      detail: `Rent exactly covers expenses. Monthly gain comes entirely from appreciation: ${f(yearlyAppr / 12)}/mo.` });
+      detail: `Rent exactly covers expenses. Monthly gain comes entirely from appreciation: ${fmt(yearlyAppr / 12)}/mo.` });
   } else if (capRate > 0.07 && cashOnCash > 0.08) {
     items.push({ isPrimary: true, icon: '🚀', cls: 'text-success', label: 'Strong investment opportunity',
       detail: `Cap rate ${fmtP(capRate * 100)} and cash-on-cash ${fmtP(cashOnCash * 100)} both exceed typical thresholds. This property looks like a strong performer.` });
@@ -130,7 +130,7 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
   // High LTV risk
   if (ltvRatio > 0.80) {
     items.push({ icon: '⚡', cls: 'text-danger', label: 'High leverage',
-      detail: `LTV of ${fmtP(ltvRatio * 100)} leaves little equity buffer. A 10% market drop would nearly wipe out your ${f(equity)} equity position.` });
+      detail: `LTV of ${fmtP(ltvRatio * 100)} leaves little equity buffer. A 10% market drop would nearly wipe out your ${fmt(equity)} equity position.` });
   }
 
   // High expense ratio
@@ -142,13 +142,13 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
   // Vacancy impact warning
   if (vacancyRate >= 8) {
     items.push({ icon: '🏠', cls: 'text-warning', label: 'Significant vacancy modelled',
-      detail: `${vacancyRate}% vacancy reduces effective annual rent by ${f(monthlyRent * vacancyRate / 100 * 12)}. Ensure the local market supports stable tenancy at this rent level.` });
+      detail: `${vacancyRate}% vacancy reduces effective annual rent by ${fmt(monthlyRent * vacancyRate / 100 * 12)}. Ensure the local market supports stable tenancy at this rent level.` });
   }
 
   // One-off expense impact
   if (oneOffExpense > monthlyRent * 3) {
     items.push({ icon: '🔧', cls: 'text-warning', label: 'Large one-off expense',
-      detail: `${f(oneOffExpense)} in upfront costs takes ${Math.ceil(oneOffExpense / Math.max(1, avgCashFlow))} months of cash flow to recover.` });
+      detail: `${fmt(oneOffExpense)} in upfront costs takes ${Math.ceil(oneOffExpense / Math.max(1, avgCashFlow))} months of cash flow to recover.` });
   }
 
   // Low cap rate suggestion
@@ -157,26 +157,26 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
     const delta = targetRent - monthlyRent;
     if (delta > 0) {
       items.push({ icon: '📈', cls: 'text-warning', label: 'Low cap rate',
-        detail: `At ${fmtP(capRate * 100)}, yield is below the 5% threshold. Increasing rent to ~${f(targetRent)}/mo (+${f(delta)}) would push cap rate to ~6%.` });
+        detail: `At ${fmtP(capRate * 100)}, yield is below the 5% threshold. Increasing rent to ~${fmt(targetRent)}/mo (+${fmt(delta)}) would push cap rate to ~6%.` });
     }
   }
 
   // Refinancing opportunity (low LTV)
   if (ltvRatio > 0 && ltvRatio < 0.55 && equity > 50000) {
     items.push({ icon: '🏦', cls: 'text-success', label: 'Low leverage — cash-out potential',
-      detail: `LTV of ${fmtP(ltvRatio * 100)} with ${f(equity)} in equity. A cash-out refinance at purchase could fund additional investments while still keeping LTV conservative.` });
+      detail: `LTV of ${fmtP(ltvRatio * 100)} with ${fmt(equity)} in equity. A cash-out refinance at purchase could fund additional investments while still keeping LTV conservative.` });
   }
 
   // Strong appreciation
   if (yearlyApprRatio > 0.07) {
     items.push({ icon: '💎', cls: 'text-success', label: 'Strong appreciation projected',
-      detail: `At ${fmtP(yearlyApprRatio * 100)}/yr appreciation, the property gains ${f(yearlyAppr)}/yr in value. Even modest cash flow becomes highly profitable long-term.` });
+      detail: `At ${fmtP(yearlyApprRatio * 100)}/yr appreciation, the property gains ${fmt(yearlyAppr)}/yr in value. Even modest cash flow becomes highly profitable long-term.` });
   }
 
   // Repair reserve warning
   if (repairReserve < 0.5 && marketValue > 200000) {
     items.push({ icon: '🔩', cls: 'text-warning', label: 'Low repair reserve',
-      detail: `A reserve below 0.5% of value may be insufficient. Industry standard is 1–1.5% (${f(marketValue * 0.01)}/yr) for repairs and maintenance.` });
+      detail: `A reserve below 0.5% of value may be insufficient. Industry standard is 1–1.5% (${fmt(marketValue * 0.01)}/yr) for repairs and maintenance.` });
   }
 
   return items;
@@ -185,7 +185,6 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
 // ── Projection table ──────────────────────────────────────────────────────────
 
 function ProjectionTable({ projections, downPayment }) {
-  const f = fmt;
   return (
     <div className="table-scroll-wrap" style={{ marginBottom: '1.5rem' }}>
       <table>
@@ -206,11 +205,11 @@ function ProjectionTable({ projections, downPayment }) {
             return (
               <tr key={p.year}>
                 <td className="col-shrink" style={{ fontWeight: 600 }}>Year {p.year}</td>
-                <td>{f(p.propertyValue)}</td>
-                <td className="text-danger">{f(p.balance)}</td>
-                <td className="text-success">{f(p.yearEquity)}</td>
-                <td className={cfCls}>{f(p.cumulativeCF)}</td>
-                <td className={gainCls}>{f(p.totalGain)}</td>
+                <td>{fmt(p.propertyValue)}</td>
+                <td className="text-danger">{fmt(p.balance)}</td>
+                <td className="text-success">{fmt(p.yearEquity)}</td>
+                <td className={cfCls}>{fmt(p.cumulativeCF)}</td>
+                <td className={gainCls}>{fmt(p.totalGain)}</td>
                 <td className={`col-shrink ${gainCls}`}>
                   {roi !== null ? fmtP(roi) : '—'}
                 </td>

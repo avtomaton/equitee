@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { API_URL, PROVINCES, INITIAL_OPTIONS, formatPostalCode } from '../config.js';
+import { API_URL, PROVINCES, INITIAL_OPTIONS } from '../config.js';
+import { formatPostalCode } from '../utils.js';
 
 const toFormState = (p) => p ? {
   name:                 p.name                 ?? '',

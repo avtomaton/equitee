@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { API_URL, COLUMN_DEFS, isCurrentTenant, fmtDate } from '../config.js';
+import { API_URL, COLUMN_DEFS } from '../config.js';
+import { isCurrentTenant } from '../utils.js';
+import { fmtDate } from './uiHelpers.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import MultiSelect from './MultiSelect.jsx';
 import { useColumnVisibility } from '../hooks.js';
