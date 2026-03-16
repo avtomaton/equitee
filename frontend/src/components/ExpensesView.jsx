@@ -8,7 +8,7 @@ import { fmtDate } from './uiHelpers.jsx';
 import { useColumnVisibility } from '../hooks.js';
 
 // tax_deductible filter options
-const TAX_OPTIONS = ['All', 'Deductible', 'Non-deductible'];
+const TAX_OPTIONS = ['Deductible', 'Non-deductible'];
 
 export default function ExpensesView({ properties, onAddExpense, onEditExpense, initialPropertyId }) {
   const [expenses,        setExpenses]        = useState([]);
@@ -19,7 +19,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
   const [dateFilter,      setDateFilter]      = useState('all');
   const [customDateStart, setCustomDateStart] = useState('');
   const [customDateEnd,   setCustomDateEnd]   = useState('');
-  const [taxFilter,       setTaxFilter]       = useState('All');
+  const [taxFilter,       setTaxFilter]       = useState(TAX_OPTIONS);
 
   const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('expenses');
   const allColKeys   = COLUMN_DEFS.expenses.map(d => d.key);
@@ -76,8 +76,8 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
     let list = baseExpenses.filter(e => {
       if (!filterCategories.includes(e.expense_category)) return false;
       if (!filterTypes.includes(e.expense_type)) return false;
-      if (taxFilter === 'Deductible'    && !isTaxDeductible(e)) return false;
-      if (taxFilter === 'Non-deductible' && isTaxDeductible(e)) return false;
+      const taxLabel = isTaxDeductible(e) ? 'Deductible' : 'Non-deductible';
+      if (!taxFilter.includes(taxLabel)) return false;
       if (dateFilter !== 'all' && dateFilter !== 'custom') {
         const range = getDateRanges()[dateFilter];
         if (range && !isDateInRange(e.expense_date, range.start, range.end)) return false;
@@ -146,9 +146,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
               </select>
               <MultiSelect label="Category" options={allCategories} selected={filterCategories} onChange={setFilterCategories} />
               <MultiSelect label="Type"     options={allTypes}      selected={filterTypes}      onChange={setFilterTypes} />
-              <select value={taxFilter} onChange={e => setTaxFilter(e.target.value)}>
-                {TAX_OPTIONS.map(o => <option key={o} value={o}>{o === 'All' ? 'Tax: All' : o}</option>)}
-              </select>
+              <MultiSelect label="Tax" options={TAX_OPTIONS} selected={taxFilter} onChange={setTaxFilter} />
               <select value={dateFilter} onChange={e => setDateFilter(e.target.value)}>
                 <option value="all">All Time</option>
                 <option value="ytd">YTD</option>

@@ -29,16 +29,12 @@ export default function FinancialPeriodSection({
           ? `Includes ${fmt(principal)} of principal repayment — equity-building, not a true cost.`
           : 'Principal repayments are equity-building payments, not true operating costs.'
       }`
-    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are equity-building, not operating costs.\n${
-        principal > 0
-          ? `Total principal (down payment + repayments) excluded in Net Expenses: ${fmt(principal)}.`
-          : ''
-      }`;
+    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are equity-building, not operating costs.`;
 
   // Net Expenses tooltip — correct for both periods
   const netExpTooltip = isYTD
     ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding equity-building payments.'
-    : `Total Expenses minus your down payment and all principal repayments to date.\nShows the real operating burden — what you have spent that doesn't come back as equity.\nFormula: Expenses − (Down Payment + All Principal Paid).`;
+    : `Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build equity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.`;
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
@@ -48,7 +44,7 @@ export default function FinancialPeriodSection({
           : `All income ever recorded ${scopeStr} since the first entry.` })}
 
       {mc({ label: `${prefix}Expenses`, primary: fmt(expenses), primaryCls: 'text-danger',
-        secondary: principal > 0 ? `incl. ${fmt(principal)} principal` : null,
+        secondary: principal > 0 ? `excl. ${fmt(principal)} principal` : null,
         secondaryCls: 'text-success',
         tooltip: expTooltip })}
 

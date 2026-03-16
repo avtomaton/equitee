@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { API_URL } from '../config.js';
-import { isCurrentTenant } from '../utils.js';
+import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
          expGap, monthsLeftInYear, yearFracRemaining,
          calcIRR, buildPropertyIRRCashFlows,
@@ -26,15 +26,23 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
   useEffect(() => {
     if (!property) return;
+
+    // Income and expenses are fetched atomically so YTD metrics never render
+    // with one loaded and the other still empty (race condition → wrong YTD values).
+    Promise.all([
+      fetch(`${API_URL}/income?property_id=${property.id}`).then(r => r.ok ? r.json() : []),
+      fetch(`${API_URL}/expenses?property_id=${property.id}`).then(r => r.ok ? r.json() : []),
+    ]).then(([inc, exp]) => {
+      setIncome(inc);
+      setExpenses(exp);
+    }).catch(() => {});
+
+    // Tenants and events don't affect financial metrics — load independently.
     fetch(`${API_URL}/tenants?property_id=${property.id}`)
       .then(r => r.ok ? r.json() : []).then(setTenants).catch(() => {});
-    fetch(`${API_URL}/expenses?property_id=${property.id}`)
-      .then(r => r.ok ? r.json() : []).then(setExpenses).catch(() => {});
     fetch(`${API_URL}/events?property_id=${property.id}`)
       .then(r => r.ok ? r.json() : []).then(setEvents).catch(() => {});
-    fetch(`${API_URL}/income?property_id=${property.id}`)
-      .then(r => r.ok ? r.json() : []).then(setIncome).catch(() => {});
-  }, [property?.id]);
+  }, [property?.id, property?.total_income, property?.total_expenses]);
 
   if (!property) return null;
 
@@ -61,28 +69,23 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const yearlyAppr    = yrs ? appr / yrs : null;
   const yearlyApprPct = (yrs && property.purchase_price > 0) ? yearlyAppr / property.purchase_price * 100 : null;
   const projectedYE   = property.market_price + (yearlyAppr ?? 0) * yearFracRemaining();
-
-  const totalNetExp     = property.total_expenses - downPmt;
-  const totalNetBalance = property.total_income   - totalNetExp;
   const balance         = property.total_income   - property.total_expenses;
   const sellingProfit   = property.market_price + property.total_income - property.total_expenses - property.loan_amount;
-  const roi             = property.market_price > 0 ? totalNetBalance / property.market_price * 100 : null;
   const availableEquity = Math.max(0, 0.80 * property.market_price - property.loan_amount);
 
-  // ── YTD window ────────────────────────────────────────────────────────────
-  const ytdEnd   = new Date();
-  const ytdStart = new Date(ytdEnd); ytdStart.setFullYear(ytdStart.getFullYear() - 1);
-  const inYTD    = (dateStr) => {
-    if (!dateStr) return false;
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const dt = new Date(y, m - 1, d);
-    return dt >= ytdStart && dt <= ytdEnd;
-  };
+  // ── YTD window (trailing 12 months) ──────────────────────────────────────
+  const { start: ytdStart, end: ytdEnd } = trailingYear();
+  const inYTD = makeInTrailingYear();
   const ytdInc        = income.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
   const ytdExp        = expenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
   const ytdBal        = ytdInc - ytdExp;
   const ytdPrin       = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, ytdStart, ytdEnd);
   const allTimePrin   = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, new Date(0), new Date());
+
+  // Net Expenses = Total Expenses − allTimePrin (down payment + all mortgage principal repayments)
+  const totalNetExp     = property.total_expenses - allTimePrin;
+  const totalNetBalance = property.total_income   - totalNetExp;
+  const roi             = property.market_price > 0 ? totalNetBalance / property.market_price * 100 : null;
   const ytdNetExp     = ytdExp     - ytdPrin;
   const ytdNetBalance = ytdInc     - ytdNetExp;
 
@@ -113,12 +116,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const maintCapexRatio = (() => {
     if (!monthlyRent) return null;
     const maintExp = expenses
-      .filter(r => {
-        if (!r.expense_date) return false;
-        const [y, m, d] = r.expense_date.split('-').map(Number);
-        const dt = new Date(y, m - 1, d);
-        return dt >= ytdStart && dt <= ytdEnd && ['Maintenance', 'Capital'].includes(r.expense_category);
-      })
+      .filter(r => inYTD(r.expense_date) && ['Maintenance', 'Capital'].includes(r.expense_category))
       .reduce((s, r) => s + r.amount, 0);
     return annualRent > 0 ? maintExp / annualRent : null;
   })();

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { COLUMN_DEFS, getCookie, setCookie } from './config.js';
 import { yearsHeld, avgMonthly, calcExpected, principalInRange } from './metrics.js';
+import { makeInTrailingYear, trailingYear } from './utils.js';
 
 /**
  * Persist column visibility per view in a cookie.
@@ -86,28 +87,23 @@ export function usePortfolioAggregates(properties, allIncome, allExpenses) {
     const yearFrac = (now - new Date(now.getFullYear(), 0, 1)) / (365.25 * 86400000);
     const projectedYE = market + yearlyAppr * (1 - yearFrac);
 
-    const totalNetExp   = properties.reduce((s, p) =>
-      s + (p.total_expenses - (p.purchase_price - p.loan_amount)), 0);
+    const allTimePrin = properties.reduce((sum, p) => {
+      const pe = allExpenses.filter(r => r.property_id === p.id);
+      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date());
+    }, 0);
+
+    // Net Expenses = Total Expenses − allTimePrin
+    // allTimePrin = all Principal-category expenses (down payment + mortgage principal repayments)
+    const totalNetExp   = expenses - allTimePrin;
     const balance       = income - expenses;
     const netBalance    = income - totalNetExp;
     const roi           = market > 0 ? netBalance / market * 100 : null;
     const sellingProfit = properties.reduce((s, p) =>
       s + p.market_price + p.total_income - p.total_expenses - p.loan_amount, 0);
 
-    const allTimePrin = properties.reduce((sum, p) => {
-      const pe = allExpenses.filter(r => r.property_id === p.id);
-      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date());
-    }, 0);
-
     // YTD (trailing 12 months)
-    const ytdEnd   = new Date();
-    const ytdStart = new Date(ytdEnd); ytdStart.setFullYear(ytdStart.getFullYear() - 1);
-    const inYTD = (d) => {
-      if (!d) return false;
-      const [y, m, day] = d.split('-').map(Number);
-      const dt = new Date(y, m - 1, day);
-      return dt >= ytdStart && dt <= ytdEnd;
-    };
+    const { start: ytdStart, end: ytdEnd } = trailingYear();
+    const inYTD = makeInTrailingYear();
 
     const ytdInc  = allIncome.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
     const ytdExp  = allExpenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);

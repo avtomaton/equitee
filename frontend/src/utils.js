@@ -34,7 +34,7 @@ export const getDateRanges = () => {
   const year  = now.getFullYear();
   const month = now.getMonth();
   return {
-    ytd:          { start: new Date(year, 0, 1),      end: now },
+    ytd:          { start: (() => { const s = new Date(now); s.setFullYear(s.getFullYear() - 1); s.setHours(0, 0, 0, 0); return s; })(), end: now },
     currentMonth: { start: new Date(year, month, 1),  end: now },
     currentYear:  { start: new Date(year, 0, 1),      end: new Date(year, 11, 31) },
     lastYear:     { start: new Date(year - 1, 0, 1),  end: new Date(year - 1, 11, 31) },
@@ -76,4 +76,44 @@ export const fmt = n => `$${Math.round(n).toLocaleString()}`;
 export const fmtPeriod = months => {
   if (months <= 0) return 'Recovered';
   return months < 12 ? `${Math.round(months)} mo` : `${(months / 12).toFixed(1)} yr`;
+};
+
+// ── Date range helpers ────────────────────────────────────────────────────────
+
+/**
+ * Return { start, end } for a trailing-12-month window ending now.
+ *
+ * start is normalized to midnight so that a transaction dated exactly one year
+ * ago today (parsed as midnight) satisfies  start <= tx <= end.
+ *
+ * Without the midnight normalization, ytdStart would carry the current
+ * time-of-day (e.g. 14:35), and midnight of that same date would be < ytdStart,
+ * silently excluding same-day-last-year transactions.
+ */
+/**
+ * Return { start, end } for a trailing-12-month window ending now.
+ * start is normalized to midnight so same-day-last-year transactions are included.
+ */
+export const trailingYear = () => {
+  const end   = new Date();
+  const start = new Date(end.getFullYear() - 1, end.getMonth(), end.getDate()); // midnight by default
+  return { start, end };
+};
+
+/**
+ * Return true if a YYYY-MM-DD date string falls within the trailing 12-month window.
+ * Pre-computes the window once and returns a tester function.
+ *
+ * Usage:
+ *   const inYTD = makeInTrailingYear();
+ *   records.filter(r => inYTD(r.income_date))
+ */
+export const makeInTrailingYear = () => {
+  const { start, end } = trailingYear();
+  return (dateStr) => {
+    if (!dateStr) return false;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return dt >= start && dt <= end;
+  };
 };

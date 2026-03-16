@@ -6,7 +6,7 @@ import Analytics from './Analytics.jsx';
 import StatCard from './StatCard.jsx';
 import KPICard from './KPICard.jsx';
 import { INITIAL_OPTIONS, PROVINCES, COLORS, API_URL, COLUMN_DEFS } from '../config.js';
-import { mergeOptions } from '../utils.js';
+import { mergeOptions, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, calcSimpleHealth, principalInRange } from '../metrics.js';
 import { useColumnVisibility } from '../hooks.js';
 import { fmt, fp, ltvColor } from './uiHelpers.jsx';
@@ -167,6 +167,16 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     return list;
   }, [properties, searchTerm, filterStatuses, filterTypes, filterProvinces, filterCities, sortBy, sortOrder]);
 
+  // Per-property all-time principal for table rows
+  const perPropPrincipal = useMemo(() => {
+    const map = {};
+    for (const p of filtered) {
+      const pe = allExpenses.filter(r => r.property_id === p.id);
+      map[p.id] = principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date());
+    }
+    return map;
+  }, [filtered, allExpenses]);
+
   // ── Summary stats ─────────────────────────────────────────────────────────
   const totalValue    = filtered.reduce((s, p) => s + p.market_price,   0);
   const totalPurchase = filtered.reduce((s, p) => s + p.purchase_price, 0);
@@ -189,11 +199,10 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     if (!filtered.length) return null;
     const now        = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const ytdEnd     = now;
-    const ytdStart   = new Date(ytdEnd); ytdStart.setFullYear(ytdStart.getFullYear() - 1);
+    const { start: ytdStart, end: ytdEnd } = trailingYear();
     const win3Start  = new Date(monthStart); win3Start.setMonth(win3Start.getMonth() - 3);
 
-    const inYTD = d => { if (!d) return false; const [y,m,dd] = d.split('-').map(Number); const dt = new Date(y,m-1,dd); return dt >= ytdStart && dt <= ytdEnd; };
+    const inYTD = makeInTrailingYear();
     const in3M  = d => { if (!d) return false; const [y,m,dd] = d.split('-').map(Number); const dt = new Date(y,m-1,dd); return dt >= win3Start && dt < monthStart; };
 
     const filteredIds = new Set(filtered.map(p => p.id));
@@ -459,9 +468,8 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
               </thead>
               <tbody>
                 {filtered.map(p => {
-                  const downPmt    = p.purchase_price - p.loan_amount;
-                  const netExp     = p.total_expenses - downPmt;
-                  const net        = p.total_income - netExp;
+                  const netExp     = p.total_expenses - (perPropPrincipal[p.id] ?? 0);
+                  const net        = p.market_price + p.total_income - p.total_expenses - p.loan_amount;
                   const roi        = p.market_price ? ((net / p.market_price) * 100).toFixed(1) : null;
                   const equity     = p.market_price - p.loan_amount;
                   const health     = calcSimpleHealth(p);

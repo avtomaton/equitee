@@ -16,7 +16,7 @@ export const INITIAL_OPTIONS = {
   propertyTypes:     ['Condo', 'House', 'Townhouse', 'Duplex', 'Commercial', 'Land'],
   expenseCategories: ['Mortgage', 'Principal', 'Management', 'Maintenance', 'Insurance',
                       'Utilities', 'Tax', 'Capital', 'Other'],
-  expenseTypes:      ['Recurrent', 'One-off'],
+  expenseTypes:      ['Recurrent', 'One-time'],
   incomeTypes:       ['Rent', 'Deposit', 'Parking', 'Laundry', 'Other'],
 };
 
@@ -53,6 +53,14 @@ export const COLUMN_DEFS = {
     { key: 'amount',   label: 'Amount',   default: true  },
     { key: 'type',     label: 'Type',     default: true  },
     { key: 'notes',    label: 'Notes',    default: true  },
+  ],
+  events: [
+    { key: 'date',      label: 'Date',     default: true  },
+    { key: 'property',  label: 'Property', default: true  },
+    { key: 'field',     label: 'Field',    default: true  },
+    { key: 'old_value', label: 'Old',      default: true  },
+    { key: 'new_value', label: 'New',      default: true  },
+    { key: 'notes',     label: 'Notes',    default: true  },
   ],
   tenants: [
     { key: 'name',        label: 'Name',        default: true  },
