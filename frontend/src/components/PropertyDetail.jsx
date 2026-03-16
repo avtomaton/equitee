@@ -3,13 +3,14 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { API_URL } from '../config.js';
 import { isCurrentTenant } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
-         expGapCls, expGap, monthsLeftInYear, yearFracRemaining,
-         calcIRR, buildPropertyIRRCashFlows } from '../metrics.js';
+         expGap, monthsLeftInYear, yearFracRemaining,
+         calcIRR, buildPropertyIRRCashFlows,
+         calcPayback, calcBreakEven, analyzeProperty } from '../metrics.js';
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
 import StarRating from './StarRating.jsx';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
-import { fmt, fmtDate, fmtM, fp, fPct, mc, SectionLabel, WindowPicker, wLabel, ltvColor } from './uiHelpers.jsx';
+import { fmt, fmtDate, fp, fPct, mc, WindowPicker, wLabel, ltvColor, fmtPeriod } from './uiHelpers.jsx';
 
 const DETAIL_TOOLTIP_STYLE = {
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',
@@ -141,35 +142,20 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     ? expMonthlyCF + expMonthlyAppr
     : expMonthlyCF !== null ? expMonthlyCF : null;
 
-  // ── Payback: (total expenses − total income) ÷ avg cash flow ─────────────
-  const pbOutstanding  = property.total_expenses - property.total_income;
-  const paybackPeriod  = (() => {
-    if (avg.cashflow <= 0) return null;
-    if (pbOutstanding <= 0) return { months: 0, label: 'Recovered', cls: 'text-success' };
-    const months = pbOutstanding / avg.cashflow;
-    return { months, label: months < 12 ? `${Math.round(months)} mo` : `${(months / 12).toFixed(1)} yr`,
-      cls: months < 36 ? 'text-success' : months < 84 ? '' : 'text-danger' };
-  })();
-  const expPayback = (() => {
+  // ── Payback & Break-even via shared pure functions ──────────────────────
+  const pbOutstanding = property.total_expenses - property.total_income;
+  const paybackPeriod = calcPayback(pbOutstanding, avg.cashflow);
+  const expPayback    = (() => {
     if (expMonthlyCF == null || expMonthlyCF <= 0) return null;
     if (pbOutstanding <= 0) return 'Exp: Recovered';
-    const months = pbOutstanding / expMonthlyCF;
-    return months < 12 ? `Exp: ${Math.round(months)} mo` : `Exp: ${(months / 12).toFixed(1)} yr`;
+    return 'Exp: ' + fmtPeriod(pbOutstanding / expMonthlyCF);
   })();
 
-  // ── Break-even: time until net position ≥ 0 ──────────────────────────────
-  const breakEven = (() => {
-    if (sellingProfit >= 0) return { label: 'Reached', cls: 'text-success' };
-    if (monthlyGain <= 0)   return { label: '\u221e (no growth)', cls: 'text-danger' };
-    const months = -sellingProfit / monthlyGain;
-    return { label: months < 12 ? `${Math.round(months)} mo` : `${(months / 12).toFixed(1)} yr`,
-      cls: months < 36 ? 'text-success' : months < 84 ? '' : 'text-danger' };
-  })();
+  const breakEven    = calcBreakEven(sellingProfit, monthlyGain);
   const expBreakEven = (() => {
     if (expMonthlyGain == null || expMonthlyGain <= 0) return null;
     if (sellingProfit >= 0) return 'Exp: Reached';
-    const months = -sellingProfit / expMonthlyGain;
-    return months < 12 ? `Exp: ${Math.round(months)} mo` : `Exp: ${(months / 12).toFixed(1)} yr`;
+    return 'Exp: ' + fmtPeriod(-sellingProfit / expMonthlyGain);
   })();
 
   // ── Investment score & analysis ───────────────────────────────────────────
@@ -184,133 +170,27 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   // ── Net Position card secondary ───────────────────────────────────────────
   const npPct = balance !== 0 ? (sellingProfit / Math.abs(balance) * 100) : null;
 
-  // ── Monthly Gain expected gap ─────────────────────────────────────────────
-  const monthlyGainExpProps = (() => {
-    if (expMonthlyGain == null) return {};
-    const { cls: gapCls, gapStr } = expGapCls(monthlyGain, expMonthlyGain, true, 50);
-    return {
-      secondary:    `Exp: ${fmt(expMonthlyGain)}`,
-      secondaryCls: expMonthlyGain >= 0 ? 'text-success' : 'text-danger',
-      ...(gapStr ? { tertiary: gapStr, tertiaryCls: gapCls } : {}),
-    };
-  })();
+  const monthlyGainExpProps = expGap(monthlyGain, expMonthlyGain, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50);
 
-  // ── Yearly appreciation expected gap ─────────────────────────────────────
-  const yearlyApprExpProps = (() => {
-    if (expYearlyAppr == null) return {};
-    const { cls: gapCls, gapStr } = expGapCls(yearlyAppr ?? 0, expYearlyAppr, true, 200);
-    return {
-      secondary:    `Exp: ${fmt(expYearlyAppr)} (${expApprPct}% per year)`,
-      secondaryCls: expYearlyAppr >= 0 ? 'text-success' : 'text-danger',
-      ...(gapStr ? { tertiary: gapStr, tertiaryCls: gapCls }
-        : yearlyAppr === null ? { tertiary: 'No possession date \u2014 cannot compute actual' } : {}),
-    };
-  })();
+  // yearlyApprExpProps: custom label + special tertiary when no possession date
+  const yearlyApprExpProps = expYearlyAppr == null ? {} : yearlyAppr === null
+    ? { secondary: `Exp: ${fmt(expYearlyAppr)} (${expApprPct}% per year)`,
+        secondaryCls: 'text-success',
+        tertiary: 'No possession date \u2014 cannot compute actual' }
+    : expGap(yearlyAppr, expYearlyAppr, v => v >= 0 ? 'text-success' : 'text-danger',
+        v => `${fmt(v)} (${expApprPct}% per year)`, 'Exp:', true, 200);
 
   // ── Year-End Balance ──────────────────────────────────────────────────────
   const ml          = monthsLeftInYear();
   const yearEndRate = sellingProfit + avg.cashflow * ml + monthlyAppr * ml;
   const yearEndBudg = expMonthlyGain != null ? sellingProfit + expMonthlyGain * ml : null;
-  const yearEndExpProps = (() => {
-    if (yearEndBudg == null) return {};
-    const { cls: gapCls, gapStr } = expGapCls(yearEndRate, yearEndBudg, true, 1000);
-    return {
-      secondary:    `Budget: ${fmt(yearEndBudg)}`,
-      secondaryCls: yearEndBudg >= 0 ? 'text-success' : 'text-danger',
-      ...(gapStr ? { tertiary: gapStr, tertiaryCls: gapCls } : {}),
-    };
-  })();
+  const yearEndExpProps = expGap(yearEndRate, yearEndBudg, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Budget:', true, 1000);
 
-  // ── Smart analysis items ──────────────────────────────────────────────────
-  const analysis = (() => {
-    const items     = [];
-    const isRnt     = (property.status || '').toLowerCase() === 'rented';
-    const noData    = property.total_income === 0 && property.total_expenses === 0;
-
-    if (noData) {
-      items.push({ isPrimary: true, icon: '🆕', cls: 'text-secondary', label: 'No data yet',
-        detail: 'No income or expenses have been recorded. Add transactions to start tracking performance.' });
-    } else if (!isRnt) {
-      const lastInc  = [...income].sort((a, b) => new Date(b.income_date) - new Date(a.income_date))[0];
-      const daysSince = lastInc ? (Date.now() - new Date(lastInc.income_date)) / 86400000 : Infinity;
-      if (!isFinite(daysSince)) {
-        items.push({ isPrimary: true, icon: '🏠', cls: 'text-danger', label: 'Vacant — no income recorded',
-          detail: 'Property is vacant and no income has ever been recorded.' });
-      } else if (daysSince > 30) {
-        items.push({ isPrimary: true, icon: '⚠️', cls: 'text-danger', label: `Vacant ${Math.round(daysSince)} days`,
-          detail: `Last income was ${Math.round(daysSince)} days ago. Extended vacancy is eroding your returns.` });
-      } else {
-        items.push({ isPrimary: true, icon: '🔄', cls: 'text-warning', label: 'Recently vacated',
-          detail: `Property became vacant ${Math.round(daysSince)} days ago. Short vacancies are normal between tenants.` });
-      }
-    } else if (avg.cashflow < 0 && yearlyAppr !== null && yearlyAppr < 0) {
-      items.push({ isPrimary: true, icon: '🚨', cls: 'text-danger', label: 'Losing on all fronts',
-        detail: `Cash flow is ${fmt(avg.cashflow)}/mo and the property is depreciating ${fmt(yearlyAppr)}/yr. Strong case to sell.` });
-    } else if (avg.cashflow < 0 && yearlyAppr !== null && yearlyAppr > 0) {
-      items.push({ isPrimary: true, icon: '⚖️', cls: monthlyGain >= 0 ? 'text-warning' : 'text-danger',
-        label: monthlyGain >= 0 ? 'Appreciation covers the gap' : 'Negative cash flow, appreciation insufficient',
-        detail: monthlyGain >= 0
-          ? `Cash is consumed at ${fmt(Math.abs(avg.cashflow))}/mo but appreciation (${fmt(yearlyAppr)}/yr) more than compensates. Monthly gain: ${fmt(monthlyGain)}/mo.`
-          : `Cash is consumed at ${fmt(Math.abs(avg.cashflow))}/mo. Appreciation only partially offsets this. Net monthly loss: ${fmt(monthlyGain)}/mo.` });
-    } else if (avg.cashflow < 0) {
-      items.push({ isPrimary: true, icon: '📉', cls: 'text-danger', label: 'Negative cash flow',
-        detail: `Expenses exceed income by ${fmt(Math.abs(avg.cashflow))}/mo.` });
-    } else if (avg.cashflow === 0 && monthlyGain > 0) {
-      items.push({ isPrimary: true, icon: '📈', cls: 'text-success', label: 'Breakeven — appreciation-led',
-        detail: `Cash flow is exactly neutral, but appreciation adds ${fmt(monthlyGain)}/mo in total gain.` });
-    } else if (sellingProfit >= 0 && avg.cashflow > 0 && sellingProfit / avg.cashflow < 12) {
-      items.push({ isPrimary: true, icon: '⭐', cls: 'text-success', label: 'Exceptional yield',
-        detail: `Cash flow of ${fmt(avg.cashflow)}/mo recovers the entire Net Position in ${Math.round(sellingProfit / avg.cashflow)} months.` });
-    } else if (monthlyRent > 0 && avg.cashflow > 0 && sellingProfit < property.market_price * 0.05) {
-      items.push({ isPrimary: true, icon: '🐄', cls: 'text-success', label: 'Golden cow — keep',
-        detail: `Strong cash flow (${fmt(avg.cashflow)}/mo) but selling today nets only ${fmt(sellingProfit)}.` });
-    } else if (sellingProfit > property.market_price * 0.15 && monthlyGain < property.market_price * 0.003) {
-      items.push({ isPrimary: true, icon: '💡', cls: 'text-warning', label: 'Consider selling',
-        detail: `Unrealized gain of ${fmt(sellingProfit)} is significant, but monthly gain is only ${fmt(monthlyGain)}/mo.` });
-    } else if (yearlyAppr !== null && yearlyAppr > 0 && avg.cashflow > 0) {
-      items.push({ isPrimary: true, icon: '🚀', cls: 'text-success', label: 'Strong performer',
-        detail: `Cash flow ${fmt(avg.cashflow)}/mo, appreciation ${fmt(yearlyAppr)}/yr, monthly gain ${fmt(monthlyGain)}/mo.` });
-    } else if (avg.cashflow > 0) {
-      items.push({ isPrimary: true, icon: '✅', cls: 'text-success', label: 'Positive cash flow',
-        detail: `Generating ${fmt(avg.cashflow)}/mo.${yearlyAppr !== null ? ` Appreciation ${fmt(yearlyAppr)}/yr adds ${fmt(monthlyAppr)}/mo.` : ' Set a possession date to compute appreciation.'}` });
-    } else {
-      items.push({ isPrimary: true, icon: '➖', cls: 'text-warning', label: 'Breakeven — flat',
-        detail: 'Cash flow is zero and no meaningful appreciation. Property is treading water.' });
-    }
-
-    if (monthlyRent > 0 && capRate < 0.05) {
-      const targetRent = Math.round(property.market_price * 0.06 / 12);
-      const delta = targetRent - monthlyRent;
-      if (delta > 0) items.push({ icon: '📈', cls: 'text-warning', label: 'Low cap rate',
-        detail: `Cap rate of ${(capRate * 100).toFixed(1)}% is below 5%. Raising rent by ~$${delta}/mo would push it toward 6%.` });
-    }
-    if (monthlyRent > 0 && expenseRatio > 0.45) {
-      items.push({ icon: '💸', cls: 'text-danger', label: 'High expense ratio',
-        detail: `Expenses are ${(expenseRatio * 100).toFixed(0)}% of rent. Healthy properties typically sit below 40%.` });
-    }
-    if (ltvRatio > 0.80 && property.loan_amount > 0) {
-      items.push({ icon: '⚡', cls: 'text-danger', label: 'High leverage risk',
-        detail: `LTV of ${(ltvRatio * 100).toFixed(0)}% means only ${(100 - ltvRatio * 100).toFixed(0)}% equity cushion.` });
-    }
-    if (ltvRatio > 0 && ltvRatio < 0.55 && equity > 50000) {
-      items.push({ icon: '🏦', cls: 'text-success', label: 'Refinancing opportunity',
-        detail: `LTV of ${(ltvRatio * 100).toFixed(0)}% — ${fmt(equity)} in equity. A cash-out refinance could fund another investment.` });
-    }
-    if (yearlyAppr !== null && yearlyApprRatio > 0.08) {
-      items.push({ icon: '💎', cls: 'text-success', label: 'Strong appreciation',
-        detail: `Appreciating at ${(yearlyApprRatio * 100).toFixed(1)}%/yr (${fmt(yearlyAppr)}/yr).` });
-    }
-    if (yearlyAppr !== null && yearlyApprRatio < 0.02 && capRate < 0.04 && property.total_income > 0) {
-      items.push({ icon: '🔻', cls: 'text-danger', label: 'Low yield & low growth',
-        detail: `Cap rate ${(capRate * 100).toFixed(1)}% and appreciation ${(yearlyApprRatio * 100).toFixed(1)}%/yr are both weak.` });
-    }
-    if (cashOnCash > 0 && cashOnCash < 0.03 && avg.cashflow > 0) {
-      items.push({ icon: '🔑', cls: 'text-warning', label: 'Low capital efficiency',
-        detail: `Cash-on-cash return of ${(cashOnCash * 100).toFixed(1)}% means your equity is barely working. Target is typically 6–8%+.` });
-    }
-    return items;
-  })();
-
+  // ── Property analysis ────────────────────────────────────────────────────
+  const analysis = analyzeProperty(property, income, {
+    avgCashflow: avg.cashflow, yearlyAppr, monthlyAppr, monthlyGain, sellingProfit,
+    monthlyRent, capRate, expenseRatio, ltvRatio, equity, cashOnCash, yearlyApprRatio,
+  });
   const [primary, ...secondary] = analysis;
 
   // ── Chart data ────────────────────────────────────────────────────────────
@@ -572,12 +452,11 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           ...monthlyGainExpProps,
           tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly \u00f7 12). Combines income and value growth in one number.\nExp uses budgeted operating costs, expected mortgage, and expected appreciation %.' })}
         {mc({ label: 'Payback Period',
-          primary: paybackPeriod ? paybackPeriod.label : (avg.cashflow <= 0 ? '\u221e (no CF)' : '\u2014'),
-          primaryCls: paybackPeriod ? paybackPeriod.cls : 'text-danger',
+          ...paybackPeriod,
           secondary: expPayback, secondaryCls: expPayback ? 'text-success' : '',
           tooltip: `Time until all recorded expenses are fully recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(property.total_expenses)} − ${fmt(property.total_income)}).\nExp uses budgeted cash flow.` })}
         {mc({ label: 'Break-even',
-          primary: breakEven.label, primaryCls: breakEven.cls,
+          ...breakEven,
           secondary: expBreakEven, secondaryCls: expBreakEven ? 'text-success' : '',
           tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.' })}
       </div>

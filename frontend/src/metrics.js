@@ -1,3 +1,5 @@
+import { fmt, fmtPeriod } from './utils.js';
+
 /**
  * metrics.js — All real-estate investment math helpers.
  *
@@ -483,63 +485,157 @@ export const calcSimpleHealth = (p) => {
   return calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
 };
 
+// ── Payback & break-even ──────────────────────────────────────────────────────
+
 /**
- * Full metrics computed from property record + optional income/expense arrays.
- * Used in PropertyDetail for the detailed ratio analysis (separate from the score).
+ * How long until all recorded expenses are recovered by cash flow.
+ *
+ * outstanding = total_expenses − total_income (amount still to recover)
+ * avgCashflow = avg monthly cash flow
+ *
+ * Returns { label, cls } — ready to spread into a MetricCard.
  */
-export const calcMetrics = (p, incomeRecs = [], expenseRecs = []) => {
-  const downPmt      = p.purchase_price - p.loan_amount;
-  const equity       = p.market_price   - p.loan_amount;
-  const equityPct    = p.market_price   > 0 ? equity / p.market_price * 100 : null;
-  const loanPct      = p.market_price   > 0 ? p.loan_amount / p.market_price * 100 : null;
-  const appreciation = p.market_price   - p.purchase_price;
-  const apprPct      = p.purchase_price > 0 ? appreciation / p.purchase_price * 100 : null;
-  const yrs          = yearsHeld(p);
-  const yearlyAppr   = yrs ? appreciation / yrs : null;
-  const yearlyApprPct = (yrs && p.purchase_price > 0) ? yearlyAppr / p.purchase_price * 100 : null;
-
-  const now = new Date();
-  const yearFrac = (now - new Date(now.getFullYear(), 0, 1)) / (365.25 * 86400000);
-  const projectedYearEnd = yearlyAppr !== null
-    ? p.market_price + yearlyAppr * (1 - yearFrac) : null;
-
-  const totalNetExp    = p.total_expenses - downPmt;
-  const totalNetProfit = p.total_income - totalNetExp;
-  const totalBalance   = p.total_income - p.total_expenses;
-  const roi            = p.market_price > 0 ? totalNetProfit / p.market_price * 100 : null;
-
-  const ytdEnd   = new Date();
-  const ytdStart = new Date(ytdEnd);
-  ytdStart.setFullYear(ytdStart.getFullYear() - 1);
-
-  const inPeriod = (dateStr, start, end) => {
-    if (!dateStr) return false;
-    const [yr, mo, dy] = dateStr.split('-').map(Number);
-    const d = new Date(yr, mo - 1, dy);
-    return d >= start && d <= end;
+export const calcPayback = (outstanding, avgCashflow) => {
+  if (avgCashflow <= 0) return { primary: '∞ (no CF)', primaryCls: 'text-danger' };
+  if (outstanding <= 0) return { primary: 'Recovered', primaryCls: 'text-success' };
+  const months = outstanding / avgCashflow;
+  return {
+    primary:    fmtPeriod(months),
+    primaryCls: months < 36 ? 'text-success' : months < 84 ? '' : 'text-danger',
   };
+};
 
-  const ytdIncome   = incomeRecs.filter(r => inPeriod(r.income_date,   ytdStart, ytdEnd)).reduce((s, r) => s + r.amount, 0);
-  const ytdExpenses = expenseRecs.filter(r => inPeriod(r.expense_date, ytdStart, ytdEnd)).reduce((s, r) => s + r.amount, 0);
-  const ytdBalance  = ytdIncome - ytdExpenses;
+/**
+ * How long until net position (market + income − expenses − loan) reaches zero.
+ *
+ * netPos       = current net position (negative means still in the hole)
+ * monthlyGain  = avg cash flow + monthly appreciation
+ *
+ * Returns { label, cls } — ready to spread into a MetricCard.
+ */
+export const calcBreakEven = (netPos, monthlyGain) => {
+  if (netPos >= 0)      return { primary: 'Reached',       primaryCls: 'text-success' };
+  if (monthlyGain <= 0) return { primary: '∞ (no growth)', primaryCls: 'text-danger'  };
+  const months = -netPos / monthlyGain;
+  return {
+    primary:    fmtPeriod(months),
+    primaryCls: months < 36 ? 'text-success' : months < 84 ? '' : 'text-danger',
+  };
+};
 
-  const ytdPrincipalRecs = expenseRecs.filter(r =>
-    r.expense_category === 'Principal' && inPeriod(r.expense_date, ytdStart, ytdEnd)
-  );
-  let ytdPrincipal;
-  if (ytdPrincipalRecs.length > 0) {
-    ytdPrincipal = ytdPrincipalRecs.reduce((s, r) => s + r.amount, 0);
+// ── Property analysis ─────────────────────────────────────────────────────────
+
+/**
+ * Generate a ranked list of insight items for a single property.
+ *
+ * @param {object}   property    — full property record
+ * @param {object[]} incomeRecs  — income records (for last-income-date check)
+ * @param {object}   m           — pre-computed metrics from PropertyDetail
+ * @returns {Array<{isPrimary?, icon, cls, label, detail}>}
+ */
+export const analyzeProperty = (property, incomeRecs, m) => {
+  const {
+    avgCashflow, yearlyAppr, monthlyAppr, monthlyGain, sellingProfit,
+    monthlyRent, capRate, expenseRatio, ltvRatio, equity, cashOnCash, yearlyApprRatio,
+  } = m;
+
+  const items  = [];
+  const isRnt  = (property.status || '').toLowerCase() === 'rented';
+  const noData = property.total_income === 0 && property.total_expenses === 0;
+
+  // ── Primary status ────────────────────────────────────────────────────────
+  if (noData) {
+    items.push({ isPrimary: true, icon: '🆕', cls: 'text-secondary', label: 'No data yet',
+      detail: 'No income or expenses have been recorded. Add transactions to start tracking performance.' });
+
+  } else if (!isRnt) {
+    const lastInc   = [...incomeRecs].sort((a, b) => new Date(b.income_date) - new Date(a.income_date))[0];
+    const daysSince = lastInc ? (Date.now() - new Date(lastInc.income_date)) / 86400000 : Infinity;
+    if (!isFinite(daysSince)) {
+      items.push({ isPrimary: true, icon: '🏠', cls: 'text-danger', label: 'Vacant — no income recorded',
+        detail: 'Property is vacant and no income has ever been recorded.' });
+    } else if (daysSince > 30) {
+      items.push({ isPrimary: true, icon: '⚠️', cls: 'text-danger', label: `Vacant ${Math.round(daysSince)} days`,
+        detail: `Last income was ${Math.round(daysSince)} days ago. Extended vacancy is eroding your returns.` });
+    } else {
+      items.push({ isPrimary: true, icon: '🔄', cls: 'text-warning', label: 'Recently vacated',
+        detail: `Property became vacant ${Math.round(daysSince)} days ago. Short vacancies are normal between tenants.` });
+    }
+
+  } else if (avgCashflow < 0 && yearlyAppr !== null && yearlyAppr < 0) {
+    items.push({ isPrimary: true, icon: '🚨', cls: 'text-danger', label: 'Losing on all fronts',
+      detail: `Cash flow is ${fmt(avgCashflow)}/mo and the property is depreciating ${fmt(yearlyAppr)}/yr. Strong case to sell.` });
+
+  } else if (avgCashflow < 0 && yearlyAppr !== null && yearlyAppr > 0) {
+    items.push({ isPrimary: true, icon: '⚖️', cls: monthlyGain >= 0 ? 'text-warning' : 'text-danger',
+      label: monthlyGain >= 0 ? 'Appreciation covers the gap' : 'Negative cash flow, appreciation insufficient',
+      detail: monthlyGain >= 0
+        ? `Cash is consumed at ${fmt(Math.abs(avgCashflow))}/mo but appreciation (${fmt(yearlyAppr)}/yr) more than compensates. Monthly gain: ${fmt(monthlyGain)}/mo.`
+        : `Cash is consumed at ${fmt(Math.abs(avgCashflow))}/mo. Appreciation only partially offsets this. Net monthly loss: ${fmt(monthlyGain)}/mo.` });
+
+  } else if (avgCashflow < 0) {
+    items.push({ isPrimary: true, icon: '📉', cls: 'text-danger', label: 'Negative cash flow',
+      detail: `Expenses exceed income by ${fmt(Math.abs(avgCashflow))}/mo.` });
+
+  } else if (avgCashflow === 0 && monthlyGain > 0) {
+    items.push({ isPrimary: true, icon: '📈', cls: 'text-success', label: 'Breakeven — appreciation-led',
+      detail: `Cash flow is exactly neutral, but appreciation adds ${fmt(monthlyGain)}/mo in total gain.` });
+
+  } else if (sellingProfit >= 0 && avgCashflow > 0 && sellingProfit / avgCashflow < 12) {
+    items.push({ isPrimary: true, icon: '⭐', cls: 'text-success', label: 'Exceptional yield',
+      detail: `Cash flow of ${fmt(avgCashflow)}/mo recovers the entire Net Position in ${Math.round(sellingProfit / avgCashflow)} months.` });
+
+  } else if (monthlyRent > 0 && avgCashflow > 0 && sellingProfit < property.market_price * 0.05) {
+    items.push({ isPrimary: true, icon: '🐄', cls: 'text-success', label: 'Golden cow — keep',
+      detail: `Strong cash flow (${fmt(avgCashflow)}/mo) but selling today nets only ${fmt(sellingProfit)}.` });
+
+  } else if (sellingProfit > property.market_price * 0.15 && monthlyGain < property.market_price * 0.003) {
+    items.push({ isPrimary: true, icon: '💡', cls: 'text-warning', label: 'Consider selling',
+      detail: `Unrealized gain of ${fmt(sellingProfit)} is significant, but monthly gain is only ${fmt(monthlyGain)}/mo.` });
+
+  } else if (yearlyAppr !== null && yearlyAppr > 0 && avgCashflow > 0) {
+    items.push({ isPrimary: true, icon: '🚀', cls: 'text-success', label: 'Strong performer',
+      detail: `Cash flow ${fmt(avgCashflow)}/mo, appreciation ${fmt(yearlyAppr)}/yr, monthly gain ${fmt(monthlyGain)}/mo.` });
+
+  } else if (avgCashflow > 0) {
+    items.push({ isPrimary: true, icon: '✅', cls: 'text-success', label: 'Positive cash flow',
+      detail: `Generating ${fmt(avgCashflow)}/mo.${yearlyAppr !== null ? ` Appreciation ${fmt(yearlyAppr)}/yr adds ${fmt(monthlyAppr)}/mo.` : ' Set a possession date to compute appreciation.'}` });
+
   } else {
-    ytdPrincipal = null;
+    items.push({ isPrimary: true, icon: '➖', cls: 'text-warning', label: 'Breakeven — flat',
+      detail: 'Cash flow is zero and no meaningful appreciation. Property is treading water.' });
   }
 
-  const ytdNetExp    = ytdPrincipal !== null ? ytdExpenses - ytdPrincipal : null;
-  const ytdNetProfit = ytdNetExp    !== null ? ytdIncome   - ytdNetExp    : null;
+  // ── Secondary advisories ──────────────────────────────────────────────────
+  if (monthlyRent > 0 && capRate < 0.05) {
+    const delta = Math.round(property.market_price * 0.06 / 12) - monthlyRent;
+    if (delta > 0) items.push({ icon: '📈', cls: 'text-warning', label: 'Low cap rate',
+      detail: `Cap rate of ${(capRate * 100).toFixed(1)}% is below 5%. Raising rent by ~$${delta}/mo would push it toward 6%.` });
+  }
+  if (monthlyRent > 0 && expenseRatio > 0.45) {
+    items.push({ icon: '💸', cls: 'text-danger', label: 'High expense ratio',
+      detail: `Expenses are ${(expenseRatio * 100).toFixed(0)}% of rent. Healthy properties typically sit below 40%.` });
+  }
+  if (ltvRatio > 0.80 && property.loan_amount > 0) {
+    items.push({ icon: '⚡', cls: 'text-danger', label: 'High leverage risk',
+      detail: `LTV of ${(ltvRatio * 100).toFixed(0)}% means only ${(100 - ltvRatio * 100).toFixed(0)}% equity cushion.` });
+  }
+  if (ltvRatio > 0 && ltvRatio < 0.55 && equity > 50000) {
+    items.push({ icon: '🏦', cls: 'text-success', label: 'Refinancing opportunity',
+      detail: `LTV of ${(ltvRatio * 100).toFixed(0)}% — ${fmt(equity)} in equity. A cash-out refinance could fund another investment.` });
+  }
+  if (yearlyAppr !== null && yearlyApprRatio > 0.08) {
+    items.push({ icon: '💎', cls: 'text-success', label: 'Strong appreciation',
+      detail: `Appreciating at ${(yearlyApprRatio * 100).toFixed(1)}%/yr (${fmt(yearlyAppr)}/yr).` });
+  }
+  if (yearlyAppr !== null && yearlyApprRatio < 0.02 && capRate < 0.04 && property.total_income > 0) {
+    items.push({ icon: '🔻', cls: 'text-danger', label: 'Low yield & low growth',
+      detail: `Cap rate ${(capRate * 100).toFixed(1)}% and appreciation ${(yearlyApprRatio * 100).toFixed(1)}%/yr are both weak.` });
+  }
+  if (cashOnCash > 0 && cashOnCash < 0.03 && avgCashflow > 0) {
+    items.push({ icon: '🔑', cls: 'text-warning', label: 'Low capital efficiency',
+      detail: `Cash-on-cash return of ${(cashOnCash * 100).toFixed(1)}% means your equity is barely working. Target is typically 6–8%+.` });
+  }
 
-  return {
-    equity, equityPct, loanPct,
-    appreciation, apprPct, yearlyAppr, yearlyApprPct, projectedYearEnd,
-    downPmt, totalNetExp, totalNetProfit, totalBalance, roi,
-    ytdIncome, ytdExpenses, ytdBalance, ytdPrincipal, ytdNetExp, ytdNetProfit,
-  };
+  return items;
 };

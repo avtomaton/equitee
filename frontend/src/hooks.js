@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { COLUMN_DEFS, getCookie, setCookie } from './config.js';
-import { yearsHeld, avgMonthly, principalInRange } from './metrics.js';
+import { yearsHeld, avgMonthly, calcExpected, principalInRange } from './metrics.js';
 
 /**
  * Persist column visibility per view in a cookie.
@@ -159,6 +159,25 @@ export function usePortfolioAggregates(properties, allIncome, allExpenses) {
     const expYearlyApprPct = purchase > 0 && totalExpectedYearlyAppr > 0
       ? totalExpectedYearlyAppr / purchase * 100 : null;
 
+    // Expected monthly NOI and appreciation — window-independent, reused by components
+    // to compute expCF = expNOI - avg.mortgage and expMG = expCF + expApprMo
+    const expNOI    = totalExpectedOpEx > 0 ? totalMonthlyRent - totalExpectedOpEx : null;
+    const expApprMo = totalExpectedYearlyAppr > 0 ? totalExpectedYearlyAppr / 12 : null;
+
+    // Per-property 3-month average (used for expected payback / break-even)
+    const perPropAvg = {};
+    for (const p of properties) {
+      const inc = allIncome.filter(r   => r.property_id === p.id);
+      const exp = allExpenses.filter(r => r.property_id === p.id);
+      perPropAvg[p.id] = avgMonthly(inc, exp, 3);
+    }
+
+    // Total expected monthly cash flow (sum across properties with budget data)
+    const totalExpCF = properties.reduce((s, p) => {
+      const e = calcExpected(p, perPropAvg[p.id]?.mortgage ?? 0);
+      return e ? s + e.monthlyCF : s;
+    }, 0);
+
     return {
       market, purchase, loan, income, expenses,
       equity, equityPct, loanPct,
@@ -171,6 +190,7 @@ export function usePortfolioAggregates(properties, allIncome, allExpenses) {
       occupied, occupancyPct,
       totalMonthlyRent, totalExpectedOpEx, propertiesWithExpected,
       totalExpectedYearlyAppr, expYearlyApprPct,
+      expNOI, expApprMo, perPropAvg, totalExpCF,
     };
   }, [properties, allIncome, allExpenses]);
 }

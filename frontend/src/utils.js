@@ -61,3 +61,19 @@ export const formatPostalCode = (raw) => {
   const clean = (raw || '').replace(/\s+/g, '').toUpperCase();
   return clean.length === 6 ? `${clean.slice(0, 3)} ${clean.slice(3)}` : clean;
 };
+
+// ── Number / period formatters ─────────────────────────────────────────────────
+
+/** Format a dollar amount: $1,234 */
+export const fmt = n => `$${Math.round(n).toLocaleString()}`;
+
+/**
+ * Format a number of months as a human-readable period.
+ *   0  →  'Recovered'  (use for payback)
+ *   <12 →  '3 mo'
+ *   ≥12 →  '1.2 yr'
+ */
+export const fmtPeriod = months => {
+  if (months <= 0) return 'Recovered';
+  return months < 12 ? `${Math.round(months)} mo` : `${(months / 12).toFixed(1)} yr`;
+};

@@ -5,9 +5,9 @@ import {
 } from 'recharts';
 import MetricCard from './MetricCard.jsx';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
-import { fmt, fPct, fp, mc, SectionLabel, WindowPicker, wLabel, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
+import { fmt, fPct, fp, mc, WindowPicker, wLabel, fmtPeriod, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import { COLORS, API_URL } from '../config.js';
-import { avgMonthly, yearsHeld, calcExpected, expGap, monthsLeftInYear } from '../metrics.js';
+import { avgMonthly, yearsHeld, calcPayback, calcBreakEven, expGap, monthsLeftInYear } from '../metrics.js';
 import { usePortfolioAggregates } from '../hooks.js';
 
 const sn = s => s.length > 14 ? s.slice(0, 14) + '\u2026' : s;
@@ -65,16 +65,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
     [allIncome, allExpenses, avgWindow],
   );
 
-  // Per-property avg mortgages for expected CF calc
-  const perPropAvg = useMemo(() => {
-    const map = {};
-    for (const p of filtered) {
-      const inc = allIncome.filter(r   => r.property_id === p.id);
-      const exp = allExpenses.filter(r => r.property_id === p.id);
-      map[p.id] = avgMonthly(inc, exp, 3);
-    }
-    return map;
-  }, [filtered, allIncome, allExpenses]);
+  // perPropAvg and totalExpCF come from usePortfolioAggregates (agg.perPropAvg, agg.totalExpCF)
 
   // ── Pre-computed values (replacing inline IIFEs) ──────────────────────────
 
@@ -86,55 +77,29 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
     p.loan_amount > 0 && p.mortgage_rate > 0 ? s + p.loan_amount * p.mortgage_rate / 100 / 12 : s, 0);
   const mortgagePrincipal = totalMortgage > monthlyInterest ? totalMortgage - monthlyInterest : null;
 
-  const dscrVal   = avg.mortgage > 0 ? avg.noi / avg.mortgage : null;
-  const expOpEx   = agg.totalExpectedOpEx;
-  const expNOI    = expOpEx > 0 ? agg.totalMonthlyRent - expOpEx : null;
-  const expDSCR   = expNOI != null && avg.mortgage > 0 ? expNOI / avg.mortgage : null;
-  const expCF     = expNOI != null ? expNOI - avg.mortgage : null;
-  const expApprMo = agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr / 12 : null;
-  const expMG     = expCF != null ? expCF + (expApprMo ?? 0) : null;
+  const dscrVal = avg.mortgage > 0 ? avg.noi / avg.mortgage : null;
+  // agg.expNOI and agg.expApprMo come from the hook; expCF needs window-dependent avg.mortgage
+  const expCF   = agg.expNOI != null ? agg.expNOI - avg.mortgage : null;
+  const expMG   = expCF != null ? expCF + (agg.expApprMo ?? 0) : null;
+  const expDSCR = agg.expNOI != null && avg.mortgage > 0 ? agg.expNOI / avg.mortgage : null;
 
   const oer    = avg.income > 0 ? avg.noiExpenses / avg.income : null;
-  const expOER = expOpEx > 0 && agg.totalMonthlyRent > 0 ? expOpEx / agg.totalMonthlyRent : null;
+  const expOER = agg.totalExpectedOpEx > 0 && agg.totalMonthlyRent > 0 ? agg.totalExpectedOpEx / agg.totalMonthlyRent : null;
 
   const mg = avg.cashflow + agg.monthlyApprAgg;
 
   const npPctA = agg.balance !== 0 ? (agg.sellingProfit / Math.abs(agg.balance) * 100) : null;
 
-  // Payback: (total expenses − total income) ÷ avg cash flow
-  const outstanding  = agg.expenses - agg.income;
-  const ppMonths     = avg.cashflow > 0 ? (outstanding <= 0 ? 0 : outstanding / avg.cashflow) : null;
-  const ppLabel      = ppMonths === null
-    ? (avg.cashflow <= 0 ? '∞ (no CF)' : '—')
-    : ppMonths === 0 ? 'Recovered'
-    : ppMonths < 12 ? `${Math.round(ppMonths)} mo` : `${(ppMonths / 12).toFixed(1)} yr`;
-  const ppCls        = ppMonths === null ? 'text-danger'
-    : ppMonths === 0 ? 'text-success'
-    : ppMonths < 36  ? 'text-success' : ppMonths < 84 ? '' : 'text-danger';
-  const totalExpCF   = filtered.reduce((s, p) => {
-    const e = calcExpected(p, perPropAvg[p.id]?.mortgage ?? 0);
-    return e ? s + e.monthlyCF : s;
-  }, 0);
-  const expPPMonths  = totalExpCF > 0 ? (outstanding <= 0 ? 0 : outstanding / totalExpCF) : null;
-  const expPPLabel   = expPPMonths != null
-    ? (expPPMonths === 0 ? 'Exp: Recovered'
-       : expPPMonths < 12 ? `Exp: ${Math.round(expPPMonths)} mo`
-       : `Exp: ${(expPPMonths / 12).toFixed(1)} yr`)
-    : null;
+  // Payback & Break-even via shared pure functions
+  const outstanding = agg.expenses - agg.income;
+  const payback     = calcPayback(outstanding, avg.cashflow);
+  const expPPMonths = agg.totalExpCF > 0 ? (outstanding <= 0 ? 0 : outstanding / agg.totalExpCF) : null;
+  const expPPLabel  = expPPMonths != null ? (expPPMonths <= 0 ? 'Exp: Recovered' : 'Exp: ' + fmtPeriod(expPPMonths)) : null;
 
-  // Break-even: −net position ÷ monthly gain
-  const netPos = agg.sellingProfit;
-  let beLabel, beCls;
-  if (netPos >= 0) { beLabel = 'Reached'; beCls = 'text-success'; }
-  else if (mg <= 0) { beLabel = '∞ (no growth)'; beCls = 'text-danger'; }
-  else {
-    const mo = -netPos / mg;
-    beLabel = mo < 12 ? `${Math.round(mo)} mo` : `${(mo / 12).toFixed(1)} yr`;
-    beCls   = mo < 36 ? 'text-success' : mo < 84 ? '' : 'text-danger';
-  }
-  const expBE = expMG != null && expMG > 0 && netPos < 0
-    ? (() => { const mo = -netPos / expMG; return mo < 12 ? `Exp: ${Math.round(mo)} mo` : `Exp: ${(mo / 12).toFixed(1)} yr`; })()
-    : netPos >= 0 ? 'Exp: Reached' : null;
+  const netPos    = agg.sellingProfit;
+  const breakEven = calcBreakEven(netPos, mg);
+  const expBEMo   = expMG != null && expMG > 0 && netPos < 0 ? -netPos / expMG : null;
+  const expBELabel = netPos >= 0 ? 'Exp: Reached' : expBEMo != null ? 'Exp: ' + fmtPeriod(expBEMo) : null;
 
   const ml      = monthsLeftInYear();
   const runRate = agg.sellingProfit + avg.cashflow * ml + agg.monthlyApprAgg * ml;
@@ -143,8 +108,8 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
   // Row 2 ratios
   const annualNOI = avg.noi * 12;
   const capRate   = agg.market > 0 ? annualNOI / agg.market : null;
-  const expCap    = expOpEx > 0 && agg.market > 0 ? (agg.totalMonthlyRent - expOpEx) * 12 / agg.market : null;
-  const expDSCRRow = expNOI != null && avg.mortgage > 0 ? expNOI / avg.mortgage : null;
+  const expCap    = agg.expNOI != null && agg.market > 0 ? agg.expNOI * 12 / agg.market : null;
+  const expDSCRRow = agg.expNOI != null && avg.mortgage > 0 ? agg.expNOI / avg.mortgage : null;
 
   return (
     <div style={{ padding: '1.25rem 1.5rem' }}>
@@ -292,7 +257,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
         {mc({
           label: `Avg Expenses (${wLabel(avgWindow)})`,
           primary: fmt(avg.expenses), primaryCls: 'text-danger',
-          ...expGap(avg.expenses, expOpEx > 0 ? expOpEx + avg.mortgage : null,
+          ...expGap(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null,
             v => v < agg.totalMonthlyRent * 0.65 ? '' : v < agg.totalMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
             v => fmt(v), 'Exp:', false, 50),
           tooltip: `Average monthly expenses over the last ${avgWindow} complete months.\nExp = budgeted op-ex (${agg.propertiesWithExpected} of ${filtered.length} props) + avg mortgage.`,
@@ -309,7 +274,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
           label: `Avg NOI (${wLabel(avgWindow)})`,
           primary: fmt(avg.noi),
           primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.noi, expNOI,
+          ...expGap(avg.noi, agg.expNOI,
             v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
           tooltip: 'Net Operating Income: income minus op-ex, excluding mortgage and principal.\nExp = total monthly rent minus budgeted op-ex at full occupancy.',
         })}
@@ -364,13 +329,13 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
           tooltip: 'Market Value + Income − Expenses − Loans. Net proceeds if you sold all filtered properties today and cleared all mortgages.',
         })}
         {mc({
-          label: 'Payback Period', primary: ppLabel, primaryCls: ppCls,
+          label: 'Payback Period', ...payback,
           secondary: expPPLabel, secondaryCls: expPPLabel ? 'text-success' : '',
           tooltip: `Time until all recorded expenses are recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(agg.expenses)} − ${fmt(agg.income)}).\nExp uses budgeted cash flow.`,
         })}
         {mc({
-          label: 'Break-even', primary: beLabel, primaryCls: beCls,
-          secondary: expBE, secondaryCls: expBE ? 'text-success' : '',
+          label: 'Break-even', ...breakEven,
+          secondary: expBELabel, secondaryCls: expBELabel ? 'text-success' : '',
           tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.',
         })}
       </div>

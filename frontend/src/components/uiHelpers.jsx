@@ -1,7 +1,8 @@
+export { fmt, fmtPeriod } from '../utils.js';
+import { fmt } from '../utils.js';
 import MetricCard from './MetricCard.jsx';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
-export const fmt    = n => `$${Math.round(n).toLocaleString()}`;
 export const fmtM   = n => n === 0 ? '—' : fmt(n) + '/mo';
 export const fp     = n => `${Number(n).toFixed(1)}%`;
 export const fPct   = v => `${(v * 100).toFixed(1)}%`;

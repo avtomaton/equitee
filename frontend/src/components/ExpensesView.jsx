@@ -7,6 +7,9 @@ import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
 import { fmtDate } from './uiHelpers.jsx';
 import { useColumnVisibility } from '../hooks.js';
 
+// tax_deductible filter options
+const TAX_OPTIONS = ['All', 'Deductible', 'Non-deductible'];
+
 export default function ExpensesView({ properties, onAddExpense, onEditExpense, initialPropertyId }) {
   const [expenses,        setExpenses]        = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -16,6 +19,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
   const [dateFilter,      setDateFilter]      = useState('all');
   const [customDateStart, setCustomDateStart] = useState('');
   const [customDateEnd,   setCustomDateEnd]   = useState('');
+  const [taxFilter,       setTaxFilter]       = useState('All');
 
   const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('expenses');
   const allColKeys   = COLUMN_DEFS.expenses.map(d => d.key);
@@ -58,6 +62,8 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
     if (res.ok) loadExpenses();
   };
 
+  const isTaxDeductible = e => !(e.tax_deductible === 0 || e.tax_deductible === false);
+
   // Base: property-filtered only (for unfiltered reference total)
   const baseExpenses = useMemo(() =>
     filterProperty === 'all'
@@ -70,6 +76,8 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
     let list = baseExpenses.filter(e => {
       if (!filterCategories.includes(e.expense_category)) return false;
       if (!filterTypes.includes(e.expense_type)) return false;
+      if (taxFilter === 'Deductible'    && !isTaxDeductible(e)) return false;
+      if (taxFilter === 'Non-deductible' && isTaxDeductible(e)) return false;
       if (dateFilter !== 'all' && dateFilter !== 'custom') {
         const range = getDateRanges()[dateFilter];
         if (range && !isDateInRange(e.expense_date, range.start, range.end)) return false;
@@ -86,7 +94,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
       return 0;
     });
     return list;
-  }, [baseExpenses, filterCategories, filterTypes, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
+  }, [baseExpenses, filterCategories, filterTypes, taxFilter, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
 
   const baseTotal     = baseExpenses.reduce((s, e) => s + e.amount, 0);
   const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0);
@@ -97,12 +105,8 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
     ? properties.find(p => String(p.id) === filterProperty)?.name
     : null;
 
-  const amountSub = isFiltered
-    ? `$${baseTotal.toLocaleString()} unfiltered · ${pct}% shown`
-    : null;
-  const txSub = isFiltered
-    ? `${baseExpenses.length} unfiltered`
-    : null;
+  const amountSub = isFiltered ? `$${baseTotal.toLocaleString()} unfiltered · ${pct}% shown` : null;
+  const txSub     = isFiltered ? `${baseExpenses.length} unfiltered` : null;
 
   return (
     <>
@@ -142,6 +146,9 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
               </select>
               <MultiSelect label="Category" options={allCategories} selected={filterCategories} onChange={setFilterCategories} />
               <MultiSelect label="Type"     options={allTypes}      selected={filterTypes}      onChange={setFilterTypes} />
+              <select value={taxFilter} onChange={e => setTaxFilter(e.target.value)}>
+                {TAX_OPTIONS.map(o => <option key={o} value={o}>{o === 'All' ? 'Tax: All' : o}</option>)}
+              </select>
               <select value={dateFilter} onChange={e => setDateFilter(e.target.value)}>
                 <option value="all">All Time</option>
                 <option value="ytd">YTD</option>
@@ -192,17 +199,17 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
           <div className="table-scroll-wrap">
             <table>
               <thead><tr>
-                {col('date')          && <th className="col-shrink">Date</th>}
-                {col('property')      && <th className="col-fill">Property</th>}
-                {col('amount')        && <th className="col-shrink">Amount</th>}
-                {col('category')      && <th className="col-shrink">Category</th>}
-                {col('type')          && <th className="col-shrink">Type</th>}
+                {col('date')           && <th className="col-shrink">Date</th>}
+                {col('property')       && <th className="col-fill">Property</th>}
+                {col('amount')         && <th className="col-shrink">Amount</th>}
+                {col('category')       && <th className="col-shrink">Category</th>}
+                {col('type')           && <th className="col-shrink">Type</th>}
                 {col('tax_deductible') && <th className="col-shrink" title="Tax Deductible">Tax Ded.</th>}
-                {col('notes')         && <th className="col-fill">Notes</th>}
+                {col('notes')          && <th className="col-fill">Notes</th>}
                 <th style={{ width: 52 }}></th>
               </tr></thead>
               <tbody>
-                  {filtered.map(e => (
+                {filtered.map(e => (
                   <tr key={e.id}>
                     {col('date')           && <td className="col-shrink">{fmtDate(e.expense_date)}</td>}
                     {col('property')       && <td className="col-fill"><TruncatedCell text={e.property_name} /></td>}
@@ -211,9 +218,9 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
                     {col('type')           && <td className="col-shrink">{e.expense_type}</td>}
                     {col('tax_deductible') && (
                       <td className="col-shrink" style={{ textAlign: 'center' }}>
-                        {e.tax_deductible === 0 || e.tax_deductible === false
-                          ? <span title="Not tax deductible" style={{ color: 'var(--text-tertiary)' }}>✗</span>
-                          : <span title="Tax deductible" style={{ color: 'var(--color-success, #22c55e)' }}>✓</span>}
+                        {isTaxDeductible(e)
+                          ? <span title="Tax deductible"     style={{ color: 'var(--color-success, #22c55e)' }}>✓</span>
+                          : <span title="Not tax deductible" style={{ color: 'var(--text-tertiary)' }}>✗</span>}
                       </td>
                     )}
                     {col('notes')          && <td className="col-fill"><TruncatedCell text={e.notes} /></td>}
