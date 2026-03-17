@@ -1,5 +1,32 @@
 import { useRef } from 'react';
 
+// ── Shared modal utilities ────────────────────────────────────────────────────
+
+/** Today's date as a YYYY-MM-DD string (for form default values). */
+export const today = () => new Date().toISOString().split('T')[0];
+
+/** Shared style for quick-fill buttons across modals. */
+export const QUICK_BTN_STYLE = {
+  padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem',
+  cursor: 'pointer', fontWeight: 600, border: '1px solid var(--accent-primary)',
+  background: 'rgba(59,130,246,0.1)', color: 'var(--accent-primary)',
+  transition: 'background 0.15s',
+};
+
+/**
+ * PropertyOptions — reusable <option> list for property selects.
+ * Usage: <select ...><PropertyOptions properties={properties} /></select>
+ * Omit `placeholder` to skip the leading blank option (e.g. navigation selectors).
+ */
+export function PropertyOptions({ properties, placeholder }) {
+  return (
+    <>
+      {placeholder != null && <option value="">{placeholder}</option>}
+      {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </>
+  );
+}
+
 /**
  * ModalOverlay — backdrop that only closes when the user clicks directly on it.
  *

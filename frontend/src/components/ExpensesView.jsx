@@ -1,112 +1,43 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import StatCard from './StatCard.jsx';
-import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
-import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
+import DateRangeFilter from './DateRangeFilter.jsx';
+import ResetColumnsButton from './ResetColumnsButton.jsx';
+import { INITIAL_OPTIONS } from '../config.js';
 import { fmtDate } from './uiHelpers.jsx';
-import { useColumnVisibility } from '../hooks.js';
+import { PropertyOptions } from '../modals/ModalBase.jsx';
+import useTransactionView from '../hooks/useTransactionView.js';
 
-// tax_deductible filter options
 const TAX_OPTIONS = ['Deductible', 'Non-deductible'];
+const isTaxDeductible = e => !(e.tax_deductible === 0 || e.tax_deductible === false);
 
 export default function ExpensesView({ properties, onAddExpense, onEditExpense, initialPropertyId }) {
-  const [expenses,        setExpenses]        = useState([]);
-  const [loading,         setLoading]         = useState(true);
-  const [sortBy,          setSortBy]          = useState('expense_date');
-  const [sortOrder,       setSortOrder]       = useState('desc');
-  const [filterProperty,  setFilterProperty]  = useState(initialPropertyId ? String(initialPropertyId) : 'all');
-  const [dateFilter,      setDateFilter]      = useState('all');
-  const [customDateStart, setCustomDateStart] = useState('');
-  const [customDateEnd,   setCustomDateEnd]   = useState('');
-  const [taxFilter,       setTaxFilter]       = useState(TAX_OPTIONS);
+  const tx = useTransactionView({
+    viewName: 'expenses', endpoint: 'expenses',
+    dateField: 'expense_date', defaultSortBy: 'expense_date',
+    properties, initialPropertyId,
+    seedTypeOptions:     INITIAL_OPTIONS.expenseTypes,      typeField: 'expense_type',
+    seedCategoryOptions: INITIAL_OPTIONS.expenseCategories, categoryField: 'expense_category',
+  });
 
-  const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('expenses');
-  const allColKeys   = COLUMN_DEFS.expenses.map(d => d.key);
-  const allColLabels = Object.fromEntries(COLUMN_DEFS.expenses.map(d => [d.key, d.label]));
+  // Tax filter is expenses-only, managed locally
+  const [taxFilter, setTaxFilter] = useState(TAX_OPTIONS);
 
-  useEffect(() => {
-    if (initialPropertyId) setFilterProperty(String(initialPropertyId));
-  }, [initialPropertyId]);
+  const { colVis, allColKeys, allColLabels, propName } = tx;
+  const { visible, update: setVisible, col, isCustom, reset } = colVis;
 
-  const allCategories = useMemo(() =>
-    mergeOptions(INITIAL_OPTIONS.expenseCategories, expenses.map(e => e.expense_category)), [expenses]);
-  const allTypes = useMemo(() =>
-    mergeOptions(INITIAL_OPTIONS.expenseTypes, expenses.map(e => e.expense_type)), [expenses]);
+  // Apply tax filter on top of the hook's filtered list
+  const filtered = tx.filtered.filter(e => {
+    const label = isTaxDeductible(e) ? 'Deductible' : 'Non-deductible';
+    return taxFilter.includes(label);
+  });
 
-  const [filterCategories, setFilterCategories] = useState(INITIAL_OPTIONS.expenseCategories);
-  const [filterTypes,      setFilterTypes]      = useState(INITIAL_OPTIONS.expenseTypes);
-  useEffect(() => { setFilterCategories(c => mergeOptions(c, allCategories)); }, [allCategories]);
-  useEffect(() => { setFilterTypes(t => mergeOptions(t, allTypes)); }, [allTypes]);
-
-  useEffect(() => { if (properties.length > 0) loadExpenses(); }, [properties]);
-
-  const loadExpenses = async () => {
-    try {
-      setLoading(true);
-      const responses = await Promise.all(
-        properties.map(p =>
-          fetch(`${API_URL}/expenses?property_id=${p.id}`)
-            .then(r => r.ok ? r.json() : [])
-            .then(data => data.map(e => ({ ...e, property_name: p.name })))
-        )
-      );
-      setExpenses(responses.flat());
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
-  };
-
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this expense?')) return;
-    const res = await fetch(`${API_URL}/expenses/${id}`, { method: 'DELETE' });
-    if (res.ok) loadExpenses();
-  };
-
-  const isTaxDeductible = e => !(e.tax_deductible === 0 || e.tax_deductible === false);
-
-  // Base: property-filtered only (for unfiltered reference total)
-  const baseExpenses = useMemo(() =>
-    filterProperty === 'all'
-      ? expenses
-      : expenses.filter(e => e.property_id === parseInt(filterProperty)),
-    [expenses, filterProperty]
-  );
-
-  const filtered = useMemo(() => {
-    let list = baseExpenses.filter(e => {
-      if (!filterCategories.includes(e.expense_category)) return false;
-      if (!filterTypes.includes(e.expense_type)) return false;
-      const taxLabel = isTaxDeductible(e) ? 'Deductible' : 'Non-deductible';
-      if (!taxFilter.includes(taxLabel)) return false;
-      if (dateFilter !== 'all' && dateFilter !== 'custom') {
-        const range = getDateRanges()[dateFilter];
-        if (range && !isDateInRange(e.expense_date, range.start, range.end)) return false;
-      }
-      if (dateFilter === 'custom' && customDateStart && customDateEnd) {
-        if (!isDateInRange(e.expense_date, new Date(customDateStart), new Date(customDateEnd))) return false;
-      }
-      return true;
-    });
-    list.sort((a, b) => {
-      const dir = sortOrder === 'asc' ? 1 : -1;
-      if (sortBy === 'expense_date') return dir * (new Date(a.expense_date) - new Date(b.expense_date));
-      if (sortBy === 'amount')       return dir * (a.amount - b.amount);
-      return 0;
-    });
-    return list;
-  }, [baseExpenses, filterCategories, filterTypes, taxFilter, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
-
-  const baseTotal     = baseExpenses.reduce((s, e) => s + e.amount, 0);
   const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0);
-  const isFiltered    = filteredTotal !== baseTotal;
-  const pct           = baseTotal > 0 ? ((filteredTotal / baseTotal) * 100).toFixed(1) : '100';
-
-  const propName = filterProperty !== 'all'
-    ? properties.find(p => String(p.id) === filterProperty)?.name
-    : null;
-
-  const amountSub = isFiltered ? `$${baseTotal.toLocaleString()} unfiltered · ${pct}% shown` : null;
-  const txSub     = isFiltered ? `${baseExpenses.length} unfiltered` : null;
+  const isFiltered    = filteredTotal !== tx.baseTotal;
+  const pct           = tx.baseTotal > 0 ? ((filteredTotal / tx.baseTotal) * 100).toFixed(1) : '100';
+  const amountSub     = isFiltered ? `$${tx.baseTotal.toLocaleString()} unfiltered · ${pct}% shown` : null;
+  const txSub         = isFiltered ? `${tx.baseRecords.length} unfiltered` : null;
 
   return (
     <>
@@ -140,56 +71,35 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
           <div className="table-controls">
             <div className="filter-group">
               <span className="filter-label">Filter:</span>
-              <select value={filterProperty} onChange={e => setFilterProperty(e.target.value)}>
-                <option value="all">All Properties</option>
-                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <select value={tx.filterProperty} onChange={e => tx.setFilterProperty(e.target.value)}>
+                <PropertyOptions properties={properties} placeholder="All Properties" />
               </select>
-              <MultiSelect label="Category" options={allCategories} selected={filterCategories} onChange={setFilterCategories} />
-              <MultiSelect label="Type"     options={allTypes}      selected={filterTypes}      onChange={setFilterTypes} />
+              <MultiSelect label="Category" options={tx.allCategories} selected={tx.filterCategories} onChange={tx.setFilterCategories} />
+              <MultiSelect label="Type"     options={tx.allTypes}      selected={tx.filterTypes}      onChange={tx.setFilterTypes} />
               <MultiSelect label="Tax" options={TAX_OPTIONS} selected={taxFilter} onChange={setTaxFilter} />
-              <select value={dateFilter} onChange={e => setDateFilter(e.target.value)}>
-                <option value="all">All Time</option>
-                <option value="ytd">YTD</option>
-                <option value="currentMonth">This Month</option>
-                <option value="currentYear">This Year</option>
-                <option value="lastYear">Last Year</option>
-                <option value="custom">Custom…</option>
-              </select>
-              {dateFilter === 'custom' && <>
-                <input type="date" value={customDateStart} onChange={e => setCustomDateStart(e.target.value)} />
-                <input type="date" value={customDateEnd}   onChange={e => setCustomDateEnd(e.target.value)} />
-              </>}
-              <MultiSelect
-                label="Columns"
-                options={allColKeys}
-                selected={visible}
-                onChange={setVisible}
-                labelMap={allColLabels}
+              <DateRangeFilter
+                value={tx.dateFilter}      onChange={tx.setDateFilter}
+                customStart={tx.customDateStart} onCustomStart={tx.setCustomDateStart}
+                customEnd={tx.customDateEnd}     onCustomEnd={tx.setCustomDateEnd}
               />
-              {isCustom && (
-                <button type="button" onClick={reset}
-                  style={{ background: 'none', border: 'none', fontSize: '0.75rem',
-                    color: 'var(--accent-primary)', cursor: 'pointer', padding: '0 2px',
-                    textDecoration: 'underline', opacity: 0.8, whiteSpace: 'nowrap' }}>
-                  ↺ reset cols
-                </button>
-              )}
+              <MultiSelect label="Columns" options={allColKeys} selected={visible} onChange={setVisible} labelMap={allColLabels} />
+              {isCustom && <ResetColumnsButton onClick={reset} />}
             </div>
             <div className="sort-group">
               <span className="sort-label">Sort:</span>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)}>
+              <select value={tx.sortBy} onChange={e => tx.setSortBy(e.target.value)}>
                 <option value="expense_date">Date</option>
                 <option value="amount">Amount</option>
               </select>
               <button className="btn btn-secondary btn-small"
-                onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}>
-                {sortOrder === 'asc' ? '↑' : '↓'}
+                onClick={() => tx.setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}>
+                {tx.sortOrder === 'asc' ? '↑' : '↓'}
               </button>
             </div>
           </div>
         </div>
 
-        {loading ? <div className="loading"><div className="spinner" /></div>
+        {tx.loading ? <div className="loading"><div className="spinner" /></div>
         : filtered.length === 0 ? (
           <div className="empty-state"><div className="empty-state-icon">💳</div>
             <div className="empty-state-text">No expenses found</div></div>
@@ -225,7 +135,7 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
                     <td>
                       <div className="row-actions">
                         <button className="btn btn-secondary btn-icon" title="Edit"   onClick={() => onEditExpense(e)}>✏️</button>
-                        <button className="btn btn-danger    btn-icon" title="Delete" onClick={() => handleDelete(e.id)}>🗑</button>
+                        <button className="btn btn-danger    btn-icon" title="Delete" onClick={() => tx.handleDelete(e.id)}>🗑</button>
                       </div>
                     </td>
                   </tr>
