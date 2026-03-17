@@ -8,7 +8,7 @@ import KPICard from './KPICard.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
 import { INITIAL_OPTIONS, PROVINCES, COLORS, API_URL, COLUMN_DEFS } from '../config.js';
 import { mergeOptions, trailingYear, makeInTrailingYear } from '../utils.js';
-import { yearsHeld, calcSimpleHealth, principalInRange } from '../metrics.js';
+import { yearsHeld, calcSimpleHealth, principalInRange, calcExpected, calcPortfolioInterest } from '../metrics.js';
 import { useColumnVisibility } from '../hooks.js';
 import { fmt, fp, ltvColor } from './uiHelpers.jsx';
 
@@ -225,22 +225,15 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     const oer   = inc3 > 0 ? noi3 / inc3 : null;
 
     // Interest Coverage Ratio
-    const totalAnnualInterest = filtered.reduce((sum, p) =>
-      p.loan_amount > 0 && p.mortgage_rate > 0
-        ? sum + p.loan_amount * p.mortgage_rate / 100
-        : sum, 0);
+    const totalAnnualInterest = calcPortfolioInterest(filtered);
     const annualNOI3 = (inc3 - noi3) / 3 * 12;   // avg monthly NOI × 12
     const icr  = totalAnnualInterest > 0 ? annualNOI3 / totalAnnualInterest : null;
-    const expTotalAnnualInterest = totalAnnualInterest;  // same denominator for budgeted
     const expNOIAnnual = filtered.reduce((sum, p) => {
-      if (!p.monthly_rent) return sum;
-      const opEx = (p.expected_condo_fees || 0) + (p.expected_insurance || 0) +
-        (p.expected_utilities || 0) + (p.expected_misc_expenses || 0) +
-        (p.annual_property_tax || 0) / 12;
-      return opEx > 0 ? sum + (p.monthly_rent - opEx) * 12 : sum;
+      const e = calcExpected(p, 0);  // mortgage excluded — ICR uses interest, not debt service
+      return e ? sum + e.monthlyNOI * 12 : sum;
     }, 0);
-    const expICR = expTotalAnnualInterest > 0 && expNOIAnnual > 0
-      ? expNOIAnnual / expTotalAnnualInterest : null;
+    const expICR = totalAnnualInterest > 0 && expNOIAnnual > 0
+      ? expNOIAnnual / totalAnnualInterest : null;
 
     return { ytdOpProfit, avgCF, oer, icr, expICR };
   }, [filtered, allIncome, allExpenses]);
@@ -377,8 +370,9 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
           primary={summaryMetrics?.icr != null ? summaryMetrics.icr.toFixed(2) + 'x' : '…'}
           primaryCls={!summaryMetrics?.icr ? '' : summaryMetrics.icr >= 2 ? 'text-success' : summaryMetrics.icr >= 1.25 ? '' : 'text-danger'}
           secondary={summaryMetrics?.expICR != null ? `Exp: ${summaryMetrics.expICR.toFixed(2)}x` : null}
-          secondaryCls={summaryMetrics?.expICR != null && summaryMetrics?.icr != null
-            ? (summaryMetrics.icr >= summaryMetrics.expICR ? 'text-success' : 'text-danger') : ''}
+          secondaryCls={summaryMetrics?.expICR != null
+            ? (summaryMetrics.expICR >= 2 ? 'text-success' : summaryMetrics.expICR >= 1.25 ? '' : 'text-danger')
+            : ''}
           tertiary="3-month avg"
           accentColor={!summaryMetrics?.icr ? '#6b7280' : summaryMetrics.icr >= 2 ? '#10b981' : summaryMetrics.icr >= 1.25 ? '#f59e0b' : '#ef4444'}
           tooltip={'Interest Coverage Ratio = annualised NOI \u00f7 total annual interest (loan \u00d7 rate).\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.'} />

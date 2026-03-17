@@ -12,6 +12,9 @@ export const fmtDate = (str) => {
   return new Date(y, m - 1, d).toLocaleDateString();
 };
 
+/** Truncate a property name to 14 chars for chart labels. */
+export const sn = s => s.length > 14 ? s.slice(0, 14) + '\u2026' : s;
+
 // ── Chart tooltip style (shared across Dashboard, PropertiesView, etc.) ───────
 export const CHART_TOOLTIP_STYLE = {
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',

@@ -751,3 +751,13 @@ export function calcEconVacancy(property, allEvents, windowStart, windowEnd) {
 
   return Math.min((lostRent / potentialRent) * 100, 100);
 }
+
+/**
+ * Sum of annual interest charges across a list of properties.
+ * Returns 0 if no property has both a loan balance and a mortgage rate.
+ */
+export const calcPortfolioInterest = (properties) =>
+  properties.reduce((sum, p) =>
+    p.loan_amount > 0 && p.mortgage_rate > 0
+      ? sum + p.loan_amount * p.mortgage_rate / 100
+      : sum, 0);
