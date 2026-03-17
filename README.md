@@ -1,377 +1,290 @@
-# Real Estate Portfolio Manager - Enhanced Edition
+# Equitee
 
-A comprehensive, professional real estate management system with full CRUD operations for properties, expenses, and income tracking.
+A self-hosted real estate portfolio management and analytics application. Track properties, income, expenses, and tenants; analyse portfolio-level financial health; and plan renovations — all from a single local web app backed by a lightweight SQLite database.
 
-## 🎯 New Features
+---
 
-### ✅ Implemented
-- **Left Sidebar Navigation** - Easy navigation between Dashboard, Properties, Income, and Expenses
-- **Dashboard View** - Portfolio overview with statistics and charts
-- **Properties View** - Browse all properties with search and filtering
-- **Property Detail View** - Click any property to see detailed statistics and charts
-- **Expenses Management** - Full CRUD for expenses with filtering, sorting, and grouping
-- **Income Management** - Full CRUD for income entries with filtering and sorting
-- **Responsive Modals** - Add/edit properties, expenses, and income from anywhere
-- **Beautiful Charts** - Visual analytics using Recharts
-- **Professional Design** - Modern dark theme with smooth animations
+## Live Demo
 
-## 📋 Features Breakdown
+A self-contained demo with sample data is included — no server required.
 
-### 1. Navigation
-- Fixed left sidebar with sections:
-  - **Overview**: Dashboard, Properties
-  - **Financials**: Income, Expenses
-- Active state highlighting
-- Smooth transitions
+```bash
+open frontend/dist-single/index.html
+# or: python -m http.server 8080 --directory frontend/dist-single
+```
 
-### 2. Dashboard
-- Portfolio statistics cards:
-  - Total Properties
-  - Portfolio Value
-  - Total Income
-  - Total Expenses
-  - Net Profit
-- Interactive bar chart showing income vs expenses by property
-- Recent properties grid with click-to-view details
+The demo ships with three sample properties (Skyline Condo, Parkview House, Downtown Loft) covering a mix of condo and house types across Alberta and BC, with full income, expense, tenant, and event histories. All views and tools are fully interactive — edits are accepted but not persisted between page loads.
 
-### 3. Properties View
-- Grid display of all properties
-- Search by property name or city
-- Filter by status (Active/Pending)
-- Click any property card to view details
-- Add new property button
+To regenerate after code changes:
 
-### 4. Property Detail View
-- Complete property information
-- Financial statistics:
-  - Purchase Price
-  - Market Value
-  - Loan Amount
-  - Monthly Rent
-  - Total Income
-  - Total Expenses
-  - Net Income
-  - ROI calculation
-- Financial overview chart
-- Quick actions: Add Expense, Add Income
-- Back button to return to properties list
+```bash
+cd frontend && node amalgamate.mjs
+```
 
-### 5. Expenses View
-- Complete table of all expenses across all properties
-- Filter by:
-  - Property
-  - Category (Maintenance, Utilities, Insurance, etc.)
-- Sort by:
-  - Date (ascending/descending)
-  - Amount (ascending/descending)
-- Summary statistics:
-  - Total Expenses
-  - Total Transactions
-- Add new expense button
-- Expenses grouped and displayed in clean table format
+---
 
-### 6. Income View
-- Complete table of all income across all properties
-- Filter by:
-  - Property
-  - Type (Rent, Security Deposit, Late Fee, etc.)
-- Sort by:
-  - Date (ascending/descending)
-  - Amount (ascending/descending)
-- Summary statistics:
-  - Total Income
-  - Total Transactions
-- Add new income button
-- Clean table display with color-coded amounts
+## Features
 
-### 7. Modals
-All modals feature:
-- Clean, modern design
-- Form validation
-- Proper error handling
-- Smooth animations
+### Portfolio Management
+- **Properties** — full CRUD with soft-archive, possession dates, mortgage details, and budgeted operating costs
+- **Income & Expenses** — per-property ledgers with category/type tagging, tax-deductibility tracking, and date-range filters
+- **Tenants** — lease tracking with current/past/archived status, soft-delete with restore
+- **Events Log** — automatic change history on every property field edit; editable notes; full audit trail
 
-**Property Modal:**
-- All property fields (name, address, city, province, postal code, parking)
-- Financial fields (purchase price, market price, loan amount, monthly rent)
-- Possession date
-- Status dropdown
+### Analytics & Metrics
+- **Dashboard** — portfolio KPIs, appreciation, YTD income/expenses, monthly averages, key ratios, 3-chart overview
+- **Properties view** — filterable table with per-property scores, ROI, equity, and loan columns; Analytics panel with 10+ charts
+- **Property Detail** — 50+ metrics per property: cap rate, DSCR, ICR, OER, IRR, payback, break-even, economic vacancy, maintenance ratio, and more — all with budgeted (Exp) comparisons where applicable
 
-**Expense Modal:**
-- Property selector
-- Date picker
-- Amount input
-- Category dropdown (Maintenance, Utilities, Insurance, Property Tax, Mortgage, Other)
-- Type input
-- Description textarea
-- Can be opened from Expenses view or Property Detail view
+### Financial Metrics Glossary
+| Metric | What it measures |
+|--------|-----------------|
+| Cap Rate | Annual NOI ÷ market value — yield on the asset |
+| DSCR | Monthly NOI ÷ monthly mortgage — can income service the debt? |
+| ICR | Annual NOI ÷ annual interest — interest coverage with expected comparison |
+| OER | Operating expenses ÷ gross income — cost efficiency |
+| Cash-on-Cash | Annual cash flow ÷ equity — return on your invested capital |
+| IRR | Internal rate of return — annualised return across all cash flows |
+| Economic Vacancy | Lost rent from vacancy periods ÷ potential rent — event-based, rent-timeline-aware |
+| Payback Period | Time for cumulative cash flow to recover total expenses |
+| Break-even | Time for net position (market + income − expenses − loan) to reach zero |
 
-**Income Modal:**
-- Property selector
-- Date picker
-- Amount input
-- Type dropdown (Rent, Security Deposit, Late Fee, Other)
-- Description textarea
-- Can be opened from Income view or Property Detail view
+### Planning Tools
+- **Evaluator** — model a prospective property purchase: inputs, scenario sliders, 10-year projection, investment score
+- **Renovation Planner** — enter current/planned price, rent lift, renovation cost and duration; get pure payback, appreciation-adjusted payback, full-gain payback, and reno ROI — with live sensitivity sliders
 
-## 🚀 Getting Started
+### Data Management
+- **Import / Export** — full portfolio JSON export; bulk JSON import with schema validation
+- **Column visibility** — per-view toggle with cookie persistence and reset
+- **Hash-based routing** — bookmarkable views (`#dashboard`, `#properties`, etc.)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3, Flask 3, SQLite (via stdlib `sqlite3`) |
+| Frontend | React 18, Vite 6 |
+| Charts | Recharts 2 |
+| Styling | Plain CSS with CSS variables (dark-mode ready) |
+| State | React hooks only — no Redux or external state library |
+
+No Docker required. No cloud services. No telemetry. All data lives in a single `real_estate.db` file next to `app.py`.
+
+---
+
+## Getting Started
 
 ### Prerequisites
-- Python 3.8+
-- pip
+- Python 3.9+
+- Node.js 18+
 
-### Installation
+### 1. Clone & install backend
 
-1. **Install dependencies:**
 ```bash
-pip install Flask flask-cors
+git clone https://github.com/you/equitee.git
+cd equitee
+pip install -r requirements.txt
 ```
 
-2. **Run the backend:**
+### 2. Install frontend dependencies
+
 ```bash
-python app-enhanced.py
+cd frontend
+npm install
 ```
 
-Server will start on `http://localhost:5000`
+### 3. Run in development
 
-3. **Open the frontend:**
-Simply open `frontend-enhanced.html` in your web browser.
+Open two terminals:
 
-The app will automatically connect to the backend.
+```bash
+# Terminal 1 — Flask API (port 5000)
+python app.py
 
-## 📁 File Structure
-
-```
-real-estate-manager/
-├── app-enhanced.py           # Flask backend with all API endpoints
-├── frontend-enhanced.html    # Complete frontend application
-└── real_estate.db           # SQLite database (auto-created)
+# Terminal 2 — Vite dev server (port 5173)
+cd frontend
+npm run dev
 ```
 
-## 🔧 API Endpoints
+Open [http://localhost:5173](http://localhost:5173).
+
+The Vite dev server proxies `/api/*` requests to `http://localhost:5000`, so there is no CORS configuration needed during development.
+
+### 4. Build for production
+
+```bash
+cd frontend
+npm run build
+```
+
+The `dist/` output is a static site. Serve it from any web server (nginx, Caddy, etc.) and point it at the Flask API. A simple self-hosted setup runs both behind nginx with the API mounted at `/api`.
+
+---
+
+## Project Structure
+
+```
+equitee/
+├── app.py                  # Flask API — all routes
+├── requirements.txt
+├── real_estate.db          # Created automatically on first run
+└── frontend/
+    ├── index.html
+    ├── vite.config.js
+    └── src/
+        ├── App.jsx             # Root component, routing, modal orchestration
+        ├── config.js           # Constants: column defs, option lists, API URL
+        ├── metrics.js          # Pure financial math (cap rate, IRR, vacancy…)
+        ├── utils.js            # Pure helpers: dates, formatting, option merging
+        ├── hooks.js            # useColumnVisibility, usePortfolioAggregates
+        ├── components/
+        │   ├── Dashboard.jsx       # Portfolio overview with charts
+        │   ├── PropertiesView.jsx  # Filterable table + Analytics panel
+        │   ├── PropertyDetail.jsx  # Single-property deep-dive (50+ metrics)
+        │   ├── PropertyCard.jsx    # Summary card shown on Dashboard
+        │   ├── Analytics.jsx       # Detailed charts + metric rows (inside Properties)
+        │   ├── ExpensesView.jsx    # Expense ledger with filters
+        │   ├── IncomeView.jsx      # Income ledger with filters
+        │   ├── TenantsView.jsx     # Tenant management with archive
+        │   ├── EventsView.jsx      # Audit log with inline note editing
+        │   ├── EvaluatorView.jsx   # Prospective-purchase calculator
+        │   ├── RenovationView.jsx  # Renovation ROI planner
+        │   ├── uiHelpers.jsx       # Shared formatters, MetricCard shorthand, chart helpers
+        │   └── ...                 # KPICard, MetricCard, StatCard, MultiSelect, etc.
+        ├── hooks/
+        │   ├── usePortfolioMetrics.js   # Derived portfolio ratios (shared by Dashboard & Analytics)
+        │   ├── useTransactionView.js    # Shared state/logic for Expenses & Income views
+        │   └── useTooltipPortal.js      # Portal-based tooltip for card components
+        └── modals/
+            ├── ModalBase.jsx       # Shared: ModalOverlay, DateInput, PropertyOptions, QUICK_BTN_STYLE
+            ├── PropertyModal.jsx
+            ├── ExpenseModal.jsx
+            ├── IncomeModal.jsx
+            └── TenantModal.jsx
+```
+
+---
+
+## API Reference
+
+All endpoints return JSON. Errors return `{"error": "message"}` with an appropriate HTTP status.
 
 ### Properties
-- `GET /api/properties` - Get all properties
-- `GET /api/properties/<id>` - Get single property with totals
-- `POST /api/properties` - Create new property
-- `PUT /api/properties/<id>` - Update property
-- `DELETE /api/properties/<id>` - Delete property
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/properties` | List all active properties (add `?archived=1` for archived) |
+| `GET` | `/api/properties/:id` | Single property with computed totals |
+| `POST` | `/api/properties` | Create property |
+| `PUT` | `/api/properties/:id` | Update property (auto-writes change events) |
+| `DELETE` | `/api/properties/:id` | Soft-archive |
+| `POST` | `/api/properties/:id/restore` | Restore archived property |
 
 ### Expenses
-- `GET /api/expenses` - Get all expenses (optional: `?property_id=X`)
-- `POST /api/expenses` - Create new expense
-- `PUT /api/expenses/<id>` - Update expense
-- `DELETE /api/expenses/<id>` - Delete expense
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/expenses` | All expenses (add `?property_id=N` to filter) |
+| `POST` | `/api/expenses` | Create expense |
+| `PUT` | `/api/expenses/:id` | Update expense |
+| `DELETE` | `/api/expenses/:id` | Delete expense |
 
 ### Income
-- `GET /api/income` - Get all income (optional: `?property_id=X`)
-- `POST /api/income` - Create new income
-- `PUT /api/income/<id>` - Update income
-- `DELETE /api/income/<id>` - Delete income
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/income` | All income records (add `?property_id=N` to filter) |
+| `POST` | `/api/income` | Create income record |
+| `PUT` | `/api/income/:id` | Update income record |
+| `DELETE` | `/api/income/:id` | Delete income record |
 
-### Other
-- `GET /api/statistics` - Get portfolio statistics
-- `GET /api/export` - Export all data as JSON
-- `POST /api/import` - Import data from JSON
-- `GET /api/health` - Health check
+### Tenants
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/tenants` | All active tenants (add `?archived=1` for all, `?property_id=N` to filter) |
+| `POST` | `/api/tenants` | Create tenant |
+| `PUT` | `/api/tenants/:id` | Update tenant |
+| `DELETE` | `/api/tenants/:id` | Soft-archive tenant |
+| `POST` | `/api/tenants/:id/restore` | Restore archived tenant |
 
-## 💾 Database Schema
+### Events & Misc
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/events` | Change history (add `?property_id=N` to filter) |
+| `PUT` | `/api/events/:id` | Edit event description/notes |
+| `DELETE` | `/api/events/:id` | Delete event |
+| `GET` | `/api/statistics` | Aggregated portfolio statistics |
+| `GET` | `/api/export` | Full portfolio JSON export |
+| `POST` | `/api/import` | Bulk import (replaces all data) |
+| `GET` | `/api/health` | Health check |
 
-### Properties Table
-```sql
-- id (INTEGER PRIMARY KEY)
-- name (TEXT)
-- province (TEXT)
-- city (TEXT)
-- address (TEXT)
-- postal_code (TEXT)
-- parking (TEXT)
-- purchase_price (REAL)
-- market_price (REAL)
-- loan_amount (REAL)
-- monthly_rent (REAL)
-- poss_date (TEXT)
-- status (TEXT)
-- created_at (TIMESTAMP)
-- updated_at (TIMESTAMP)
+---
+
+## Data Model
+
+```
+properties
+  id, name, type, province, city, address, postal_code, parking
+  purchase_price, market_price, loan_amount, mortgage_rate
+  mortgage_payment, mortgage_frequency, poss_date, monthly_rent, status
+  expected_condo_fees, expected_insurance, expected_utilities,
+  expected_misc_expenses, expected_appreciation_pct, annual_property_tax
+  notes, is_archived, created_at, updated_at
+
+expenses
+  id, property_id, expense_date, amount
+  expense_type, expense_category, notes, tax_deductible
+  created_at, updated_at
+
+income
+  id, property_id, income_date, amount, income_type, notes
+  created_at, updated_at
+
+tenants
+  id, property_id, name, phone, email, notes
+  lease_start, lease_end, deposit, rent_amount
+  is_archived, created_at, updated_at
+
+events          ← auto-written on property updates
+  id, property_id, column_name, old_value, new_value, description
+  created_at
 ```
 
-### Expenses Table
-```sql
-- id (INTEGER PRIMARY KEY)
-- property_id (INTEGER FOREIGN KEY)
-- expense_date (TEXT)
-- amount (REAL)
-- expense_type (TEXT)
-- expense_category (TEXT)
-- description (TEXT)
-- created_at (TIMESTAMP)
-- updated_at (TIMESTAMP)
-```
+**Expense categories:** Mortgage · Principal · Management · Maintenance · Insurance · Utilities · Tax · Capital · Other
 
-### Income Table
-```sql
-- id (INTEGER PRIMARY KEY)
-- property_id (INTEGER FOREIGN KEY)
-- income_date (TEXT)
-- amount (REAL)
-- income_type (TEXT)
-- description (TEXT)
-- created_at (TIMESTAMP)
-- updated_at (TIMESTAMP)
-```
+**Income types:** Rent · Deposit · Parking · Laundry · Other
 
-## 🎨 Design Features
+**Property statuses:** Rented · Vacant · Primary
 
-### Color Scheme
-- **Primary Background**: Deep navy (#0f1419)
-- **Secondary Background**: Slate (#1a1f2e)
-- **Accent**: Blue (#3b82f6)
-- **Success**: Green (#10b981)
-- **Danger**: Red (#ef4444)
-- **Warning**: Orange (#f59e0b)
+---
 
-### Typography
-- **Headings**: Cormorant Garamond (serif) - elegant, professional
-- **Body**: Work Sans (sans-serif) - clean, readable
+## Economic Vacancy Calculation
 
-### Animations
-- Smooth page transitions
-- Hover effects on cards
-- Modal slide-up entrance
-- Button hover states
-- Sidebar active indicators
+Economic vacancy is computed from the **Events log**, not from income records. This makes it accurate even when payments are delayed or irregular.
 
-## 🔍 Usage Tips
+1. **Rent timeline** — `monthly_rent` change events are assembled into a sorted timeline. The rent applicable at the *start* of each vacancy period is used for lost-rent calculation, so a period vacant at $2,000/mo is not penalised as if it were vacant at the current $2,400/mo.
 
-### Adding a Property
-1. Click "Properties" in sidebar
-2. Click "+ Add Property" button
-3. Fill in all required fields
-4. Click "Add Property"
+2. **Vacancy periods** — `status` change events are scanned for `Vacant → Rented` transitions. If the property was vacant at purchase (no preceding `→ Vacant` event exists), the period start falls back to the possession date.
 
-### Viewing Property Details
-1. From Dashboard or Properties view
-2. Click on any property card
-3. View detailed statistics and charts
-4. Add expenses or income directly from this view
+3. **Window** — both potential rent and lost rent are measured over the trailing 12 months and clipped to the possession date, so a property acquired 5 months ago is judged on 5 months of ownership, not a full year.
 
-### Managing Expenses
-1. Click "Expenses" in sidebar
-2. Filter by property or category
-3. Sort by date or amount
-4. Click "+ Add Expense" to add new
-5. Select property, enter details, save
+Formula: **lost rent ÷ potential rent × 100**
 
-### Managing Income
-1. Click "Income" in sidebar
-2. Filter by property or type
-3. Sort by date or amount
-4. Click "+ Add Income" to add new
-5. Select property, enter details, save
+---
 
-### Quick Workflow
-1. **Add properties** first
-2. **Add income** entries (rent payments, deposits)
-3. **Add expenses** (maintenance, utilities, taxes)
-4. **View Dashboard** to see portfolio performance
-5. **Click properties** to see individual property analytics
+## Renovation Planner
 
-## 📊 Analytics
+The planner models three payback views:
 
-### Dashboard Metrics
-- **Property Count**: Total number of properties
-- **Portfolio Value**: Sum of all market prices
-- **Total Income**: All income across all properties
-- **Total Expenses**: All expenses across all properties
-- **Net Profit**: Income - Expenses
+| View | What it measures |
+|------|-----------------|
+| **Pure Payback** | Time to recover `renovation cost + missed rent during works` purely from the monthly rent lift |
+| **With Appreciation** | Same cost, but the immediate market-value uplift is credited on day one — only the remainder needs cash-flow recovery |
+| **Full-Gain Payback** | Best-case: cost recovered via `monthly NOI + monthly appreciation` combined |
 
-### Property Metrics
-- **ROI**: (Net Income / Market Price) × 100%
-- **Net Income**: Total Income - Total Expenses
-- Calculated in real-time based on actual transactions
+Five scenario sliders (planned price, appreciation rate, new rent, renovation cost, renovation time) let you stress-test assumptions without changing the base inputs.
 
-### Charts
-- Bar chart comparing income vs expenses by property
-- Property detail financial overview
-- Color-coded for easy reading
+---
 
-## 🐛 Troubleshooting
+## License
 
-### Frontend Can't Connect to Backend
-1. Verify backend is running: `python app-enhanced.py`
-2. Check console for errors (F12 in browser)
-3. Ensure port 5000 is not blocked
-4. Check that API_URL in frontend matches backend
-
-### Data Not Showing
-1. Check browser console for errors
-2. Verify database file exists (`real_estate.db`)
-3. Check API responses in Network tab (F12)
-4. Try refreshing the page
-
-### Modal Not Opening
-1. Check browser console for JavaScript errors
-2. Ensure React libraries are loaded
-3. Try hard refresh (Ctrl+Shift+R)
-
-## 🚀 Future Enhancements
-
-### Suggested Features
-- [ ] Tenant management
-- [ ] Document uploads
-- [ ] Property photos
-- [ ] Payment reminders
-- [ ] Lease tracking
-- [ ] Maintenance scheduling
-- [ ] Export to PDF reports
-- [ ] Email notifications
-- [ ] Multi-user authentication
-- [ ] Mobile app version
-- [ ] Property comparison tool
-- [ ] Cash flow forecasting
-- [ ] Tax reporting
-- [ ] Bulk import from CSV
-
-## 📝 Notes
-
-### Data Relationships
-- Expenses and Income are linked to Properties via `property_id`
-- When a property is deleted, all associated expenses and income are automatically deleted (CASCADE)
-- Totals are calculated dynamically via SQL queries
-
-### Performance
-- Efficient SQL queries with proper indexing
-- Client-side filtering and sorting for instant responses
-- Lazy loading of property details
-- Optimized chart rendering
-
-### Security Considerations
-For production use, consider:
-- Add authentication (JWT tokens)
-- Implement rate limiting
-- Use HTTPS
-- Validate all inputs server-side
-- Add CSRF protection
-- Implement role-based access control
-
-## 📄 License
-
-This is a custom-built real estate management system. Use and modify as needed for your portfolio management needs.
-
-## 🤝 Support
-
-For issues or questions:
-1. Check the troubleshooting section
-2. Review browser console for errors
-3. Verify API endpoints are responding
-4. Check database schema matches expected structure
-
-## 🎉 Acknowledgments
-
-Built with:
-- **Flask** - Python web framework
-- **React** - UI library
-- **Recharts** - Charting library
-- **SQLite** - Database
-- **Work Sans & Cormorant Garamond** - Typography
+MIT
