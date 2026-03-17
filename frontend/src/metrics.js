@@ -639,3 +639,115 @@ export const analyzeProperty = (property, incomeRecs, m) => {
 
   return items;
 };
+
+// ── Economic vacancy ───────────────────────────────────────────────────────────
+
+/**
+ * Calculate event-based economic vacancy for a property.
+ *
+ * Uses status-change events to find real vacancy periods, and
+ * monthly_rent-change events to determine the rent in effect at each point.
+ *
+ * Returns the vacancy percentage (0–100), or null if it cannot be computed.
+ *
+ * @param {object}   property    – property record (needs .status, .monthly_rent)
+ * @param {object[]} allEvents   – all events for this property (column_name, old_value, new_value, created_at)
+ * @param {Date}     windowStart – start of measurement window (default: trailing 12 months)
+ * @param {Date}     windowEnd   – end of measurement window   (default: now)
+ */
+export function calcEconVacancy(property, allEvents, windowStart, windowEnd) {
+  if (!property) return null;
+
+  // ── Rent timeline ───────────────────────────────────────────────────────────
+  // Build a sorted list of rent-change events so we can answer "what was the
+  // monthly rent on date D?" without relying on actual income records.
+  const rentChanges = allEvents
+    .filter(e => e.column_name === 'monthly_rent')
+    .map(e => ({
+      date:     new Date(e.created_at),
+      oldRent:  parseFloat(e.old_value) || 0,
+      newRent:  parseFloat(e.new_value) || 0,
+    }))
+    .sort((a, b) => a.date - b.date);
+
+  /** Monthly rent in effect at (or just before) the given Date. */
+  const getRentAt = (date) => {
+    if (rentChanges.length === 0) return property.monthly_rent;
+    // Before the first recorded change → use old_value of that first event
+    if (date < rentChanges[0].date) return rentChanges[0].oldRent || property.monthly_rent;
+    // Walk backwards to find the most recent change at or before `date`
+    for (let i = rentChanges.length - 1; i >= 0; i--) {
+      if (date >= rentChanges[i].date) return rentChanges[i].newRent || property.monthly_rent;
+    }
+    return property.monthly_rent;
+  };
+
+  // ── Effective window start ─────────────────────────────────────────────────
+  // Potential rent should only be counted from when we owned the property.
+  // If possession date falls inside the measurement window, use it as the
+  // start; otherwise the whole window applies.
+  const possDate = property.poss_date ? new Date(property.poss_date) : null;
+  const effectiveStart = (possDate && possDate > windowStart) ? possDate : windowStart;
+  // vacancyOrigin: earliest date the property could have been vacant (same anchor)
+  const vacancyOrigin  = effectiveStart;
+
+  // ── Potential rent for the window ──────────────────────────────────────────
+  // Split from effectiveStart at every rent-change breakpoint to honour
+  // time-varying rent. Segments before possession are excluded.
+  const breakpoints = [
+    effectiveStart,
+    ...rentChanges.map(r => r.date).filter(d => d > effectiveStart && d < windowEnd),
+    windowEnd,
+  ];
+  let potentialRent = 0;
+  for (let i = 0; i < breakpoints.length - 1; i++) {
+    const segDays = (breakpoints[i + 1] - breakpoints[i]) / 86_400_000;
+    potentialRent += (segDays / 30.4375) * getRentAt(breakpoints[i]);
+  }
+  if (potentialRent <= 0) return null;
+
+  // ── Vacancy periods ─────────────────────────────────────────────────────────
+  const statusChanges = allEvents
+    .filter(e => e.column_name === 'status')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  // vacancyOrigin is already defined above (= effectiveStart = max(possDate, windowStart))
+
+  const periods = [];
+  let vacStart = null;
+
+  for (const e of statusChanges) {
+    const d = new Date(e.created_at);
+    if (e.new_value === 'Vacant') {
+      // Explicit transition into vacancy — record the start.
+      vacStart = d;
+    } else if (e.old_value === 'Vacant') {
+      // Transition out of vacancy. If vacStart is null we never saw the preceding
+      // →Vacant event, which means the property was vacant from before our event
+      // history began (e.g. vacant from purchase date).
+      periods.push({ start: vacStart ?? vacancyOrigin, end: d });
+      vacStart = null;
+    }
+  }
+
+  // Open-ended period if the property is currently vacant.
+  if (property.status === 'Vacant') {
+    periods.push({ start: vacStart ?? vacancyOrigin, end: windowEnd });
+  }
+
+  // No status events at all and not currently vacant → assume fully occupied.
+  if (periods.length === 0) return 0;
+
+  // ── Lost rent ──────────────────────────────────────────────────────────────
+  let lostRent = 0;
+  for (const vp of periods) {
+    const start = new Date(Math.max(vp.start.getTime(), effectiveStart.getTime()));
+    const end   = new Date(Math.min(vp.end.getTime(),   windowEnd.getTime()));
+    if (end <= start) continue;
+    const vacDays = (end - start) / 86_400_000;
+    const rent    = getRentAt(start);
+    if (rent > 0) lostRent += (vacDays / 30.4375) * rent;
+  }
+
+  return Math.min((lostRent / potentialRent) * 100, 100);
+}

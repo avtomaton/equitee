@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { API_URL } from './config.js';
 
 import Sidebar        from './components/Sidebar.jsx';
@@ -10,7 +10,8 @@ import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 
-import EvaluatorView  from './components/EvaluatorView.jsx';
+import EvaluatorView   from './components/EvaluatorView.jsx';
+import RenovationView  from './components/RenovationView.jsx';
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
 import IncomeModal    from './modals/IncomeModal.jsx';
@@ -18,7 +19,7 @@ import TenantModal    from './modals/TenantModal.jsx';
 
 // ── URL routing helpers ───────────────────────────────────────────────────────
 
-const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator'];
+const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator', 'renovation'];
 
 const getViewFromHash = () => {
   const hash = window.location.hash.replace('#', '');
@@ -81,18 +82,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
-  const stats = useMemo(() => {
-    const totalValue    = properties.reduce((s, p) => s + p.market_price,   0);
-    const totalIncome   = properties.reduce((s, p) => s + p.total_income,   0);
-    const totalExpenses = properties.reduce((s, p) => s + p.total_expenses, 0);
-    const netProfit     = totalIncome - totalExpenses;
-    return {
-      propertyCount: properties.length,
-      totalValue, totalIncome, totalExpenses, netProfit,
-      avgROI: totalValue > 0 ? ((netProfit / totalValue) * 100).toFixed(2) : 0,
-    };
-  }, [properties]);
 
   const openModal  = (type, data = null, context = null) => setModal({ type, data, context });
   const closeModal = () => setModal(null);
@@ -160,6 +149,9 @@ export default function App() {
 
       case 'evaluator':
         return <EvaluatorView />;
+
+      case 'renovation':
+        return <RenovationView />;
 
       case 'property-detail':
         return <PropertyDetail

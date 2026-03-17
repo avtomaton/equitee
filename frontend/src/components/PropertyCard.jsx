@@ -1,5 +1,6 @@
 import StarRating from './StarRating.jsx';
-import { yearsHeld, calcSimpleHealth, calcExpected } from '../metrics.js';
+import { yearsHeld, calcSimpleHealth, calcExpected, calcEconVacancy } from '../metrics.js';
+import { trailingYear } from '../utils.js';
 
 // Health badge derived from investment score
 function HealthBadge({ score }) {
@@ -16,7 +17,7 @@ function HealthBadge({ score }) {
   );
 }
 
-export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, ytdIncome }) {
+export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, events = [] }) {
   const equity       = property.market_price - property.loan_amount;
   const equityPct    = property.market_price > 0
     ? (equity / property.market_price * 100).toFixed(1) : null;
@@ -37,11 +38,9 @@ export default function PropertyCard({ property, onClick, onEdit, avgCashFlow, a
   const monthlyAppr = yearlyAppr !== null ? yearlyAppr / 12 : 0;
   const monthlyGain = avgCashFlow != null ? avgCashFlow + monthlyAppr : null;
 
-  // Economic vacancy rate: lost rent YTD / annual potential rent
-  const annualRent = property.monthly_rent * 12;
-  const econVacancy = (property.monthly_rent > 0 && ytdIncome != null)
-    ? Math.max(0, (annualRent - ytdIncome) / annualRent * 100)
-    : null;
+  // Event-based economic vacancy — matches PropertyDetail methodology exactly.
+  const { start: ytdStart, end: ytdEnd } = trailingYear();
+  const econVacancy = calcEconVacancy(property, events, ytdStart, ytdEnd);
 
   // Time to reach selling profit
   const timeToProfit = (() => {

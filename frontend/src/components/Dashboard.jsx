@@ -16,6 +16,7 @@ const sn = s => s.length > 14 ? s.slice(0, 14) + '\u2026' : s;
 export default function Dashboard({ properties, onPropertyClick }) {
   const [allIncome,   setAllIncome]   = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
+  const [allEvents,   setAllEvents]   = useState({});   // keyed by property id
   const [avgWindow,   setAvgWindow]   = useState(3);
   const [loading,     setLoading]     = useState(false);
 
@@ -35,6 +36,14 @@ export default function Dashboard({ properties, onPropertyClick }) {
       )
     ).then(results => { setAllExpenses(results.flat()); setLoading(false); })
       .catch(() => setLoading(false));
+    // Events are fetched per-property and stored in a map so PropertyCard
+    // can call calcEconVacancy with the correct event history.
+    Promise.all(
+      properties.map(p =>
+        fetch(`${API_URL}/events?property_id=${p.id}`).then(r => r.ok ? r.json() : [])
+          .then(evs => [p.id, evs])
+      )
+    ).then(pairs => setAllEvents(Object.fromEntries(pairs))).catch(() => {});
   }, [properties.map(p => p.id).join(',')]);
 
   const agg = usePortfolioAggregates(properties, allIncome, allExpenses);
@@ -319,7 +328,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
               key={p.id} property={p}
               avgCashFlow={agg.perPropAvg[p.id]?.cashflow}
               avgNOI={agg.perPropAvg[p.id]?.noi}
-              ytdIncome={agg.ytdIncomeByProp[p.id]}
+              events={allEvents[p.id] ?? []}
               onClick={() => onPropertyClick(p)}
             />
           ))}

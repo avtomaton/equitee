@@ -5,12 +5,13 @@ import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
          expGap, monthsLeftInYear, yearFracRemaining,
          calcIRR, buildPropertyIRRCashFlows,
-         calcPayback, calcBreakEven, analyzeProperty } from '../metrics.js';
+         calcPayback, calcBreakEven, analyzeProperty, calcEconVacancy } from '../metrics.js';
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
 import StarRating from './StarRating.jsx';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
 import { fmt, fmtDate, fp, fPct, mc, WindowPicker, wLabel, ltvColor, fmtPeriod } from './uiHelpers.jsx';
+import { PropertyOptions } from '../modals/ModalBase.jsx';
 
 const DETAIL_TOOLTIP_STYLE = {
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',
@@ -107,11 +108,12 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const icr = annualInterest > 0 ? annualNOI / annualInterest : null;
 
   // ── Derived metrics that were previously inline IIFEs ─────────────────────
-  const econVacancy = (() => {
-    if (!monthlyRent) return null;
-    const lost = Math.max(0, annualRent - ytdInc);
-    return annualRent > 0 ? lost / annualRent * 100 : null;
-  })();
+  // Economic vacancy: uses status-change and rent-change events to measure real
+  // vacancy windows, rather than comparing income against potential rent.
+  const econVacancy = useMemo(
+    () => calcEconVacancy(property, events, ytdStart, ytdEnd),
+    [property, events, ytdStart, ytdEnd]
+  );
 
   const maintCapexRatio = (() => {
     if (!monthlyRent) return null;
@@ -217,9 +219,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
                 color: 'var(--text-primary)', cursor: 'pointer', maxWidth: 220,
               }}
             >
-              {properties.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
+              <PropertyOptions properties={properties} />
             </select>
           )}
         </div>
@@ -507,8 +507,8 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           label: 'Economic Vacancy',
           primary: econVacancy !== null ? `${Math.min(econVacancy, 100).toFixed(1)}%` : '\u2014',
           primaryCls: econVacancy !== null ? (econVacancy > 10 ? 'text-danger' : econVacancy > 4 ? 'text-warning' : 'text-success') : 'text-secondary',
-          tertiary: econVacancy !== null ? (econVacancy > 10 ? 'High loss' : econVacancy > 4 ? 'Moderate' : 'Low') : 'Set monthly rent to compute',
-          tooltip: 'Lost rent YTD \u00f7 Annual potential rent. Target: < 5%.' })}
+          tertiary: econVacancy !== null ? (econVacancy > 10 ? 'High loss' : econVacancy > 4 ? 'Moderate' : 'Low') : 'No status events recorded',
+          tooltip: 'Lost rent due to vacancy \u00f7 Potential rent (trailing 12 months).\n\nMeasured from Vacant\u2192Rented status changes in the Events log.\nRent value at the time of each vacancy is used for lost-rent calculation.\nTarget: < 5%.' })}
         {mc({
           label: 'Maint+CapEx Ratio',
           primary: maintCapexRatio !== null ? fPct(maintCapexRatio) : '\u2014',
