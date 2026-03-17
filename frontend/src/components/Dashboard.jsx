@@ -89,6 +89,15 @@ export default function Dashboard({ properties, onPropertyClick }) {
   const dscr      = avg.mortgage > 0 ? avg.noi / avg.mortgage : null;
   const expDSCR   = agg.expNOI != null && avg.mortgage > 0 ? agg.expNOI / avg.mortgage : null;
 
+  // Interest Coverage Ratio: portfolio annual NOI ÷ total annual interest across all loans
+  const totalAnnualInterest = properties.reduce((sum, p) =>
+    p.loan_amount > 0 && p.mortgage_rate > 0
+      ? sum + p.loan_amount * p.mortgage_rate / 100
+      : sum, 0);
+  const icr    = totalAnnualInterest > 0 ? annualNOI / totalAnnualInterest : null;
+  const expICR = (totalAnnualInterest > 0 && agg.expNOI != null)
+    ? agg.expNOI * 12 / totalAnnualInterest : null;
+
   // Monthly Gain
   const mg = avg.cashflow + agg.monthlyApprAgg;
 
@@ -245,6 +254,12 @@ export default function Dashboard({ properties, onPropertyClick }) {
           ...expGap(dscr, expDSCR, v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger', v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
           tertiary: dscr >= 1.25 ? 'Healthy coverage' : dscr >= 1.0 ? 'Marginal' : 'Below 1x',
           tooltip: 'Debt Service Coverage Ratio = avg monthly NOI ÷ avg mortgage payment.' })}
+        {icr !== null && mc({ label: `ICR (${avgWindow}M)`,
+          primary: icr.toFixed(2) + 'x',
+          primaryCls: icr >= 2 ? 'text-success' : icr >= 1.25 ? '' : 'text-danger',
+          ...expGap(icr, expICR, v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger', v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
+          tertiary: icr >= 2 ? 'Strong' : icr >= 1.25 ? 'Adequate' : 'Weak',
+          tooltip: 'Interest Coverage Ratio = annualised NOI ÷ total annual interest (loan \u00d7 rate) across all properties.\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.' })}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}

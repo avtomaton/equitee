@@ -5,6 +5,7 @@ import Collapsible from './Collapsible.jsx';
 import Analytics from './Analytics.jsx';
 import StatCard from './StatCard.jsx';
 import KPICard from './KPICard.jsx';
+import ResetColumnsButton from './ResetColumnsButton.jsx';
 import { INITIAL_OPTIONS, PROVINCES, COLORS, API_URL, COLUMN_DEFS } from '../config.js';
 import { mergeOptions, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, calcSimpleHealth, principalInRange } from '../metrics.js';
@@ -223,7 +224,25 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     const avgCF = (inc3 - exp3) / 3;
     const oer   = inc3 > 0 ? noi3 / inc3 : null;
 
-    return { ytdOpProfit, avgCF, oer };
+    // Interest Coverage Ratio
+    const totalAnnualInterest = filtered.reduce((sum, p) =>
+      p.loan_amount > 0 && p.mortgage_rate > 0
+        ? sum + p.loan_amount * p.mortgage_rate / 100
+        : sum, 0);
+    const annualNOI3 = (inc3 - noi3) / 3 * 12;   // avg monthly NOI × 12
+    const icr  = totalAnnualInterest > 0 ? annualNOI3 / totalAnnualInterest : null;
+    const expTotalAnnualInterest = totalAnnualInterest;  // same denominator for budgeted
+    const expNOIAnnual = filtered.reduce((sum, p) => {
+      if (!p.monthly_rent) return sum;
+      const opEx = (p.expected_condo_fees || 0) + (p.expected_insurance || 0) +
+        (p.expected_utilities || 0) + (p.expected_misc_expenses || 0) +
+        (p.annual_property_tax || 0) / 12;
+      return opEx > 0 ? sum + (p.monthly_rent - opEx) * 12 : sum;
+    }, 0);
+    const expICR = expTotalAnnualInterest > 0 && expNOIAnnual > 0
+      ? expNOIAnnual / expTotalAnnualInterest : null;
+
+    return { ytdOpProfit, avgCF, oer, icr, expICR };
   }, [filtered, allIncome, allExpenses]);
 
   // ── Smart tips ────────────────────────────────────────────────────────────
@@ -354,6 +373,16 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
           accentColor={!summaryMetrics || summaryMetrics.oer === null ? '#6b7280' : summaryMetrics.oer < 0.35 ? '#10b981' : summaryMetrics.oer < 0.5 ? '#f59e0b' : '#ef4444'}
           tooltip="Operating Expense Ratio: what fraction of income is consumed by operating costs (excl. mortgage). 3-month average." />
 
+        <KPICard label="ICR"
+          primary={summaryMetrics?.icr != null ? summaryMetrics.icr.toFixed(2) + 'x' : '…'}
+          primaryCls={!summaryMetrics?.icr ? '' : summaryMetrics.icr >= 2 ? 'text-success' : summaryMetrics.icr >= 1.25 ? '' : 'text-danger'}
+          secondary={summaryMetrics?.expICR != null ? `Exp: ${summaryMetrics.expICR.toFixed(2)}x` : null}
+          secondaryCls={summaryMetrics?.expICR != null && summaryMetrics?.icr != null
+            ? (summaryMetrics.icr >= summaryMetrics.expICR ? 'text-success' : 'text-danger') : ''}
+          tertiary="3-month avg"
+          accentColor={!summaryMetrics?.icr ? '#6b7280' : summaryMetrics.icr >= 2 ? '#10b981' : summaryMetrics.icr >= 1.25 ? '#f59e0b' : '#ef4444'}
+          tooltip={'Interest Coverage Ratio = annualised NOI \u00f7 total annual interest (loan \u00d7 rate).\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.'} />
+
         <KPICard label="Op. Profit"
           primary={summaryMetrics ? fmt(summaryMetrics.ytdOpProfit) : '…'}
           primaryCls={!summaryMetrics ? '' : summaryMetrics.ytdOpProfit >= 0 ? 'text-success' : 'text-danger'}
@@ -410,14 +439,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
             <MultiSelect label="City" options={allCities} selected={filterCities} onChange={setFilterCities} />
           )}
           <MultiSelect label="Columns" options={allColKeys} selected={visible} onChange={setVisible} labelMap={allColLabels} />
-          {isCustom && (
-            <button type="button" onClick={reset}
-              style={{ background: 'none', border: 'none', fontSize: '0.75rem',
-                color: 'var(--accent-primary)', cursor: 'pointer', padding: '0 2px',
-                textDecoration: 'underline', opacity: 0.8, whiteSpace: 'nowrap' }}>
-              ↺ reset cols
-            </button>
-          )}
+          {isCustom && <ResetColumnsButton onClick={reset} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sort</span>
             <select value={sortBy} onChange={e => setSortBy(e.target.value)}

@@ -105,7 +105,9 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
   const annualInterest = property.loan_amount > 0 && property.mortgage_rate > 0
     ? property.loan_amount * property.mortgage_rate / 100 : null;
-  const icr = annualInterest > 0 ? annualNOI / annualInterest : null;
+  const icr    = annualInterest > 0 ? annualNOI / annualInterest : null;
+  const expICR = (annualInterest > 0 && expected?.monthlyNOI != null)
+    ? expected.monthlyNOI * 12 / annualInterest : null;
 
   // ── Derived metrics that were previously inline IIFEs ─────────────────────
   // Economic vacancy: uses status-change and rent-change events to measure real
@@ -395,8 +397,11 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           tooltip: 'Debt Service Coverage = monthly NOI \u00f7 mortgage payment.\n\u2265 1.25x: comfortable. 1.0\u20131.25x: marginal. < 1.0x: income doesn\u2019t cover the mortgage.' })}
         {icr !== null && mc({ label: 'Interest Coverage', primary: icr.toFixed(2) + 'x',
           primaryCls: icr >= 2 ? 'text-success' : icr >= 1.25 ? '' : 'text-danger',
+          ...expProps(icr, expICR,
+            v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger',
+            v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
           tertiary: icr >= 2 ? 'Strong' : icr >= 1.25 ? 'Adequate' : 'Weak',
-          tooltip: 'Annual NOI \u00f7 Annual Interest Expense (loan \u00d7 rate).\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.' })}
+          tooltip: 'Annual NOI \u00f7 Annual Interest Expense (loan \u00d7 rate).\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.' })}
       </div>
 
       {/* ══ Investment Ratios ════════════════════════════════════════════════ */}
