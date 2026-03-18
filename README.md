@@ -1,25 +1,29 @@
 # Equitee
 
-A self-hosted real estate portfolio management and analytics application. Track properties, income, expenses, and tenants; analyse portfolio-level financial health; and plan renovations — all from a single local web app backed by a lightweight SQLite database.
+A self-hosted real estate portfolio management and analytics application. Track properties, income, expenses, and tenants; analyse portfolio-level financial health, dig into details, create properties groups; receive property-wise, group-wise and portfolio-wise insights and recommendations; evaluate prospective property profitability before making a purchase decision; and plan renovations — all from a user-friendly customizable web application.
+
+What started as a spreadsheet quickly overgrew spreadsheet limitations, and now the project contains main real estate performance metrics, some charts, multiple views and filters, and gives a pretty good picture of a real estate portfolio from a financial perspective. But live demo is better than a thousand words, so check it out and make your own conclusions. I will really uppreciate if you reach out to me with any feedback.
 
 ---
 
 ## Live Demo
 
-A self-contained demo with sample data is included — no server required.
+Live demo with sample data is available here: [Equitee](https://avtomaton.github.io/equitee "Real Estate Portfolio Analysis")
+
+## Self-Hosted Demo
+
+Just open the demo html - it will work out-of-the box with sample data; you won't be able to save anything though.
 
 ```bash
-open frontend/dist-single/index.html
+open demo/index.html
 # or: python -m http.server 8080 --directory frontend/dist-single
 ```
 
 The demo ships with three sample properties (Skyline Condo, Parkview House, Downtown Loft) covering a mix of condo and house types across Alberta and BC, with full income, expense, tenant, and event histories. All views and tools are fully interactive — edits are accepted but not persisted between page loads.
 
-To regenerate after code changes:
+## Build It, Own It
 
-```bash
-cd frontend && node amalgamate.mjs
-```
+Self-contained demo with sample data is included — no server required, but when you feel you need your own app please jump to the "Getting Started" section. The entire app and data can be hosted locally with minimum effort, or easily launched on a VPS/VDS. This requires a bit of tech skills, but I consider if you're using github you already have them. If you liked the app but don't have time, and need a SaaS version, please contact me - the app is not mature enough for widespread sales, these requests are considered on a case-by-case basis.
 
 ---
 
@@ -167,6 +171,16 @@ equitee/
 
 ---
 
+## Demo Update
+
+I don't really know why you might need it - from my opinion it takes almost the same effort as running an app, but there's an option to regenerate single-file demo html. It's mainly for my convenience and won't be properly maintained, so potentially will have bugs. Anyway, to regenerate after code changes:
+
+```bash
+cd frontend && node amalgamate.mjs
+```
+
+---
+
 ## API Reference
 
 All endpoints return JSON. Errors return `{"error": "message"}` with an appropriate HTTP status.
@@ -285,6 +299,69 @@ Five scenario sliders (planned price, appreciation rate, new rent, renovation co
 
 ---
 
+---
+
+## Contributing
+
+Contributions are welcome and highly appreciated. The codebase is intentionally structured to make isolated changes easy — most features touch one or two files rather than spreading across the whole tree, but nothing is perfect, so both refactoring and functionality requests are welcome.
+
+### Getting started
+
+```bash
+git clone https://github.com/you/equitee.git
+cd equitee
+pip install -r requirements.txt
+cd frontend && npm install
+```
+
+Run the dev stack (two terminals):
+
+```bash
+# Backend
+python app.py
+
+# Frontend
+cd frontend && npm run dev
+```
+
+### Where things live
+
+| What you want to change | Where to look |
+|------------------------|---------------|
+| Financial math (cap rate, ICR, vacancy…) | `frontend/src/metrics.js` |
+| Shared UI helpers, formatters | `frontend/src/components/uiHelpers.jsx` |
+| Portfolio-level metric derivations | `frontend/src/hooks/usePortfolioMetrics.js` |
+| A view's state and data fetching | `frontend/src/hooks/useTransactionView.js` |
+| API routes | `app.py` |
+| Database schema | `app.py` → `init_db()` |
+| Demo mock data | `frontend/amalgamate.mjs` → `MOCK_*` constants |
+
+### Guidelines
+
+**Backend** — new routes should use `@handle_errors`, `db_cursor()`, `validate_required()`, and `require_exists()`. See any existing route for the pattern. No raw `try/except` or manual `conn.close()`.
+
+**Frontend** — pure financial logic belongs in `metrics.js`, not in components. Shared UI patterns belong in `uiHelpers.jsx`. If you're adding a metric that appears in more than one place, add it to `usePortfolioMetrics` so Dashboard and Analytics stay in sync.
+
+**Amalgamate compatibility** — while it is not a strict requirement, at this point it might be a good idea to maintain it. I am thinking about ditching it in future if it takes too much effort, but at this point the project is not fat enough to get rid of it, and, moreover, it keeps the code a little cleaner. The standalone demo concatenates all source files into a single JS scope. When adding a new file, add it to the `files` array in `amalgamate.mjs` in dependency order. When adding a new top-level `const` or `function`, make sure the name is unique across all source files — run this to check:
+
+```bash
+cd frontend
+for f in src/**/*.{js,jsx} src/*.{js,jsx}; do grep -hE "^(const|function|class) [A-Za-z]" "$f" 2>/dev/null; done \
+  | grep -oE "^(const|function|class) [A-Za-z_]+" | sort | uniq -d
+```
+
+An empty result means no collisions.
+
+### Submitting changes
+
+1. Fork the repository and create a branch from `main`
+2. Make your change with a focused commit message
+3. Regenerate the demo (`node amalgamate.mjs`) and confirm it loads in a browser
+4. Open a pull request describing what changed and why
+
+---
+
 ## License
 
-MIT
+BSD 3-clause. Basically do whatever you want with it - play with it, use for your records, copy, fork, distribute. If you find it useful it's already a great reward for me. If you decide to contribute it's even better.
+
