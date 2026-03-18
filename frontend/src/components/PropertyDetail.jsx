@@ -105,9 +105,6 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
   const annualInterest = property.loan_amount > 0 && property.mortgage_rate > 0
     ? property.loan_amount * property.mortgage_rate / 100 : null;
-  const icr    = annualInterest > 0 ? annualNOI / annualInterest : null;
-  const expICR = (annualInterest > 0 && expected?.monthlyNOI != null)
-    ? expected.monthlyNOI * 12 / annualInterest : null;
 
   // ── Derived metrics that were previously inline IIFEs ─────────────────────
   // Economic vacancy: uses status-change and rent-change events to measure real
@@ -133,6 +130,9 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
   // ── Expected / budgeted values ────────────────────────────────────────────
   const expected       = calcExpected(property, avg.mortgage);
+  const icr    = annualInterest > 0 ? annualNOI / annualInterest : null;
+  const expICR = (annualInterest > 0 && expected?.monthlyNOI != null)
+    ? expected.monthlyNOI * 12 / annualInterest : null;
   const monthlyAppr    = yearlyAppr !== null ? yearlyAppr / 12 : 0;
   const monthlyGain    = avg.cashflow + monthlyAppr;
 

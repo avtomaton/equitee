@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { API_URL, COLUMN_DEFS } from '../config.js';
 import TruncatedCell from './Tooltip.jsx';
 import MultiSelect from './MultiSelect.jsx';
+import ResetColumnsButton from './ResetColumnsButton.jsx';
 import { useColumnVisibility } from '../hooks.js';
+import { PropertyOptions } from '../modals/ModalBase.jsx';
 
 export default function EventsView({ properties, initialPropertyId }) {
   const [events,         setEvents]         = useState([]);
@@ -63,8 +65,7 @@ export default function EventsView({ properties, initialPropertyId }) {
             <div className="filter-group">
               <span className="filter-label">Filter:</span>
               <select value={filterProperty} onChange={e => setFilterProperty(e.target.value)}>
-                <option value="all">All Properties</option>
-                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <PropertyOptions properties={properties} placeholder="All Properties" />
               </select>
               <MultiSelect
                 label="Columns"
@@ -73,14 +74,7 @@ export default function EventsView({ properties, initialPropertyId }) {
                 onChange={setVisible}
                 labelMap={allColLabels}
               />
-              {isCustom && (
-                <button type="button" onClick={reset}
-                  style={{ background: 'none', border: 'none', fontSize: '0.75rem',
-                    color: 'var(--accent-primary)', cursor: 'pointer', padding: '0 2px',
-                    textDecoration: 'underline', opacity: 0.8, whiteSpace: 'nowrap' }}>
-                  ↺ reset cols
-                </button>
-              )}
+              {isCustom && <ResetColumnsButton onClick={reset} />}
             </div>
           </div>
         </div>

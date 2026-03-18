@@ -1,28 +1,21 @@
 import { useState, useMemo } from 'react';
 import { API_URL, INITIAL_OPTIONS } from '../config.js';
-import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
+import { ModalOverlay, DateInput, selectOnFocus, today, QUICK_BTN_STYLE, PropertyOptions } from './ModalBase.jsx';
 
-const toFormState = (income, property) => income ? {
+const toFormState_Income = (income, property) => income ? {
   property_id: income.property_id ?? '',
-  income_date: income.income_date ?? new Date().toISOString().split('T')[0],
+  income_date: income.income_date ?? today(),
   amount:      income.amount ?? 0,
   income_type: income.income_type ?? '',
   notes:       income.notes ?? '',
 } : {
   property_id: property?.id ?? '',
-  income_date: new Date().toISOString().split('T')[0],
+  income_date: today(),
   amount: 0, income_type: '', notes: '',
 };
 
-const QUICK_BTN_STYLE = {
-  padding: '0.3rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem',
-  cursor: 'pointer', fontWeight: 600, border: '1px solid var(--accent-primary)',
-  background: 'rgba(59,130,246,0.1)', color: 'var(--accent-primary)',
-  transition: 'background 0.15s',
-};
-
 export default function IncomeModal({ income, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(income, property));
+  const [formData, setFormData] = useState(() => toFormState_Income(income, property));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -68,8 +61,7 @@ export default function IncomeModal({ income, properties, property, onClose, onS
             <div className="form-group">
               <label>Property *</label>
               <select value={formData.property_id} onChange={e => set('property_id', e.target.value)} required>
-                <option value="">Select Property</option>
-                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <PropertyOptions properties={properties} />
               </select>
             </div>
 

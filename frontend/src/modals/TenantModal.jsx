@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { API_URL } from '../config.js';
-import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
+import { ModalOverlay, DateInput, selectOnFocus, today, PropertyOptions } from './ModalBase.jsx';
 
-const toFormState = (tenant, property) => tenant ? {
+const toFormState_Tenant = (tenant, property) => tenant ? {
   property_id: tenant.property_id ?? '',
   name:        tenant.name        ?? '',
   phone:       tenant.phone       ?? '',
@@ -15,12 +15,12 @@ const toFormState = (tenant, property) => tenant ? {
 } : {
   property_id: property?.id ?? '',
   name: '', phone: '', email: '', notes: '',
-  lease_start: new Date().toISOString().split('T')[0],
+  lease_start: today(),
   lease_end: '', deposit: 0, rent_amount: 0,
 };
 
 export default function TenantModal({ tenant, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(tenant, property));
+  const [formData, setFormData] = useState(() => toFormState_Tenant(tenant, property));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -56,8 +56,7 @@ export default function TenantModal({ tenant, properties, property, onClose, onS
             <div className="form-group">
               <label>Property *</label>
               <select value={formData.property_id} onChange={e => set('property_id', e.target.value)} required>
-                <option value="">Select Property</option>
-                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <PropertyOptions properties={properties} />
               </select>
             </div>
 

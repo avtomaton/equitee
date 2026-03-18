@@ -1479,6 +1479,9 @@ const makeInTrailingYear = () => {
   };
 };
 
+/** Clamp a number between lo and hi (inclusive). */
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
 
 // ── src/metrics.js─────────────────────────────────────────
 
@@ -2245,7 +2248,7 @@ const calcPortfolioInterest = (properties) =>
       : sum, 0);
 
 
-// ── src/hooks/useTooltipPortal.js──────────────────────────
+// ── src/hooks/useTooltipPortal.jsx─────────────────────────
 
 const PORTAL_STYLE = {
   position: 'fixed',
@@ -2433,7 +2436,47 @@ const wLabel = w => !w ? 'All' : w >= 24 ? `${w / 12}Y` : `${w}M`;
 /** Drop-in <MetricCard> with standard flex sizing. */
 const mc = props => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
 
-// ── SectionLabel ──────────────────────────────────────────────────────────────
+// ── Evaluator input components (shared by EvaluatorView & RenovationView) ────
+
+function NumInput({ label, value, onChange, prefix = '', suffix = '', min = 0, max, step = 1, help }) {
+  return (
+    <div className="eval-field">
+      <label className="eval-label">{label}</label>
+      {help && <span className="eval-help">{help}</span>}
+      <div className="eval-input-wrap">
+        {prefix && <span className="eval-affix">{prefix}</span>}
+        <input
+          type="number" className="eval-input"
+          value={value} min={min} max={max} step={step}
+          onChange={e => onChange(e.target.valueAsNumber || 0)}
+        />
+        {suffix && <span className="eval-affix eval-affix-right">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SliderInput({ label, value, onChange, min, max, step = 1, format, help, cls = '' }) {
+  const display = format ? format(value) : value;
+  return (
+    <div className="eval-slider-row">
+      <div className="eval-slider-header">
+        <span className="eval-slider-label">{label}</span>
+        <span className={`eval-slider-val ${cls}`}>{display}</span>
+      </div>
+      {help && <span className="eval-help">{help}</span>}
+      <input
+        type="range" className="eval-slider"
+        min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+      />
+      <div className="eval-slider-range">
+        <span>{format ? format(min) : min}</span>
+        <span>{format ? format(max) : max}</span>
+      </div>
+    </div>
+  );
+}
 const SectionLabel = ({ children, style }) => (
   <p className="stat-section-label" style={style}>{children}</p>
 );
@@ -6157,54 +6200,7 @@ function EventsView({ properties, initialPropertyId }) {
 
 // ── src/components/EvaluatorView.jsx───────────────────────
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
-const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-
 const PROPERTY_TYPES = ['Residential', 'Condo', 'Multi-Family', 'Commercial', 'Industrial', 'Land'];
-
-// ── Input components ──────────────────────────────────────────────────────────
-
-function NumInput({ label, value, onChange, prefix = '', suffix = '', min, max, step = 1, help }) {
-  return (
-    <div className="eval-field">
-      <label className="eval-label">{label}</label>
-      {help && <span className="eval-help">{help}</span>}
-      <div className="eval-input-wrap">
-        {prefix && <span className="eval-affix">{prefix}</span>}
-        <input
-          type="number" className="eval-input"
-          value={value} min={min} max={max} step={step}
-          onChange={e => onChange(e.target.valueAsNumber || 0)}
-        />
-        {suffix && <span className="eval-affix eval-affix-right">{suffix}</span>}
-      </div>
-    </div>
-  );
-}
-
-function SliderInput({ label, value, onChange, min, max, step = 1, format, help, cls = '' }) {
-  const display = format ? format(value) : value;
-  return (
-    <div className="eval-slider-row">
-      <div className="eval-slider-header">
-        <span className="eval-slider-label">{label}</span>
-        <span className={`eval-slider-val ${cls}`}>{display}</span>
-      </div>
-      {help && <span className="eval-help">{help}</span>}
-      <input
-        type="range" className="eval-slider"
-        min={min} max={max} step={step}
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-      />
-      <div className="eval-slider-range">
-        <span>{format ? format(min) : min}</span>
-        <span>{format ? format(max) : max}</span>
-      </div>
-    </div>
-  );
-}
 
 // ── ScorePanel ────────────────────────────────────────────────────────────────
 
@@ -6685,53 +6681,6 @@ function EvaluatorView() {
 
 
 // ── src/components/RenovationView.jsx──────────────────────
-
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
-// ── Shared input components (mirrors EvaluatorView style) ─────────────────────
-
-function NumInput({ label, value, onChange, prefix = '', suffix = '', min = 0, max, step = 1, help }) {
-  return (
-    <div className="eval-field">
-      <label className="eval-label">{label}</label>
-      {help && <span className="eval-help">{help}</span>}
-      <div className="eval-input-wrap">
-        {prefix && <span className="eval-affix">{prefix}</span>}
-        <input
-          type="number" className="eval-input"
-          value={value} min={min} max={max} step={step}
-          onChange={e => onChange(e.target.valueAsNumber || 0)}
-        />
-        {suffix && <span className="eval-affix eval-affix-right">{suffix}</span>}
-      </div>
-    </div>
-  );
-}
-
-function SliderInput({ label, value, onChange, min, max, step = 1, format, help, cls = '' }) {
-  const display = format ? format(value) : value;
-  return (
-    <div className="eval-slider-row">
-      <div className="eval-slider-header">
-        <span className="eval-slider-label">{label}</span>
-        <span className={`eval-slider-val ${cls}`}>{display}</span>
-      </div>
-      {help && <span className="eval-help">{help}</span>}
-      <input
-        type="range" className="eval-slider"
-        min={min} max={max} step={step}
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-      />
-      <div className="eval-slider-range">
-        <span>{format ? format(min) : min}</span>
-        <span>{format ? format(max) : max}</span>
-      </div>
-    </div>
-  );
-}
 
 // ── Result card row ───────────────────────────────────────────────────────────
 
@@ -7247,7 +7196,7 @@ const selectOnFocus = e => {
 
 // ── src/modals/PropertyModal.jsx───────────────────────────
 
-const toFormState = (p) => p ? {
+const toFormState_Property = (p) => p ? {
   name:                 p.name                 ?? '',
   province:             p.province             ?? '',
   city:                 p.city                 ?? '',
@@ -7281,7 +7230,7 @@ const toFormState = (p) => p ? {
 };
 
 function PropertyModal({ property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(property));
+  const [formData, setFormData] = useState(() => toFormState_Property(property));
   const [errors,   setErrors]   = useState({});
 
   const prevStatus = property?.status ?? null;
@@ -7617,7 +7566,7 @@ function PropertyModal({ property, onClose, onSave }) {
 
 // ── src/modals/ExpenseModal.jsx────────────────────────────
 
-const toFormState = (expense, property) => expense ? {
+const toFormState_Expense = (expense, property) => expense ? {
   property_id:      expense.property_id ?? '',
   expense_date:     expense.expense_date ?? today(),
   amount:           expense.amount ?? 0,
@@ -7635,7 +7584,7 @@ const toFormState = (expense, property) => expense ? {
 const NON_DEDUCTIBLE_CATEGORIES = ['Mortgage', 'Principal'];
 
 function ExpenseModal({ expense, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(expense, property));
+  const [formData, setFormData] = useState(() => toFormState_Expense(expense, property));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -7793,7 +7742,7 @@ function ExpenseModal({ expense, properties, property, onClose, onSave }) {
 
 // ── src/modals/IncomeModal.jsx─────────────────────────────
 
-const toFormState = (income, property) => income ? {
+const toFormState_Income = (income, property) => income ? {
   property_id: income.property_id ?? '',
   income_date: income.income_date ?? today(),
   amount:      income.amount ?? 0,
@@ -7806,7 +7755,7 @@ const toFormState = (income, property) => income ? {
 };
 
 function IncomeModal({ income, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(income, property));
+  const [formData, setFormData] = useState(() => toFormState_Income(income, property));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -7913,7 +7862,7 @@ function IncomeModal({ income, properties, property, onClose, onSave }) {
 
 // ── src/modals/TenantModal.jsx─────────────────────────────
 
-const toFormState = (tenant, property) => tenant ? {
+const toFormState_Tenant = (tenant, property) => tenant ? {
   property_id: tenant.property_id ?? '',
   name:        tenant.name        ?? '',
   phone:       tenant.phone       ?? '',
@@ -7931,7 +7880,7 @@ const toFormState = (tenant, property) => tenant ? {
 };
 
 function TenantModal({ tenant, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(tenant, property));
+  const [formData, setFormData] = useState(() => toFormState_Tenant(tenant, property));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 

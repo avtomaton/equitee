@@ -82,16 +82,6 @@ export const fmtPeriod = months => {
 
 /**
  * Return { start, end } for a trailing-12-month window ending now.
- *
- * start is normalized to midnight so that a transaction dated exactly one year
- * ago today (parsed as midnight) satisfies  start <= tx <= end.
- *
- * Without the midnight normalization, ytdStart would carry the current
- * time-of-day (e.g. 14:35), and midnight of that same date would be < ytdStart,
- * silently excluding same-day-last-year transactions.
- */
-/**
- * Return { start, end } for a trailing-12-month window ending now.
  * start is normalized to midnight so same-day-last-year transactions are included.
  */
 export const trailingYear = () => {
@@ -117,3 +107,6 @@ export const makeInTrailingYear = () => {
     return dt >= start && dt <= end;
   };
 };
+
+/** Clamp a number between lo and hi (inclusive). */
+export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

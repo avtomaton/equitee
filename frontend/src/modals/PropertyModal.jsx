@@ -3,7 +3,7 @@ import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
 import { API_URL, PROVINCES, INITIAL_OPTIONS } from '../config.js';
 import { formatPostalCode } from '../utils.js';
 
-const toFormState = (p) => p ? {
+const toFormState_Property = (p) => p ? {
   name:                 p.name                 ?? '',
   province:             p.province             ?? '',
   city:                 p.city                 ?? '',
@@ -37,7 +37,7 @@ const toFormState = (p) => p ? {
 };
 
 export default function PropertyModal({ property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState(property));
+  const [formData, setFormData] = useState(() => toFormState_Property(property));
   const [errors,   setErrors]   = useState({});
 
   const prevStatus = property?.status ?? null;

@@ -1,53 +1,7 @@
 import { useState, useMemo } from 'react';
 import MetricCard from './MetricCard.jsx';
-import { fmt, fmtPeriod } from './uiHelpers.jsx';
-
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
-// ── Shared input components (mirrors EvaluatorView style) ─────────────────────
-
-function NumInput({ label, value, onChange, prefix = '', suffix = '', min = 0, max, step = 1, help }) {
-  return (
-    <div className="eval-field">
-      <label className="eval-label">{label}</label>
-      {help && <span className="eval-help">{help}</span>}
-      <div className="eval-input-wrap">
-        {prefix && <span className="eval-affix">{prefix}</span>}
-        <input
-          type="number" className="eval-input"
-          value={value} min={min} max={max} step={step}
-          onChange={e => onChange(e.target.valueAsNumber || 0)}
-        />
-        {suffix && <span className="eval-affix eval-affix-right">{suffix}</span>}
-      </div>
-    </div>
-  );
-}
-
-function SliderInput({ label, value, onChange, min, max, step = 1, format, help, cls = '' }) {
-  const display = format ? format(value) : value;
-  return (
-    <div className="eval-slider-row">
-      <div className="eval-slider-header">
-        <span className="eval-slider-label">{label}</span>
-        <span className={`eval-slider-val ${cls}`}>{display}</span>
-      </div>
-      {help && <span className="eval-help">{help}</span>}
-      <input
-        type="range" className="eval-slider"
-        min={min} max={max} step={step}
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-      />
-      <div className="eval-slider-range">
-        <span>{format ? format(min) : min}</span>
-        <span>{format ? format(max) : max}</span>
-      </div>
-    </div>
-  );
-}
+import { fmt, fmtPeriod, NumInput, SliderInput } from './uiHelpers.jsx';
+import { clamp } from '../utils.js';
 
 // ── Result card row ───────────────────────────────────────────────────────────
 
