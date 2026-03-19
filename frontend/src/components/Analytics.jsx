@@ -11,11 +11,11 @@ import { avgMonthly, yearsHeld, expGap, monthsLeftInYear } from '../metrics.js';
 import { usePortfolioAggregates } from '../hooks.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
 import {
-  defAvgIncome, defAvgExpenses, defAvgCashFlow, defAvgNOI,
-  defCapRate, defOER, defDSCR, defICR,
-  defMonthlyGain, defNetPosition, defPaybackPeriod, defBreakEven,
-  defTotalAppreciation, defYearlyAppreciation, defProjectedYearEnd, defYearEndBalance,
-  defAvailEquityPortfolio, defMortgagePerMonth, defYtdOpProfit,
+  cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI,
+  cardCapRate, cardOER, cardDSCR, cardICR,
+  cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven,
+  cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance,
+  cardAvailEquityPortfolio, cardMortgagePerMonth, cardYtdOpProfit,
 } from '../metricDefs.jsx';
 const STATUS_COLORS = { Rented: '#10b981', Vacant: '#ef4444', Primary: '#3b82f6' };
 const G2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' };
@@ -91,28 +91,28 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
       {/* ── Portfolio Summary ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem', paddingTop: '0.25rem' }}>
 
-        {defAvailEquityPortfolio(availEq, availEqPct, agg.equity)}
+        {cardAvailEquityPortfolio(availEq, availEqPct, agg.equity)}
 
-        {defMortgagePerMonth(totalMortgage, monthlyInterest, mortgagePrincipal)}
+        {cardMortgagePerMonth(totalMortgage, monthlyInterest, mortgagePrincipal)}
 
-        {defDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {cardDSCR(m.dscr, m.expDSCR, avgWindow)}
 
-        {defICR(m.icr, m.expICR, avgWindow)}
+        {cardICR(m.icr, m.expICR, avgWindow)}
 
-        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {cardAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
 
-        {defOER(m.oer, m.expOER, avgWindow)}
+        {cardOER(m.oer, m.expOER, avgWindow)}
 
-        {defYtdOpProfit(agg.ytdNetBalance, agg.market, 'YTD Operating Profit')}
+        {cardYtdOpProfit(agg.ytdNetBalance, agg.market, 'YTD Operating Profit')}
       </div>
 
       {/* ── Appreciation ── */}
       <p className="stat-section-label">Appreciation</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
-        {defYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
-        {defProjectedYearEnd(agg.projectedYE)}
-        {defYearEndBalance(m.runRate, m.budgeted, ml)}
+        {cardTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
+        {cardYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
+        {cardProjectedYearEnd(agg.projectedYE)}
+        {cardYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
       {/* ── Income & Expenses ── */}
@@ -137,26 +137,26 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
 
       {/* Row 1: Core income / NOI */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {defAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
-        {defAvgExpenses(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null, avgWindow, agg.totalMonthlyRent)}
-        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
-        {defAvgNOI(avg.noi, agg.expNOI, avgWindow)}
+        {cardAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
+        {cardAvgExpenses(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null, avgWindow, agg.totalMonthlyRent)}
+        {cardAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {cardAvgNOI(avg.noi, agg.expNOI, avgWindow)}
       </div>
 
       {/* Row 2: Key investment ratios */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {m.capRate !== null && defCapRate(m.capRate, m.expCap, avgWindow)}
-        {defOER(m.oer, m.expOER, avgWindow)}
-        {defDSCR(m.dscr, m.expDSCR, avgWindow)}
-        {defICR(m.icr, m.expICR, avgWindow)}
+        {m.capRate !== null && cardCapRate(m.capRate, m.expCap, avgWindow)}
+        {cardOER(m.oer, m.expOER, avgWindow)}
+        {cardDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {cardICR(m.icr, m.expICR, avgWindow)}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {defMonthlyGain(m.mg, m.expMG)}
-        {defNetPosition(agg.sellingProfit, npPctA)}
-        {defPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
-        {defBreakEven(m.breakEven, m.expBELabel)}
+        {cardMonthlyGain(m.mg, m.expMG)}
+        {cardNetPosition(agg.sellingProfit, npPctA)}
+        {cardPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
+        {cardBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
       {/* ── Charts ── */}

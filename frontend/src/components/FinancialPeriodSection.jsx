@@ -1,6 +1,6 @@
 import {
-  defPeriodIncome, defPeriodExpenses, defPeriodNetExpenses,
-  defPeriodBalance, defPeriodOperatingProfit,
+  cardPeriodIncome, cardPeriodExpenses, cardPeriodNetExpenses,
+  cardPeriodBalance, cardPeriodOperatingProfit,
 } from '../metricDefs.jsx';
 
 export default function FinancialPeriodSection({
@@ -17,11 +17,11 @@ export default function FinancialPeriodSection({
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-      {defPeriodIncome(income, prefix, scopeStr)}
-      {defPeriodExpenses(expenses, principal ?? 0, prefix, scopeStr, isYTD)}
-      {defPeriodNetExpenses(netExpenses, prefix, isYTD)}
-      {defPeriodBalance(balance, prefix)}
-      {defPeriodOperatingProfit(operatingProfit, roi, prefix, scope, isYTD)}
+      {cardPeriodIncome(income, prefix, scopeStr)}
+      {cardPeriodExpenses(expenses, principal ?? 0, prefix, scopeStr, isYTD)}
+      {cardPeriodNetExpenses(netExpenses, prefix, isYTD)}
+      {cardPeriodBalance(balance, prefix)}
+      {cardPeriodOperatingProfit(operatingProfit, roi, prefix, scope, isYTD)}
     </div>
   );
 }

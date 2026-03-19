@@ -998,6 +998,7 @@ table td {
     flex-direction: column;
     gap: 0.2rem;
     margin-bottom: 0.65rem;
+    justify-content: flex-end; /* pin input to bottom so rows align across columns */
 }
 
 .eval-label {
@@ -2250,9 +2251,8 @@ const calcPortfolioInterest = (properties) =>
 
 // ── src/hooks/useTooltipPortal.jsx─────────────────────────
 
-const PORTAL_STYLE = {
+const BASE_STYLE = {
   position: 'fixed',
-  transform: 'translate(-50%, calc(-100% - 8px))',
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px',
   padding: '0.6rem 0.9rem', fontSize: '0.8rem', maxWidth: 320,
   zIndex: 9999, color: '#f3f4f6', boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
@@ -2263,13 +2263,9 @@ const ICON_STYLE = {
   cursor: 'help', opacity: 0.45, fontSize: '0.7rem', lineHeight: 1, userSelect: 'none',
 };
 
-/**
- * useTooltipPortal — shared tooltip logic for StatCard, MetricCard, KPICard.
- *
- * Returns:
- *   iconProps  – spread onto the ℹ️ <span> to wire up show/hide
- *   portal     – ReactPortal (or null) — render this anywhere in the component tree
- */
+const TOOLTIP_WIDTH = 320;
+const EDGE_MARGIN   = 12; // px from viewport edge before we flip
+
 function useTooltipPortal(tooltip) {
   const [tip, setTip]  = useState(null);
   const iconRef        = useRef(null);
@@ -2278,8 +2274,30 @@ function useTooltipPortal(tooltip) {
 
   const showTip = () => {
     if (!iconRef.current) return;
-    const r = iconRef.current.getBoundingClientRect();
-    setTip({ top: r.top, left: r.left + r.width / 2 });
+    const r         = iconRef.current.getBoundingClientRect();
+    const iconCx    = r.left + r.width / 2;
+    const vpWidth   = window.innerWidth;
+
+    // Would centering overflow the right edge?
+    const wouldOverflowRight = iconCx + TOOLTIP_WIDTH / 2 + EDGE_MARGIN > vpWidth;
+    // Would centering overflow the left edge?
+    const wouldOverflowLeft  = iconCx - TOOLTIP_WIDTH / 2 - EDGE_MARGIN < 0;
+
+    let style;
+    if (wouldOverflowRight) {
+      // Anchor right edge of tooltip to icon center + margin
+      style = { ...BASE_STYLE, top: r.top, right: vpWidth - iconCx - EDGE_MARGIN,
+                transform: 'translateY(calc(-100% - 8px))' };
+    } else if (wouldOverflowLeft) {
+      // Anchor left edge of tooltip to icon center - margin
+      style = { ...BASE_STYLE, top: r.top, left: iconCx - EDGE_MARGIN,
+                transform: 'translateY(calc(-100% - 8px))' };
+    } else {
+      // Centered (default)
+      style = { ...BASE_STYLE, top: r.top, left: iconCx,
+                transform: 'translate(-50%, calc(-100% - 8px))' };
+    }
+    setTip(style);
   };
 
   const iconProps = {
@@ -2290,10 +2308,7 @@ function useTooltipPortal(tooltip) {
   };
 
   const portal = tip
-    ? createPortal(
-        <div style={{ ...PORTAL_STYLE, top: tip.top, left: tip.left }}>{tooltip}</div>,
-        document.body
-      )
+    ? createPortal(<div style={tip}>{tooltip}</div>, document.body)
     : null;
 
   return { iconProps, portal };
@@ -2913,7 +2928,7 @@ function useTransactionView({
  * Each export is a function that accepts numeric values and returns
  * a ready-to-render <MetricCard> element. Call sites just do:
  *
- *    *   {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+ *    *   {cardAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
  *
  * Rules:
  *   - Tooltips live here; views never re-declare them
@@ -2938,7 +2953,7 @@ const lbl     = (w) => w ? (w >= 24 ? `${w / 12}Y` : `${w}M`) : 'All';
 
 // ── Average / rolling metrics ─────────────────────────────────────────────────
 
-const defAvgIncome = (actual, expVal, window) => card({
+const cardAvgIncome = (actual, expVal, window) => card({
   label: `Avg Income (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: 'text-success',
@@ -2946,17 +2961,17 @@ const defAvgIncome = (actual, expVal, window) => card({
   tooltip: `Average monthly income over the last ${window} complete months.\nExp = sum of all current monthly rents at 100% occupancy.`,
 });
 
-const defAvgExpenses = (actual, expVal, window, monthlyRent = 0) => card({
+const cardAvgExpenses = (actual, expVal, window, cardMonthlyRent = 0) => card({
   label: `Avg Expenses (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: 'text-danger',
   ...expGap(actual, expVal,
-    v => v < monthlyRent * 0.65 ? '' : v < monthlyRent * 0.85 ? 'text-warning' : 'text-danger',
+    v => v < cardMonthlyRent * 0.65 ? '' : v < cardMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
     fmt, 'Exp:', false, 50),
   tooltip: `Average monthly expenses over the last ${window} complete months (all categories including mortgage).\nExp = budgeted op-ex + expected mortgage.`,
 });
 
-const defAvgCashFlow = (actual, expVal, window) => card({
+const cardAvgCashFlow = (actual, expVal, window) => card({
   label: `Avg Cash Flow (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -2964,7 +2979,7 @@ const defAvgCashFlow = (actual, expVal, window) => card({
   tooltip: `Average monthly (Income − Expenses) over the last ${window} complete months.\nExp = budgeted NOI minus expected mortgage payment.`,
 });
 
-const defAvgNOI = (actual, expVal, window) => card({
+const cardAvgNOI = (actual, expVal, window) => card({
   label: `Avg NOI (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -2974,7 +2989,7 @@ const defAvgNOI = (actual, expVal, window) => card({
 
 // ── Ratio metrics ─────────────────────────────────────────────────────────────
 
-const defCapRate = (actual, expVal, window) => card({
+const cardCapRate = (actual, expVal, window) => card({
   label: `Cap Rate${window ? ` (${lbl(window)})` : ''}`,
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null ? capCls(actual) : 'text-secondary',
@@ -2985,7 +3000,7 @@ const defCapRate = (actual, expVal, window) => card({
   tooltip: 'Annual NOI ÷ Market Value (portfolio) or Purchase Price (property).\n> 7%: strong. 4–7%: moderate. < 4%: weak.',
 });
 
-const defOER = (actual, expVal, window) => card({
+const cardOER = (actual, expVal, window) => card({
   label: `OER${window ? ` (${lbl(window)})` : ''}`,
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null ? oerCls(actual) : 'text-secondary',
@@ -2996,7 +3011,7 @@ const defOER = (actual, expVal, window) => card({
   tooltip: 'Operating Expense Ratio = op-ex ÷ gross income. Excludes mortgage and principal.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
 });
 
-const defDSCR = (actual, expVal, window, noMortgageLabel) => {
+const cardDSCR = (actual, expVal, window, noMortgageLabel) => {
   if (actual == null) return card({
     label: `DSCR${window ? ` (${lbl(window)})` : ''}`,
     primary: '—',
@@ -3014,7 +3029,7 @@ const defDSCR = (actual, expVal, window, noMortgageLabel) => {
   });
 };
 
-const defICR = (actual, expVal, window) => {
+const cardICR = (actual, expVal, window) => {
   if (actual == null) return null;
   return card({
     label: `ICR${window ? ` (${lbl(window)})` : ''}`,
@@ -3026,7 +3041,7 @@ const defICR = (actual, expVal, window) => {
   });
 };
 
-const defLTV = (ratio) => card({
+const cardLTV = (ratio) => card({
   label: 'Loan-to-Value',
   primary: fPct(ratio),
   primaryCls: ratio > 0.80 ? 'text-danger' : ratio > 0.65 ? '' : 'text-success',
@@ -3034,17 +3049,17 @@ const defLTV = (ratio) => card({
   tooltip: 'Loan ÷ Market Value. Below 65%: conservative. 65–80%: normal. Above 80%: high risk.',
 });
 
-const defCashOnCash = (actual, expVal) => card({
+const cardCashOnCash = (actual, expVal) => card({
   label: 'Cash-on-Cash',
   primary: fPct(actual),
   primaryCls: actual > 0.08 ? 'text-success' : actual > 0.04 ? '' : actual < 0 ? 'text-danger' : 'text-warning',
   ...expGap(actual, expVal,
     v => v > 0.08 ? 'text-success' : v > 0.04 ? '' : v < 0 ? 'text-danger' : 'text-warning',
     fPct, 'Exp:', true, 0.005),
-  tooltip: 'Annual Cash Flow ÷ Equity. Measures how hard your invested equity is working.\nTarget: 6–10%+.',
+  tooltip: 'Annual Cash Flow ÷ Equity. Measures how hard your invested cardEquity is working.\nTarget: 6–10%+.',
 });
 
-const defExpenseRatio = (actual, expVal) => card({
+const cardExpenseRatio = (actual, expVal) => card({
   label: 'Expense Ratio',
   primary: fPct(actual),
   primaryCls: actual < 0.35 ? 'text-success' : actual < 0.50 ? '' : 'text-danger',
@@ -3054,7 +3069,7 @@ const defExpenseRatio = (actual, expVal) => card({
   tooltip: 'Avg Monthly Expenses ÷ Monthly Rent (all costs including mortgage).\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
 });
 
-const defRentToValue = (ratio) => card({
+const cardRentToValue = (ratio) => card({
   label: 'Rent-to-Value',
   primary: fPct(ratio),
   primaryCls: ratio > 0.01 ? 'text-success' : ratio > 0.007 ? '' : 'text-danger',
@@ -3064,7 +3079,7 @@ const defRentToValue = (ratio) => card({
 
 // ── Gain / position metrics ───────────────────────────────────────────────────
 
-const defMonthlyGain = (actual, expVal) => card({
+const cardMonthlyGain = (actual, expVal) => card({
   label: 'Monthly Gain',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -3072,7 +3087,7 @@ const defMonthlyGain = (actual, expVal) => card({
   tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12).\nExp uses budgeted operating costs + expected appreciation %.',
 });
 
-const defNetPosition = (actual, pctOfSpend = null) => card({
+const cardNetPosition = (actual, pctOfSpend = null) => card({
   label: 'Net Position',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -3081,7 +3096,7 @@ const defNetPosition = (actual, pctOfSpend = null) => card({
   tooltip: 'Market Value + Total Income − Total Expenses − Loans.\nWhat you would walk away with after selling and clearing all mortgages.',
 });
 
-const defPaybackPeriod = (paybackProps, expLabel, outstanding, income, expenses) => card({
+const cardPaybackPeriod = (paybackProps, expLabel, outstanding, income, expenses) => card({
   label: 'Payback Period',
   ...paybackProps,
   secondary: expLabel ?? null,
@@ -3093,7 +3108,7 @@ const defPaybackPeriod = (paybackProps, expLabel, outstanding, income, expenses)
   }\nExp uses budgeted cash flow.`,
 });
 
-const defBreakEven = (breakEvenProps, expLabel) => card({
+const cardBreakEven = (breakEvenProps, expLabel) => card({
   label: 'Break-even',
   ...breakEvenProps,
   secondary: expLabel ?? null,
@@ -3103,7 +3118,7 @@ const defBreakEven = (breakEvenProps, expLabel) => card({
 
 // ── Appreciation metrics ──────────────────────────────────────────────────────
 
-const defTotalAppreciation = (appr, apprPct, purchase) => card({
+const cardTotalAppreciation = (appr, apprPct, purchase) => card({
   label: 'Total Appreciation',
   primary: fmt(appr),
   primaryCls: posCls(appr),
@@ -3113,7 +3128,7 @@ const defTotalAppreciation = (appr, apprPct, purchase) => card({
   tooltip: 'Total unrealised gain: current Market Value minus original Purchase Price.',
 });
 
-const defYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
+const cardYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
   label: 'Yearly Appreciation',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -3125,14 +3140,14 @@ const defYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
   tooltip: 'Annualised appreciation per property, summed.\nExp = sum of (purchase price × expected appreciation %) for properties where that is set.',
 });
 
-const defProjectedYearEnd = (value) => card({
+const cardProjectedYearEnd = (value) => card({
   label: 'Projected Year-End Value',
   primary: fmt(value),
   tertiary: 'At current appreciation rate',
   tooltip: 'Current market value plus the remaining fraction of the year times the current annual appreciation rate.',
 });
 
-const defYearEndBalance = (actual, budgeted, ml) => card({
+const cardYearEndBalance = (actual, budgeted, ml) => card({
   label: 'Year-End Balance',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -3142,7 +3157,7 @@ const defYearEndBalance = (actual, budgeted, ml) => card({
 
 // ── Property-specific metrics ─────────────────────────────────────────────────
 
-const defEconVacancy = (actual) => card({
+const cardEconVacancy = (actual) => card({
   label: 'Economic Vacancy',
   primary: actual != null ? `${Math.min(actual, 100).toFixed(1)}%` : '—',
   primaryCls: actual != null
@@ -3154,7 +3169,7 @@ const defEconVacancy = (actual) => card({
   tooltip: 'Lost rent due to vacancy ÷ Potential rent (trailing 12 months).\n\nMeasured from Vacant→Rented status changes in the Events log.\nRent value at the time of each vacancy is used for lost-rent calculation.\nTarget: < 5%.',
 });
 
-const defIRR = (actual, hasPossDate) => card({
+const cardIRR = (actual, hasPossDate) => card({
   label: 'IRR',
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null
@@ -3166,7 +3181,7 @@ const defIRR = (actual, hasPossDate) => card({
   tooltip: 'Internal Rate of Return — the annualised rate that makes NPV of all cash flows zero.\nTarget: 10–15%+ for real estate.',
 });
 
-const defMaintCapEx = (actual) => card({
+const cardMaintCapEx = (actual) => card({
   label: 'Maint+CapEx Ratio',
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null
@@ -3180,7 +3195,7 @@ const defMaintCapEx = (actual) => card({
 
 // ── Property summary cards ────────────────────────────────────────────────────
 
-const defMarketValue = (marketPrice, appr, apprPct, purchasePrice) => card({
+const cardMarketValue = (marketPrice, appr, apprPct, purchasePrice) => card({
   label: 'Market Value',
   primary: fmt(marketPrice),
   secondary: appr !== 0
@@ -3191,10 +3206,10 @@ const defMarketValue = (marketPrice, appr, apprPct, purchasePrice) => card({
   tooltip: `Current estimated market value.\nAppreciation: ${fmt(appr)} (${apprPct !== null ? apprPct.toFixed(1) + '%' : 'n/a'} over purchase price of ${fmt(purchasePrice)}).`,
 });
 
-const defEquity = (equity, equityPct, loanToValue, ltvCls) => card({
+const cardEquity = (cardEquity, equityPct, loanToValue, ltvCls) => card({
   label: 'Equity',
-  primary: fmt(equity),
-  primaryCls: equity >= 0 ? 'text-success' : 'text-danger',
+  primary: fmt(cardEquity),
+  primaryCls: cardEquity >= 0 ? 'text-success' : 'text-danger',
   secondary: equityPct !== null ? fp(equityPct) + ' of value' : null,
   secondaryCls: equityPct !== null && equityPct >= 50 ? 'text-success' : '',
   tertiary: loanToValue > 0 ? `LTV ${fPct(loanToValue)}` : null,
@@ -3202,7 +3217,7 @@ const defEquity = (equity, equityPct, loanToValue, ltvCls) => card({
   tooltip: 'Market Value − Loan Amount.\nLTV shown — below 65%: conservative. 65–80%: normal. Above 80%: high risk.',
 });
 
-const defAvailEquity = (availableEquity, equityTotal = null) => card({
+const cardAvailEquity = (availableEquity, equityTotal = null) => card({
   label: 'Avail. Equity',
   primary: availableEquity > 0 ? fmt(availableEquity) : '—',
   primaryCls: availableEquity > 0 ? 'text-success' : 'text-secondary',
@@ -3213,32 +3228,32 @@ const defAvailEquity = (availableEquity, equityTotal = null) => card({
   tooltip: 'Equity accessible via refinancing while staying at ≤80% LTV.\nFormula: max(0, 80% × Market Value − Loan Amount).',
 });
 
-const defMonthlyRent = (monthlyRent) => card({
+const cardMonthlyRent = (cardMonthlyRent) => card({
   label: 'Monthly Rent',
-  primary: monthlyRent ? fmt(monthlyRent) : '—',
+  primary: cardMonthlyRent ? fmt(cardMonthlyRent) : '—',
   tooltip: 'Configured monthly rent. Used for Cap Rate and OER calculations.',
 });
 
-const defYtdOpProfit = (value, marketValue = null, label = 'YTD Op. Profit') => card({
+const cardYtdOpProfit = (value, cardMarketValue = null, label = 'YTD Op. Profit') => card({
   label,
   primary: fmt(value),
   primaryCls: value >= 0 ? 'text-success' : 'text-danger',
-  secondary: marketValue != null && value !== 0
-    ? fp(value / marketValue * 100) + ' YTD ROI' : null,
+  secondary: cardMarketValue != null && value !== 0
+    ? fp(value / cardMarketValue * 100) + ' YTD ROI' : null,
   secondaryCls: value >= 0 ? 'text-success' : 'text-danger',
-  tertiary: marketValue == null ? 'Trailing 12 months' : null,
+  tertiary: cardMarketValue == null ? 'Trailing 12 months' : null,
   tooltip: 'Income minus operating expenses (principal excluded) over the trailing 12 months.\nYTD ROI = YTD Operating Profit ÷ Portfolio Value.',
 });
 
-const defLoanAmount = (loanAmount, loanPct) => card({
+const cardLoanAmount = (cardLoanAmount, loanPct) => card({
   label: 'Loan Amount',
-  primary: fmt(loanAmount),
+  primary: fmt(cardLoanAmount),
   primaryCls: 'text-danger',
   secondary: loanPct !== null ? fp(loanPct) + ' of value' : null,
   tooltip: 'Outstanding mortgage or loan balance. Update this when you pay it down to keep LTV accurate.',
 });
 
-const defMortgageRate = (rate, annualInterest) => card({
+const cardMortgageRate = (rate, annualInterest) => card({
   label: 'Mortgage Rate',
   primary: `${rate}%`,
   tertiary: annualInterest ? `~${fmt(annualInterest)}/yr in interest` : null,
@@ -3247,17 +3262,17 @@ const defMortgageRate = (rate, annualInterest) => card({
 
 // ── Portfolio Analytics cards ─────────────────────────────────────────────────
 
-const defAvailEquityPortfolio = (availEq, availEqPct, equity) => card({
+const cardAvailEquityPortfolio = (availEq, availEqPct, cardEquity) => card({
   label: 'Avail. Equity',
   primary: fmt(availEq),
   primaryCls: availEq > 0 ? 'text-success' : 'text-secondary',
-  secondary: availEqPct !== null ? availEqPct.toFixed(1) + '% of ' + fmt(equity) : null,
+  secondary: availEqPct !== null ? availEqPct.toFixed(1) + '% of ' + fmt(cardEquity) : null,
   secondaryCls: availEq > 0 ? 'text-success' : '',
   tertiary: 'Borrowable at ≤80% LTV',
   tooltip: 'Equity you can access via HELOC or refinance without exceeding 80% LTV.\nFormula: max(0, 80% × Market Value − Loan Balance).',
 });
 
-const defMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrincipal) => card({
+const cardMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrincipal) => card({
   label: 'Mortgage / mo',
   primary: totalMortgage > 0 ? fmt(totalMortgage) : '—',
   secondary: monthlyInterest > 0 ? 'Interest: ' + fmt(Math.round(monthlyInterest)) : null,
@@ -3269,7 +3284,7 @@ const defMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrincipal) 
 
 // ── Period section cards (FinancialPeriodSection / YtdSection) ────────────────
 
-const defPeriodIncome = (income, prefix, scopeStr) => card({
+const cardPeriodIncome = (income, prefix, scopeStr) => card({
   label: `${prefix}Income`,
   primary: fmt(income),
   primaryCls: 'text-success',
@@ -3278,7 +3293,7 @@ const defPeriodIncome = (income, prefix, scopeStr) => card({
     : `All income ever recorded ${scopeStr} since the first entry.`,
 });
 
-const defPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) => card({
+const cardPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) => card({
   label: `${prefix}Expenses`,
   primary: fmt(expenses),
   primaryCls: 'text-danger',
@@ -3286,39 +3301,39 @@ const defPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) => card
   secondaryCls: 'text-success',
   tooltip: isYTD
     ? `All expenses ${scopeStr} in the trailing 12-month window.\n${principal > 0
-        ? `Includes ${fmt(principal)} of principal repayment — equity-building, not a true cost.`
-        : 'Principal repayments are equity-building payments, not true operating costs.'}`
-    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are equity-building, not operating costs.`,
+        ? `Includes ${fmt(principal)} of principal repayment — cardEquity-building, not a true cost.`
+        : 'Principal repayments are cardEquity-building payments, not true operating costs.'}`
+    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are cardEquity-building, not operating costs.`,
 });
 
-const defPeriodNetExpenses = (netExpenses, prefix, isYTD) => card({
+const cardPeriodNetExpenses = (netExpenses, prefix, isYTD) => card({
   label: `${prefix}Net Expenses`,
   primary: fmt(netExpenses),
   primaryCls: netExpenses >= 0 ? 'text-danger' : 'text-success',
   tooltip: isYTD
-    ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding equity-building payments.'
-    : 'Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build equity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.',
+    ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding cardEquity-building payments.'
+    : 'Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build cardEquity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.',
 });
 
-const defPeriodBalance = (balance, prefix) => card({
+const cardPeriodBalance = (balance, prefix) => card({
   label: `${prefix}Balance`,
   primary: fmt(balance),
   primaryCls: balance >= 0 ? 'text-success' : 'text-danger',
-  tooltip: `${prefix || 'All-time '}Income minus ${prefix || 'all-time '}Expenses. Raw cash in/out with no adjustments for equity-building payments.`,
+  tooltip: `${prefix || 'All-time '}Income minus ${prefix || 'all-time '}Expenses. Raw cash in/out with no adjustments for cardEquity-building payments.`,
 });
 
-const defPeriodOperatingProfit = (operatingProfit, roi, prefix, scope, isYTD) => card({
+const cardPeriodOperatingProfit = (operatingProfit, roi, prefix, scope, isYTD) => card({
   label: `${prefix}Operating Profit`,
   primary: fmt(operatingProfit),
   primaryCls: operatingProfit >= 0 ? 'text-success' : 'text-danger',
   secondary: roi !== null ? roi.toFixed(1) + '% ROI' : null,
   secondaryCls: roi !== null && roi >= 0 ? 'text-success' : 'text-danger',
-  tooltip: `${isYTD ? 'YTD' : 'All-time'} Income minus Net Expenses (down payment & principal excluded).\nThe true operating profit — money earned beyond your equity-building capital.${roi !== null ? `\nROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` : ''}`,
+  tooltip: `${isYTD ? 'YTD' : 'All-time'} Income minus Net Expenses (down payment & principal excluded).\nThe true operating profit — money earned beyond your cardEquity-building capital.${roi !== null ? `\nROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` : ''}`,
 });
 
 // ── Evaluator cards ───────────────────────────────────────────────────────────
 
-const defEvalLTV = (ltvRatio) => card({
+const cardEvalLTV = (ltvRatio) => card({
   label: 'Loan-to-Value',
   primary: fPct(ltvRatio),
   primaryCls: ltvRatio > 0.80 ? 'text-danger' : ltvRatio > 0.65 ? 'text-warning' : 'text-success',
@@ -3326,39 +3341,39 @@ const defEvalLTV = (ltvRatio) => card({
   tooltip: 'Loan ÷ Purchase Price.\nHigher LTV = more risk. Lenders typically require ≤80%. Below 65% is conservative.',
 });
 
-const defEvalCapRate = (capRate) => card({
+const cardEvalCapRate = (cardCapRate) => card({
   label: 'Cap Rate',
-  primary: fPct(capRate),
-  primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-  tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
+  primary: fPct(cardCapRate),
+  primaryCls: cardCapRate > 0.07 ? 'text-success' : cardCapRate > 0.04 ? '' : 'text-danger',
+  tertiary: cardCapRate > 0.07 ? 'Strong yield' : cardCapRate > 0.04 ? 'Moderate yield' : 'Weak yield',
   tooltip: 'Net Operating Income ÷ Purchase Price.\nIgnores financing — useful for comparing properties. Target: 5–7%+ residential.',
 });
 
-const defEvalCashOnCash = (cashOnCash) => card({
+const cardEvalCashOnCash = (cardCashOnCash) => card({
   label: 'Cash-on-Cash',
-  primary: fPct(cashOnCash),
-  primaryCls: cashOnCash > 0.08 ? 'text-success' : cashOnCash > 0.04 ? '' : cashOnCash < 0 ? 'text-danger' : 'text-warning',
-  tertiary: cashOnCash > 0.08 ? 'Strong' : cashOnCash > 0.04 ? 'Moderate' : 'Weak',
+  primary: fPct(cardCashOnCash),
+  primaryCls: cardCashOnCash > 0.08 ? 'text-success' : cardCashOnCash > 0.04 ? '' : cardCashOnCash < 0 ? 'text-danger' : 'text-warning',
+  tertiary: cardCashOnCash > 0.08 ? 'Strong' : cardCashOnCash > 0.04 ? 'Moderate' : 'Weak',
   tooltip: 'Annual Cash Flow ÷ Cash Invested (down payment + one-off costs).\nMeasures how efficiently your capital works. Target: 6–10%+.',
 });
 
-const defEvalExpenseRatio = (expenseRatio) => card({
+const cardEvalExpenseRatio = (cardExpenseRatio) => card({
   label: 'Expense Ratio',
-  primary: fPct(expenseRatio),
-  primaryCls: expenseRatio < 0.35 ? 'text-success' : expenseRatio < 0.50 ? '' : 'text-danger',
-  tertiary: expenseRatio < 0.35 ? 'Lean' : expenseRatio < 0.50 ? 'Normal' : 'High costs',
+  primary: fPct(cardExpenseRatio),
+  primaryCls: cardExpenseRatio < 0.35 ? 'text-success' : cardExpenseRatio < 0.50 ? '' : 'text-danger',
+  tertiary: cardExpenseRatio < 0.35 ? 'Lean' : cardExpenseRatio < 0.50 ? 'Normal' : 'High costs',
   tooltip: 'Total Monthly Expenses ÷ Effective Monthly Rent.\nIncludes mortgage, tax, operating costs, repair reserve. Below 40% is healthy.',
 });
 
-const defEvalRentToValue = (rentToValue) => card({
+const cardEvalRentToValue = (cardRentToValue) => card({
   label: 'Rent-to-Value',
-  primary: fPct(rentToValue),
-  primaryCls: rentToValue > 0.01 ? 'text-success' : rentToValue > 0.007 ? '' : 'text-danger',
-  tertiary: rentToValue > 0.01 ? 'Meets 1% rule' : rentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
+  primary: fPct(cardRentToValue),
+  primaryCls: cardRentToValue > 0.01 ? 'text-success' : cardRentToValue > 0.007 ? '' : 'text-danger',
+  tertiary: cardRentToValue > 0.01 ? 'Meets 1% rule' : cardRentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
   tooltip: 'Annual Gross Rent ÷ Purchase Price.\nThe "1% rule": monthly rent ≥1% of price for cash-flow-positive property.',
 });
 
-const defEvalAnnualNOI = (annualNOI) => card({
+const cardEvalAnnualNOI = (annualNOI) => card({
   label: 'Annual NOI',
   primary: fmt(annualNOI) + '/yr',
   primaryCls: annualNOI >= 0 ? 'text-success' : 'text-danger',
@@ -3367,7 +3382,7 @@ const defEvalAnnualNOI = (annualNOI) => card({
   tooltip: 'Net Operating Income = Annual Gross Rent − (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic.',
 });
 
-const defEvalGRM = (grm) => card({
+const cardEvalGRM = (grm) => card({
   label: 'GRM',
   primary: grm.toFixed(1) + 'x',
   primaryCls: grm < 10 ? 'text-success' : grm < 15 ? '' : 'text-danger',
@@ -3375,7 +3390,7 @@ const defEvalGRM = (grm) => card({
   tooltip: 'Gross Rent Multiplier = Purchase Price ÷ Annual Gross Rent.\nLower is better. Typical range: 8–12x for good cash-flow markets.',
 });
 
-const defEvalIRR10 = (irr10) => card({
+const cardEvalIRR10 = (irr10) => card({
   label: 'IRR (10-yr)',
   primary: fp(irr10 * 100),
   primaryCls: irr10 > 0.15 ? 'text-success' : irr10 > 0.08 ? '' : irr10 < 0 ? 'text-danger' : 'text-warning',
@@ -3383,14 +3398,14 @@ const defEvalIRR10 = (irr10) => card({
   tooltip: 'Internal Rate of Return over a 10-year horizon.\nAccounts for time-value of money. Target: 10–15%+ for real estate.',
 });
 
-const defEvalMonthlyMortgage = (monthlyMortgage, effectiveRate, amortization) => card({
+const cardEvalMonthlyMortgage = (monthlyMortgage, effectiveRate, amortization) => card({
   label: 'Monthly Mortgage',
   primary: fmt(monthlyMortgage) + '/mo',
   primaryCls: 'text-danger',
   tooltip: `Standard amortization payment at ${fp(effectiveRate)}% over ${amortization} years.`,
 });
 
-const defEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
+const cardEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
   label: 'Total Monthly Costs',
   primary: fmt(total) + '/mo',
   primaryCls: 'text-danger',
@@ -3399,7 +3414,7 @@ const defEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
   tooltip: 'Sum of mortgage payment, operating expenses, property tax, and repair reserve.',
 });
 
-const defEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
+const cardEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
   label: 'Avg Cash Flow',
   primary: fmt(cashFlow) + '/mo',
   primaryCls: cashFlow >= 0 ? 'text-success' : 'text-danger',
@@ -3408,22 +3423,22 @@ const defEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
   tooltip: 'Effective rent (after vacancy) minus total monthly costs.',
 });
 
-const defEvalMonthlyGain = (monthlyGain, cashFlow, monthlyAppr) => card({
+const cardEvalMonthlyGain = (cardMonthlyGain, cashFlow, monthlyAppr) => card({
   label: 'Monthly Gain',
-  primary: fmt(monthlyGain) + '/mo',
-  primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
+  primary: fmt(cardMonthlyGain) + '/mo',
+  primaryCls: cardMonthlyGain >= 0 ? 'text-success' : 'text-danger',
   secondary: `CF ${fmt(cashFlow)} + Appr ${fmt(monthlyAppr)}`,
   secondaryCls: 'text-secondary',
   tooltip: 'Cash Flow + Monthly Appreciation.\nCaptures income and value growth together.',
 });
 
-const defEvalPayback = (paybackProps) => card({
+const cardEvalPayback = (paybackProps) => card({
   label: 'Payback Period',
   ...paybackProps,
   tooltip: 'Time for cumulative cash flow to recover all cash invested (down payment + one-off costs).\nUses cash flow only — does not include appreciation.',
 });
 
-const defEvalBreakEven = (breakEvenProps) => card({
+const cardEvalBreakEven = (breakEvenProps) => card({
   label: 'Break-even',
   ...breakEvenProps,
   tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways ≤ Payback Period since gain ≥ cash flow.',
@@ -3808,11 +3823,11 @@ function FinancialPeriodSection({
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-      {defPeriodIncome(income, prefix, scopeStr)}
-      {defPeriodExpenses(expenses, principal ?? 0, prefix, scopeStr, isYTD)}
-      {defPeriodNetExpenses(netExpenses, prefix, isYTD)}
-      {defPeriodBalance(balance, prefix)}
-      {defPeriodOperatingProfit(operatingProfit, roi, prefix, scope, isYTD)}
+      {cardPeriodIncome(income, prefix, scopeStr)}
+      {cardPeriodExpenses(expenses, principal ?? 0, prefix, scopeStr, isYTD)}
+      {cardPeriodNetExpenses(netExpenses, prefix, isYTD)}
+      {cardPeriodBalance(balance, prefix)}
+      {cardPeriodOperatingProfit(operatingProfit, roi, prefix, scope, isYTD)}
     </div>
   );
 }
@@ -3823,11 +3838,11 @@ function FinancialPeriodSection({
 function YtdSection({ ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdOpProfit }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-      {defPeriodIncome(ytdInc, 'YTD ', 'for this property')}
-      {defPeriodExpenses(ytdExp, ytdPrin ?? 0, 'YTD ', 'for this property', true)}
-      {defPeriodNetExpenses(ytdNetExp, 'YTD ', true)}
-      {defPeriodBalance(ytdBal, 'YTD ')}
-      {defPeriodOperatingProfit(ytdOpProfit, null, 'YTD ', 'property', true)}
+      {cardPeriodIncome(ytdInc, 'YTD ', 'for this property')}
+      {cardPeriodExpenses(ytdExp, ytdPrin ?? 0, 'YTD ', 'for this property', true)}
+      {cardPeriodNetExpenses(ytdNetExp, 'YTD ', true)}
+      {cardPeriodBalance(ytdBal, 'YTD ')}
+      {cardPeriodOperatingProfit(ytdOpProfit, null, 'YTD ', 'property', true)}
     </div>
   );
 }
@@ -3850,7 +3865,7 @@ function HealthBadge({ score }) {
   );
 }
 
-function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, events = [] }) {
+function PropertyCard({ property, onClick, onEdit, avgCashFlow, cardAvgNOI, events = [] }) {
   const equity       = property.market_price - property.loan_amount;
   const equityPct    = property.market_price > 0
     ? (equity / property.market_price * 100).toFixed(1) : null;
@@ -3955,8 +3970,8 @@ function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, events =
         {property.monthly_rent > 0 && (
           <Row label="Rent/mo" value={fmt(property.monthly_rent)} />
         )}
-        {avgNOI != null && (() => {
-          const cls = avgNOI >= 0 ? 'text-success' : 'text-danger';
+        {cardAvgNOI != null && (() => {
+          const cls = cardAvgNOI >= 0 ? 'text-success' : 'text-danger';
           const expNOI = expected?.monthlyNOI;
           const expCls = expNOI != null ? (expNOI >= 0 ? 'text-success' : 'text-danger') : null;
           const pctLabel = expNOI != null
@@ -3968,7 +3983,7 @@ function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, events =
             <div className="pc-row">
               <span className="pc-label">Avg NOI/mo</span>
               <span className="pc-right">
-                <span className={`pc-value ${cls}`}>{fmt(avgNOI)}</span>
+                <span className={`pc-value ${cls}`}>{fmt(cardAvgNOI)}</span>
                 {pctLabel && <span className="pc-pct">{pctLabel}</span>}
               </span>
             </div>
@@ -4001,8 +4016,8 @@ function PropertyCard({ property, onClick, onEdit, avgCashFlow, avgNOI, events =
           value={timeToProfit.label}
           valueCls={timeToProfit.cls} />
         {/* Cap rate: actual vs expected */}
-        {avgNOI != null && property.purchase_price > 0 && (() => {
-          const capRate = avgNOI * 12 / property.purchase_price;
+        {cardAvgNOI != null && property.purchase_price > 0 && (() => {
+          const capRate = cardAvgNOI * 12 / property.purchase_price;
           const capCls  = capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger';
           const expCap  = expected?.capRate;
           const expCls  = expCap != null ? (expCap > 0.07 ? 'text-success' : expCap > 0.04 ? '' : 'text-danger') : null;
@@ -4164,28 +4179,28 @@ function Analytics({ filtered, allIncome, allExpenses }) {
       {/* ── Portfolio Summary ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem', paddingTop: '0.25rem' }}>
 
-        {defAvailEquityPortfolio(availEq, availEqPct, agg.equity)}
+        {cardAvailEquityPortfolio(availEq, availEqPct, agg.equity)}
 
-        {defMortgagePerMonth(totalMortgage, monthlyInterest, mortgagePrincipal)}
+        {cardMortgagePerMonth(totalMortgage, monthlyInterest, mortgagePrincipal)}
 
-        {defDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {cardDSCR(m.dscr, m.expDSCR, avgWindow)}
 
-        {defICR(m.icr, m.expICR, avgWindow)}
+        {cardICR(m.icr, m.expICR, avgWindow)}
 
-        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {cardAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
 
-        {defOER(m.oer, m.expOER, avgWindow)}
+        {cardOER(m.oer, m.expOER, avgWindow)}
 
-        {defYtdOpProfit(agg.ytdNetBalance, agg.market, 'YTD Operating Profit')}
+        {cardYtdOpProfit(agg.ytdNetBalance, agg.market, 'YTD Operating Profit')}
       </div>
 
       {/* ── Appreciation ── */}
       <p className="stat-section-label">Appreciation</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
-        {defYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
-        {defProjectedYearEnd(agg.projectedYE)}
-        {defYearEndBalance(m.runRate, m.budgeted, ml)}
+        {cardTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
+        {cardYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
+        {cardProjectedYearEnd(agg.projectedYE)}
+        {cardYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
       {/* ── Income & Expenses ── */}
@@ -4210,26 +4225,26 @@ function Analytics({ filtered, allIncome, allExpenses }) {
 
       {/* Row 1: Core income / NOI */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {defAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
-        {defAvgExpenses(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null, avgWindow, agg.totalMonthlyRent)}
-        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
-        {defAvgNOI(avg.noi, agg.expNOI, avgWindow)}
+        {cardAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
+        {cardAvgExpenses(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null, avgWindow, agg.totalMonthlyRent)}
+        {cardAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {cardAvgNOI(avg.noi, agg.expNOI, avgWindow)}
       </div>
 
       {/* Row 2: Key investment ratios */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {m.capRate !== null && defCapRate(m.capRate, m.expCap, avgWindow)}
-        {defOER(m.oer, m.expOER, avgWindow)}
-        {defDSCR(m.dscr, m.expDSCR, avgWindow)}
-        {defICR(m.icr, m.expICR, avgWindow)}
+        {m.capRate !== null && cardCapRate(m.capRate, m.expCap, avgWindow)}
+        {cardOER(m.oer, m.expOER, avgWindow)}
+        {cardDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {cardICR(m.icr, m.expICR, avgWindow)}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {defMonthlyGain(m.mg, m.expMG)}
-        {defNetPosition(agg.sellingProfit, npPctA)}
-        {defPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
-        {defBreakEven(m.breakEven, m.expBELabel)}
+        {cardMonthlyGain(m.mg, m.expMG)}
+        {cardNetPosition(agg.sellingProfit, npPctA)}
+        {cardPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
+        {cardBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
       {/* ── Charts ── */}
@@ -4480,10 +4495,10 @@ function Dashboard({ properties, onPropertyClick }) {
       {/* ── Appreciation ── */}
       <SectionLabel>Appreciation</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
-        {defYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
-        {defProjectedYearEnd(agg.projectedYE)}
-        {defYearEndBalance(m.runRate, m.budgeted, ml)}
+        {cardTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
+        {cardYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
+        {cardProjectedYearEnd(agg.projectedYE)}
+        {cardYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
       {/* ── Income & Expenses (all-time) ── */}
@@ -4508,26 +4523,26 @@ function Dashboard({ properties, onPropertyClick }) {
 
       {/* Row 1 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {defAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
-        {defAvgExpenses(avg.expenses, expExpensesVal, avgWindow, agg.totalMonthlyRent)}
-        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
-        {defAvgNOI(avg.noi, agg.expNOI, avgWindow)}
+        {cardAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
+        {cardAvgExpenses(avg.expenses, expExpensesVal, avgWindow, agg.totalMonthlyRent)}
+        {cardAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {cardAvgNOI(avg.noi, agg.expNOI, avgWindow)}
       </div>
 
       {/* Row 2 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {m.capRate !== null && defCapRate(m.capRate, m.expCap, avgWindow)}
-        {m.oer !== null && defOER(m.oer, m.expOER, avgWindow)}
-        {m.dscr !== null && defDSCR(m.dscr, m.expDSCR, avgWindow)}
-        {defICR(m.icr, m.expICR, avgWindow)}
+        {m.capRate !== null && cardCapRate(m.capRate, m.expCap, avgWindow)}
+        {m.oer !== null && cardOER(m.oer, m.expOER, avgWindow)}
+        {m.dscr !== null && cardDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {cardICR(m.icr, m.expICR, avgWindow)}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {defMonthlyGain(m.mg, m.expMG)}
-        {defNetPosition(agg.sellingProfit)}
-        {defPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
-        {defBreakEven(m.breakEven, m.expBELabel)}
+        {cardMonthlyGain(m.mg, m.expMG)}
+        {cardNetPosition(agg.sellingProfit)}
+        {cardPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
+        {cardBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
       {/* ── Charts ── */}
@@ -4593,7 +4608,7 @@ function Dashboard({ properties, onPropertyClick }) {
             <PropertyCard
               key={p.id} property={p}
               avgCashFlow={agg.perPropAvg[p.id]?.cashflow}
-              avgNOI={agg.perPropAvg[p.id]?.noi}
+              cardAvgNOI={agg.perPropAvg[p.id]?.noi}
               events={allEvents[p.id] ?? []}
               onClick={() => onPropertyClick(p)}
             />
@@ -5404,14 +5419,14 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
       {/* ══ Summary & Insights ══════════════════════════════════════════════ */}
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', marginBottom: '0.85rem' }}>
-          {defMarketValue(property.market_price, appr, apprPct, property.purchase_price)}
-          {defEquity(equity, equityPct, loanToValue, ltvColor(loanToValue).cls)}
-          {defAvailEquity(availableEquity)}
-          {defNetPosition(sellingProfit, npPct)}
-          {defMonthlyRent(monthlyRent)}
-          {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
-          {defOER(avg.income > 0 ? avg.noiExpenses / avg.income : null, expected?.oer)}
-          {defYtdOpProfit(ytdNetBalance)}
+          {cardMarketValue(property.market_price, appr, apprPct, property.purchase_price)}
+          {cardEquity(equity, equityPct, loanToValue, ltvColor(loanToValue).cls)}
+          {cardAvailEquity(availableEquity)}
+          {cardNetPosition(sellingProfit, npPct)}
+          {cardMonthlyRent(monthlyRent)}
+          {cardAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+          {cardOER(avg.income > 0 ? avg.noiExpenses / avg.income : null, expected?.oer)}
+          {cardYtdOpProfit(ytdNetBalance)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -5465,25 +5480,25 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
       {/* ══ Financing Efficiency ══════════════════════════════════════════════ */}
       <p className="stat-section-label">Financing Efficiency</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defLoanAmount(property.loan_amount, loanPct)}
-        {property.mortgage_rate > 0 && defMortgageRate(property.mortgage_rate, annualInterest)}
-        {defLTV(ltvRatio)}
-        {defDSCR(
+        {cardLoanAmount(property.loan_amount, loanPct)}
+        {property.mortgage_rate > 0 && cardMortgageRate(property.mortgage_rate, annualInterest)}
+        {cardLTV(ltvRatio)}
+        {cardDSCR(
           avg.mortgage > 0 ? avg.noi / avg.mortgage : null,
           expected?.dscr,
           avgWindow,
           expected?.dscr != null ? `Exp: ${expected.dscr.toFixed(2)}x — no mortgage recorded` : 'No mortgage expenses recorded',
         )}
-        {defICR(icr, expICR, null)}
+        {cardICR(icr, expICR, null)}
       </div>
 
       {/* ══ Investment Ratios ════════════════════════════════════════════════ */}
       <p className="stat-section-label">Investment Ratios</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defCapRate(capRate, expected?.capRate, null)}
-        {defCashOnCash(cashOnCash, expected?.cashOnCash)}
-        {monthlyRent > 0 && defExpenseRatio(expenseRatio, expected?.expenseRatio)}
-        {monthlyRent > 0 && defRentToValue(rentToValue)}
+        {cardCapRate(capRate, expected?.capRate, null)}
+        {cardCashOnCash(cashOnCash, expected?.cashOnCash)}
+        {monthlyRent > 0 && cardExpenseRatio(expenseRatio, expected?.expenseRatio)}
+        {monthlyRent > 0 && cardRentToValue(rentToValue)}
       </div>
 
       {/* ══ Operating Metrics & Gain ══════════════════════════════════════════ */}
@@ -5494,26 +5509,26 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
 
       {/* Row 1: Cash flow & gain */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        {defAvgIncome(avg.income, null, avgWindow)}
-        {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
-        {defMonthlyGain(monthlyGain, expMonthlyGain)}
-        {defPaybackPeriod(paybackPeriod, expPayback, pbOutstanding, property.total_income, property.total_expenses)}
-        {defBreakEven(breakEven, expBreakEven)}
+        {cardAvgIncome(avg.income, null, avgWindow)}
+        {cardAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+        {cardMonthlyGain(monthlyGain, expMonthlyGain)}
+        {cardPaybackPeriod(paybackPeriod, expPayback, pbOutstanding, property.total_income, property.total_expenses)}
+        {cardBreakEven(breakEven, expBreakEven)}
       </div>
 
       {/* Row 2: NOI, expenses, cap rate */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        {defAvgNOI(avg.noi, expected?.monthlyNOI, avgWindow)}
-        {defAvgExpenses(avg.expenses, expected?.monthlyExpenses, avgWindow, monthlyRent)}
-        {defCapRate(capRate, expected?.capRate, avgWindow)}
+        {cardAvgNOI(avg.noi, expected?.monthlyNOI, avgWindow)}
+        {cardAvgExpenses(avg.expenses, expected?.monthlyExpenses, avgWindow, monthlyRent)}
+        {cardCapRate(capRate, expected?.capRate, avgWindow)}
       </div>
 
       {/* Row 3: OER, IRR, vacancy, maint */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defOER(avg.income > 0 ? oer : null, expected?.oer)}
-        {defIRR(irr, !!property.poss_date)}
-        {defEconVacancy(econVacancy)}
-        {defMaintCapEx(maintCapexRatio)}
+        {cardOER(avg.income > 0 ? oer : null, expected?.oer)}
+        {cardIRR(irr, !!property.poss_date)}
+        {cardEconVacancy(econVacancy)}
+        {cardMaintCapEx(maintCapexRatio)}
       </div>
 
       {/* ══ Income & Expenses (all-time) ══════════════════════════════════════ */}
@@ -5534,10 +5549,10 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
       {/* ══ Appreciation ══════════════════════════════════════════════════════ */}
       <p className="stat-section-label">Appreciation</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defTotalAppreciation(appr, apprPct, property.purchase_price)}
-        {defYearlyAppreciation(yearlyAppr, expYearlyAppr, expApprPct, yearlyApprPct)}
-        {defProjectedYearEnd(projectedYE)}
-        {defYearEndBalance(yearEndRate, yearEndBudg, ml)}
+        {cardTotalAppreciation(appr, apprPct, property.purchase_price)}
+        {cardYearlyAppreciation(yearlyAppr, expYearlyAppr, expApprPct, yearlyApprPct)}
+        {cardProjectedYearEnd(projectedYE)}
+        {cardYearEndBalance(yearEndRate, yearEndBudg, ml)}
       </div>
 
       {/* Chart */}
@@ -6252,7 +6267,7 @@ function ScorePanel({ score }) {
 // ── Analysis tips (forward-looking, no historical records) ────────────────────
 
 function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
-  marketValue, monthlyRent, capRate, cashOnCash,
+  cardMarketValue, monthlyRent, capRate, cashOnCash,
   expenseRatio, ltvRatio, equity, monthlyMortgage, vacancyRate,
   oneOffExpense, repairReserve }) {
 
@@ -6308,7 +6323,7 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
       detail: `${fmt(oneOffExpense)} in upfront costs takes ${Math.ceil(oneOffExpense / Math.max(1, avgCashFlow))} months of cash flow to recover.` });
   }
   if (monthlyRent > 0 && capRate < 0.05) {
-    const targetRent = Math.round(marketValue * 0.06 / 12);
+    const targetRent = Math.round(cardMarketValue * 0.06 / 12);
     const delta = targetRent - monthlyRent;
     if (delta > 0) {
       items.push({ icon: '📈', cls: 'text-warning', label: 'Low cap rate',
@@ -6323,9 +6338,9 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
     items.push({ icon: '💎', cls: 'text-success', label: 'Strong appreciation projected',
       detail: `At ${fp(yearlyApprRatio * 100)}/yr appreciation, the property gains ${fmt(yearlyAppr)}/yr in value. Even modest cash flow becomes highly profitable long-term.` });
   }
-  if (repairReserve < 0.5 && marketValue > 200000) {
+  if (repairReserve < 0.5 && cardMarketValue > 200000) {
     items.push({ icon: '🔩', cls: 'text-warning', label: 'Low repair reserve',
-      detail: `A reserve below 0.5% of value may be insufficient. Industry standard is 1–1.5% (${fmt(marketValue * 0.01)}/yr) for repairs and maintenance.` });
+      detail: `A reserve below 0.5% of value may be insufficient. Industry standard is 1–1.5% (${fmt(cardMarketValue * 0.01)}/yr) for repairs and maintenance.` });
   }
 
   return items;
@@ -6376,7 +6391,7 @@ function EvaluatorView() {
     propertyType:       'Residential',
     purchasePrice:      500000,
     downPayment:        100000,
-    mortgageRate:       5.0,
+    cardMortgageRate:       5.0,
     amortization:       25,
     monthlyRent:        2500,
     monthlyOpEx:        300,
@@ -6402,7 +6417,7 @@ function EvaluatorView() {
 
     const effectiveRent        = p.monthlyRent * (1 + s.rentDelta / 100);
     const effectiveDownPayment = clamp(p.downPayment * (1 + s.downPaymentDelta / 100), 0, p.purchasePrice * 0.99);
-    const effectiveRate        = Math.max(0.1, p.mortgageRate + s.rateDelta);
+    const effectiveRate        = Math.max(0.1, p.cardMortgageRate + s.rateDelta);
     const loanAmount           = p.purchasePrice - effectiveDownPayment;
 
     const monthlyMortgage      = calcMortgagePayment(loanAmount, effectiveRate, p.amortization);
@@ -6466,7 +6481,7 @@ function EvaluatorView() {
 
     const analysis = buildAnalysis({
       avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
-      marketValue: p.purchasePrice, monthlyRent: effectiveRent,
+      cardMarketValue: p.purchasePrice, monthlyRent: effectiveRent,
       capRate, cashOnCash, expenseRatio, ltvRatio, equity,
       monthlyMortgage, vacancyRate: s.vacancyRate,
       oneOffExpense: s.oneOffExpense, repairReserve: s.repairReserve,
@@ -6516,7 +6531,7 @@ function EvaluatorView() {
           <NumInput label="Purchase Price"           value={inputs.purchasePrice}      onChange={v => set('purchasePrice', v)}      prefix="$" min={0} step={1000} />
           <NumInput label="Down Payment"             value={inputs.downPayment}        onChange={v => set('downPayment', v)}        prefix="$" min={0} step={1000}
             help={inputs.purchasePrice > 0 ? `${fp(inputs.downPayment / inputs.purchasePrice * 100)} of purchase price` : undefined} />
-          <NumInput label="Mortgage Rate"            value={inputs.mortgageRate}       onChange={v => set('mortgageRate', v)}       suffix="%" min={0} max={30} step={0.05} />
+          <NumInput label="Mortgage Rate"            value={inputs.cardMortgageRate}       onChange={v => set('cardMortgageRate', v)}       suffix="%" min={0} max={30} step={0.05} />
           <NumInput label="Amortization"             value={inputs.amortization}       onChange={v => set('amortization', v)}       suffix="yr" min={1} max={35} step={1} />
 
           <div className="eval-computed-row">
@@ -6525,7 +6540,7 @@ function EvaluatorView() {
           </div>
           <div className="eval-computed-row">
             <span>Monthly Payment</span>
-            <span className="text-danger">{fmt(calcMortgagePayment(inputs.purchasePrice - inputs.downPayment, inputs.mortgageRate, inputs.amortization))}/mo</span>
+            <span className="text-danger">{fmt(calcMortgagePayment(inputs.purchasePrice - inputs.downPayment, inputs.cardMortgageRate, inputs.amortization))}/mo</span>
           </div>
 
           <h3 className="eval-section-title" style={{ marginTop: '1rem' }}>Income &amp; Expenses</h3>
@@ -6540,28 +6555,28 @@ function EvaluatorView() {
         <div>
           <p className="stat-section-label">Investment Ratios</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {defEvalLTV(m.ltvRatio)}
-            {defEvalCapRate(m.capRate)}
-            {defEvalCashOnCash(m.cashOnCash)}
-            {inputs.monthlyRent > 0 && defEvalExpenseRatio(m.expenseRatio)}
-            {inputs.monthlyRent > 0 && defEvalRentToValue(m.rentToValue)}
+            {cardEvalLTV(m.ltvRatio)}
+            {cardEvalCapRate(m.capRate)}
+            {cardEvalCashOnCash(m.cashOnCash)}
+            {inputs.monthlyRent > 0 && cardEvalExpenseRatio(m.expenseRatio)}
+            {inputs.monthlyRent > 0 && cardEvalRentToValue(m.rentToValue)}
           </div>
 
           <p className="stat-section-label">NOI &amp; Return Projections</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {defEvalAnnualNOI(m.annualNetOpIncome)}
-            {m.grm !== null && inputs.monthlyRent > 0 && defEvalGRM(m.grm)}
-            {m.irr10 !== null && defEvalIRR10(m.irr10)}
+            {cardEvalAnnualNOI(m.annualNetOpIncome)}
+            {m.grm !== null && inputs.monthlyRent > 0 && cardEvalGRM(m.grm)}
+            {m.irr10 !== null && cardEvalIRR10(m.irr10)}
           </div>
 
           <p className="stat-section-label">Cash Flow &amp; Monthly Gain</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {defEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
-            {defEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
-            {defEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
-            {defEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
-            {defEvalPayback(m.payback)}
-            {defEvalBreakEven(m.breakEven)}
+            {cardEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
+            {cardEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
+            {cardEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
+            {cardEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
+            {cardEvalPayback(m.payback)}
+            {cardEvalBreakEven(m.breakEven)}
           </div>
 
           <ScorePanel score={m.score} />
@@ -6612,7 +6627,7 @@ function EvaluatorView() {
             </button>
           )}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem 2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem 2rem', alignItems: 'end' }}>
           <SliderInput label="Rent adjustment" value={scenario.rentDelta}
             onChange={v => setS('rentDelta', v)} min={-30} max={30} step={1}
             format={v => `${v >= 0 ? '+' : ''}${v}%`}
@@ -6810,7 +6825,7 @@ function RenovationView() {
           {/* Property & Market */}
           <div className="detail-panel">
             <div className="detail-panel-title">🏡 Property &amp; Market</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem', alignItems: 'end' }}>
               <NumInput label="Current market price"   value={inp.currentPrice}   onChange={v => set('currentPrice', v)}   prefix="$" step={5000} />
               <NumInput label="Planned market price"   value={inp.plannedPrice}   onChange={v => set('plannedPrice', v)}   prefix="$" step={5000}
                 help="Expected value after renovation" />
@@ -6824,7 +6839,7 @@ function RenovationView() {
           {/* Rent */}
           <div className="detail-panel">
             <div className="detail-panel-title">💰 Rent</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem', alignItems: 'end' }}>
               <NumInput label="Current rent"  value={inp.currentRent} onChange={v => set('currentRent', v)} prefix="$" suffix="/mo" step={50} />
               <NumInput label="New rent"      value={inp.newRent}     onChange={v => set('newRent', v)}     prefix="$" suffix="/mo" step={50}
                 help="Expected rent after renovation" />
@@ -6834,7 +6849,7 @@ function RenovationView() {
           {/* Renovation */}
           <div className="detail-panel">
             <div className="detail-panel-title">🔨 Renovation</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem', alignItems: 'end' }}>
               <NumInput label="Renovation cost" value={inp.renoCost}   onChange={v => set('renoCost', v)}   prefix="$" step={1000} />
               <NumInput label="Renovation time" value={inp.renoMonths} onChange={v => set('renoMonths', v)} suffix="mo" step={0.5} min={0.5} max={60}
                 help="Months the unit is unavailable" />
@@ -6951,7 +6966,7 @@ function RenovationView() {
                 </button>
               )}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1.25rem 2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1.25rem 2rem', alignItems: 'end' }}>
               <SliderInput
                 label="Planned price adjustment"
                 value={adj.plannedPrice}
@@ -7187,7 +7202,7 @@ const toFormState_Property = (p) => p ? {
   purchasePrice:        p.purchase_price       ?? p.purchasePrice       ?? 0,
   marketPrice:          p.market_price         ?? p.marketPrice         ?? 0,
   loanAmount:           p.loan_amount          ?? p.loanAmount          ?? 0,
-  mortgageRate:         p.mortgage_rate        ?? p.mortgageRate        ?? 0,
+  cardMortgageRate:         p.mortgage_rate        ?? p.cardMortgageRate        ?? 0,
   monthlyRent:          p.monthly_rent         ?? p.monthlyRent         ?? 0,
   possDate:             p.poss_date            ?? p.possDate            ?? '',
   status:               p.status               ?? 'Rented',
@@ -7203,7 +7218,7 @@ const toFormState_Property = (p) => p ? {
   mortgageFrequency:    p.mortgage_frequency       ?? p.mortgageFrequency    ?? 'monthly',
 } : {
   name: '', province: '', city: '', address: '', postalCode: '',
-  parking: '', purchasePrice: 0, marketPrice: 0, loanAmount: 0, mortgageRate: 0,
+  parking: '', purchasePrice: 0, marketPrice: 0, loanAmount: 0, cardMortgageRate: 0,
   monthlyRent: 0, possDate: '', status: 'Rented', type: 'Condo', notes: '',
   expectedCondoFees: 0, expectedInsurance: 0, expectedUtilities: 0, expectedMiscExpenses: 0,
   expectedAppreciationPct: 0, annualPropertyTax: 0,
@@ -7392,9 +7407,9 @@ function PropertyModal({ property, onClose, onSave }) {
             <div className="form-group">
               <label>Mortgage Rate (% annual)</label>
               <input type="number" min="0" max="30" step="0.01"
-                value={formData.mortgageRate}
+                value={formData.cardMortgageRate}
                 placeholder="e.g. 5.25"
-                onChange={e => set('mortgageRate', parseFloat(e.target.value) || 0)}
+                onChange={e => set('cardMortgageRate', parseFloat(e.target.value) || 0)}
                 onFocus={selectOnFocus} />
             </div>
 

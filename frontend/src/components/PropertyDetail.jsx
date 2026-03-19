@@ -13,13 +13,13 @@ import FinancialPeriodSection from './FinancialPeriodSection.jsx';
 import { fmt, fmtDate, fp, fPct, WindowPicker, wLabel, ltvColor, fmtPeriod } from './uiHelpers.jsx';
 import { PropertyOptions } from '../modals/ModalBase.jsx';
 import {
-  defAvgIncome, defAvgExpenses, defAvgCashFlow, defAvgNOI,
-  defCapRate, defOER, defDSCR, defICR, defLTV, defCashOnCash, defExpenseRatio, defRentToValue,
-  defMonthlyGain, defNetPosition, defPaybackPeriod, defBreakEven,
-  defTotalAppreciation, defYearlyAppreciation, defProjectedYearEnd, defYearEndBalance,
-  defEconVacancy, defIRR, defMaintCapEx,
-  defMarketValue, defEquity, defAvailEquity, defMonthlyRent, defYtdOpProfit,
-  defLoanAmount, defMortgageRate,
+  cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI,
+  cardCapRate, cardOER, cardDSCR, cardICR, cardLTV, cardCashOnCash, cardExpenseRatio, cardRentToValue,
+  cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven,
+  cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance,
+  cardEconVacancy, cardIRR, cardMaintCapEx,
+  cardMarketValue, cardEquity, cardAvailEquity, cardMonthlyRent, cardYtdOpProfit,
+  cardLoanAmount, cardMortgageRate,
 } from '../metricDefs.jsx';
 
 const DETAIL_TOOLTIP_STYLE = {
@@ -295,14 +295,14 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
       {/* ══ Summary & Insights ══════════════════════════════════════════════ */}
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', marginBottom: '0.85rem' }}>
-          {defMarketValue(property.market_price, appr, apprPct, property.purchase_price)}
-          {defEquity(equity, equityPct, loanToValue, ltvColor(loanToValue).cls)}
-          {defAvailEquity(availableEquity)}
-          {defNetPosition(sellingProfit, npPct)}
-          {defMonthlyRent(monthlyRent)}
-          {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
-          {defOER(avg.income > 0 ? avg.noiExpenses / avg.income : null, expected?.oer)}
-          {defYtdOpProfit(ytdNetBalance)}
+          {cardMarketValue(property.market_price, appr, apprPct, property.purchase_price)}
+          {cardEquity(equity, equityPct, loanToValue, ltvColor(loanToValue).cls)}
+          {cardAvailEquity(availableEquity)}
+          {cardNetPosition(sellingProfit, npPct)}
+          {cardMonthlyRent(monthlyRent)}
+          {cardAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+          {cardOER(avg.income > 0 ? avg.noiExpenses / avg.income : null, expected?.oer)}
+          {cardYtdOpProfit(ytdNetBalance)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -356,25 +356,25 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
       {/* ══ Financing Efficiency ══════════════════════════════════════════════ */}
       <p className="stat-section-label">Financing Efficiency</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defLoanAmount(property.loan_amount, loanPct)}
-        {property.mortgage_rate > 0 && defMortgageRate(property.mortgage_rate, annualInterest)}
-        {defLTV(ltvRatio)}
-        {defDSCR(
+        {cardLoanAmount(property.loan_amount, loanPct)}
+        {property.mortgage_rate > 0 && cardMortgageRate(property.mortgage_rate, annualInterest)}
+        {cardLTV(ltvRatio)}
+        {cardDSCR(
           avg.mortgage > 0 ? avg.noi / avg.mortgage : null,
           expected?.dscr,
           avgWindow,
           expected?.dscr != null ? `Exp: ${expected.dscr.toFixed(2)}x — no mortgage recorded` : 'No mortgage expenses recorded',
         )}
-        {defICR(icr, expICR, null)}
+        {cardICR(icr, expICR, null)}
       </div>
 
       {/* ══ Investment Ratios ════════════════════════════════════════════════ */}
       <p className="stat-section-label">Investment Ratios</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defCapRate(capRate, expected?.capRate, null)}
-        {defCashOnCash(cashOnCash, expected?.cashOnCash)}
-        {monthlyRent > 0 && defExpenseRatio(expenseRatio, expected?.expenseRatio)}
-        {monthlyRent > 0 && defRentToValue(rentToValue)}
+        {cardCapRate(capRate, expected?.capRate, null)}
+        {cardCashOnCash(cashOnCash, expected?.cashOnCash)}
+        {monthlyRent > 0 && cardExpenseRatio(expenseRatio, expected?.expenseRatio)}
+        {monthlyRent > 0 && cardRentToValue(rentToValue)}
       </div>
 
       {/* ══ Operating Metrics & Gain ══════════════════════════════════════════ */}
@@ -385,26 +385,26 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
       {/* Row 1: Cash flow & gain */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        {defAvgIncome(avg.income, null, avgWindow)}
-        {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
-        {defMonthlyGain(monthlyGain, expMonthlyGain)}
-        {defPaybackPeriod(paybackPeriod, expPayback, pbOutstanding, property.total_income, property.total_expenses)}
-        {defBreakEven(breakEven, expBreakEven)}
+        {cardAvgIncome(avg.income, null, avgWindow)}
+        {cardAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+        {cardMonthlyGain(monthlyGain, expMonthlyGain)}
+        {cardPaybackPeriod(paybackPeriod, expPayback, pbOutstanding, property.total_income, property.total_expenses)}
+        {cardBreakEven(breakEven, expBreakEven)}
       </div>
 
       {/* Row 2: NOI, expenses, cap rate */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        {defAvgNOI(avg.noi, expected?.monthlyNOI, avgWindow)}
-        {defAvgExpenses(avg.expenses, expected?.monthlyExpenses, avgWindow, monthlyRent)}
-        {defCapRate(capRate, expected?.capRate, avgWindow)}
+        {cardAvgNOI(avg.noi, expected?.monthlyNOI, avgWindow)}
+        {cardAvgExpenses(avg.expenses, expected?.monthlyExpenses, avgWindow, monthlyRent)}
+        {cardCapRate(capRate, expected?.capRate, avgWindow)}
       </div>
 
       {/* Row 3: OER, IRR, vacancy, maint */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defOER(avg.income > 0 ? oer : null, expected?.oer)}
-        {defIRR(irr, !!property.poss_date)}
-        {defEconVacancy(econVacancy)}
-        {defMaintCapEx(maintCapexRatio)}
+        {cardOER(avg.income > 0 ? oer : null, expected?.oer)}
+        {cardIRR(irr, !!property.poss_date)}
+        {cardEconVacancy(econVacancy)}
+        {cardMaintCapEx(maintCapexRatio)}
       </div>
 
       {/* ══ Income & Expenses (all-time) ══════════════════════════════════════ */}
@@ -425,10 +425,10 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
       {/* ══ Appreciation ══════════════════════════════════════════════════════ */}
       <p className="stat-section-label">Appreciation</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {defTotalAppreciation(appr, apprPct, property.purchase_price)}
-        {defYearlyAppreciation(yearlyAppr, expYearlyAppr, expApprPct, yearlyApprPct)}
-        {defProjectedYearEnd(projectedYE)}
-        {defYearEndBalance(yearEndRate, yearEndBudg, ml)}
+        {cardTotalAppreciation(appr, apprPct, property.purchase_price)}
+        {cardYearlyAppreciation(yearlyAppr, expYearlyAppr, expApprPct, yearlyApprPct)}
+        {cardProjectedYearEnd(projectedYE)}
+        {cardYearEndBalance(yearEndRate, yearEndBudg, ml)}
       </div>
 
       {/* Chart */}

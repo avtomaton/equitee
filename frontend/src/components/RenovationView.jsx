@@ -150,7 +150,7 @@ export default function RenovationView() {
           {/* Property & Market */}
           <div className="detail-panel">
             <div className="detail-panel-title">🏡 Property &amp; Market</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem', alignItems: 'end' }}>
               <NumInput label="Current market price"   value={inp.currentPrice}   onChange={v => set('currentPrice', v)}   prefix="$" step={5000} />
               <NumInput label="Planned market price"   value={inp.plannedPrice}   onChange={v => set('plannedPrice', v)}   prefix="$" step={5000}
                 help="Expected value after renovation" />
@@ -164,7 +164,7 @@ export default function RenovationView() {
           {/* Rent */}
           <div className="detail-panel">
             <div className="detail-panel-title">💰 Rent</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem', alignItems: 'end' }}>
               <NumInput label="Current rent"  value={inp.currentRent} onChange={v => set('currentRent', v)} prefix="$" suffix="/mo" step={50} />
               <NumInput label="New rent"      value={inp.newRent}     onChange={v => set('newRent', v)}     prefix="$" suffix="/mo" step={50}
                 help="Expected rent after renovation" />
@@ -174,7 +174,7 @@ export default function RenovationView() {
           {/* Renovation */}
           <div className="detail-panel">
             <div className="detail-panel-title">🔨 Renovation</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1rem', alignItems: 'end' }}>
               <NumInput label="Renovation cost" value={inp.renoCost}   onChange={v => set('renoCost', v)}   prefix="$" step={1000} />
               <NumInput label="Renovation time" value={inp.renoMonths} onChange={v => set('renoMonths', v)} suffix="mo" step={0.5} min={0.5} max={60}
                 help="Months the unit is unavailable" />
@@ -291,7 +291,7 @@ export default function RenovationView() {
                 </button>
               )}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1.25rem 2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1.25rem 2rem', alignItems: 'end' }}>
               <SliderInput
                 label="Planned price adjustment"
                 value={adj.plannedPrice}

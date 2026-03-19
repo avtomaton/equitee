@@ -5,8 +5,8 @@
  * Each export is a function that accepts numeric values and returns
  * a ready-to-render <MetricCard> element. Call sites just do:
  *
- *   import { defAvgCashFlow, defCapRate } from '../metricDefs.jsx';
- *   {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+ *   import { cardAvgCashFlow, cardCapRate } from '../metricDefs.jsx';
+ *   {cardAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
  *
  * Rules:
  *   - Tooltips live here; views never re-declare them
@@ -34,7 +34,7 @@ const lbl     = (w) => w ? (w >= 24 ? `${w / 12}Y` : `${w}M`) : 'All';
 
 // ── Average / rolling metrics ─────────────────────────────────────────────────
 
-export const defAvgIncome = (actual, expVal, window) => card({
+export const cardAvgIncome = (actual, expVal, window) => card({
   label: `Avg Income (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: 'text-success',
@@ -42,17 +42,17 @@ export const defAvgIncome = (actual, expVal, window) => card({
   tooltip: `Average monthly income over the last ${window} complete months.\nExp = sum of all current monthly rents at 100% occupancy.`,
 });
 
-export const defAvgExpenses = (actual, expVal, window, monthlyRent = 0) => card({
+export const cardAvgExpenses = (actual, expVal, window, cardMonthlyRent = 0) => card({
   label: `Avg Expenses (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: 'text-danger',
   ...expGap(actual, expVal,
-    v => v < monthlyRent * 0.65 ? '' : v < monthlyRent * 0.85 ? 'text-warning' : 'text-danger',
+    v => v < cardMonthlyRent * 0.65 ? '' : v < cardMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
     fmt, 'Exp:', false, 50),
   tooltip: `Average monthly expenses over the last ${window} complete months (all categories including mortgage).\nExp = budgeted op-ex + expected mortgage.`,
 });
 
-export const defAvgCashFlow = (actual, expVal, window) => card({
+export const cardAvgCashFlow = (actual, expVal, window) => card({
   label: `Avg Cash Flow (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -60,7 +60,7 @@ export const defAvgCashFlow = (actual, expVal, window) => card({
   tooltip: `Average monthly (Income − Expenses) over the last ${window} complete months.\nExp = budgeted NOI minus expected mortgage payment.`,
 });
 
-export const defAvgNOI = (actual, expVal, window) => card({
+export const cardAvgNOI = (actual, expVal, window) => card({
   label: `Avg NOI (${lbl(window)})`,
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -70,7 +70,7 @@ export const defAvgNOI = (actual, expVal, window) => card({
 
 // ── Ratio metrics ─────────────────────────────────────────────────────────────
 
-export const defCapRate = (actual, expVal, window) => card({
+export const cardCapRate = (actual, expVal, window) => card({
   label: `Cap Rate${window ? ` (${lbl(window)})` : ''}`,
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null ? capCls(actual) : 'text-secondary',
@@ -81,7 +81,7 @@ export const defCapRate = (actual, expVal, window) => card({
   tooltip: 'Annual NOI ÷ Market Value (portfolio) or Purchase Price (property).\n> 7%: strong. 4–7%: moderate. < 4%: weak.',
 });
 
-export const defOER = (actual, expVal, window) => card({
+export const cardOER = (actual, expVal, window) => card({
   label: `OER${window ? ` (${lbl(window)})` : ''}`,
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null ? oerCls(actual) : 'text-secondary',
@@ -92,7 +92,7 @@ export const defOER = (actual, expVal, window) => card({
   tooltip: 'Operating Expense Ratio = op-ex ÷ gross income. Excludes mortgage and principal.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
 });
 
-export const defDSCR = (actual, expVal, window, noMortgageLabel) => {
+export const cardDSCR = (actual, expVal, window, noMortgageLabel) => {
   if (actual == null) return card({
     label: `DSCR${window ? ` (${lbl(window)})` : ''}`,
     primary: '—',
@@ -110,7 +110,7 @@ export const defDSCR = (actual, expVal, window, noMortgageLabel) => {
   });
 };
 
-export const defICR = (actual, expVal, window) => {
+export const cardICR = (actual, expVal, window) => {
   if (actual == null) return null;
   return card({
     label: `ICR${window ? ` (${lbl(window)})` : ''}`,
@@ -122,7 +122,7 @@ export const defICR = (actual, expVal, window) => {
   });
 };
 
-export const defLTV = (ratio) => card({
+export const cardLTV = (ratio) => card({
   label: 'Loan-to-Value',
   primary: fPct(ratio),
   primaryCls: ratio > 0.80 ? 'text-danger' : ratio > 0.65 ? '' : 'text-success',
@@ -130,17 +130,17 @@ export const defLTV = (ratio) => card({
   tooltip: 'Loan ÷ Market Value. Below 65%: conservative. 65–80%: normal. Above 80%: high risk.',
 });
 
-export const defCashOnCash = (actual, expVal) => card({
+export const cardCashOnCash = (actual, expVal) => card({
   label: 'Cash-on-Cash',
   primary: fPct(actual),
   primaryCls: actual > 0.08 ? 'text-success' : actual > 0.04 ? '' : actual < 0 ? 'text-danger' : 'text-warning',
   ...expGap(actual, expVal,
     v => v > 0.08 ? 'text-success' : v > 0.04 ? '' : v < 0 ? 'text-danger' : 'text-warning',
     fPct, 'Exp:', true, 0.005),
-  tooltip: 'Annual Cash Flow ÷ Equity. Measures how hard your invested equity is working.\nTarget: 6–10%+.',
+  tooltip: 'Annual Cash Flow ÷ Equity. Measures how hard your invested cardEquity is working.\nTarget: 6–10%+.',
 });
 
-export const defExpenseRatio = (actual, expVal) => card({
+export const cardExpenseRatio = (actual, expVal) => card({
   label: 'Expense Ratio',
   primary: fPct(actual),
   primaryCls: actual < 0.35 ? 'text-success' : actual < 0.50 ? '' : 'text-danger',
@@ -150,7 +150,7 @@ export const defExpenseRatio = (actual, expVal) => card({
   tooltip: 'Avg Monthly Expenses ÷ Monthly Rent (all costs including mortgage).\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
 });
 
-export const defRentToValue = (ratio) => card({
+export const cardRentToValue = (ratio) => card({
   label: 'Rent-to-Value',
   primary: fPct(ratio),
   primaryCls: ratio > 0.01 ? 'text-success' : ratio > 0.007 ? '' : 'text-danger',
@@ -160,7 +160,7 @@ export const defRentToValue = (ratio) => card({
 
 // ── Gain / position metrics ───────────────────────────────────────────────────
 
-export const defMonthlyGain = (actual, expVal) => card({
+export const cardMonthlyGain = (actual, expVal) => card({
   label: 'Monthly Gain',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -168,7 +168,7 @@ export const defMonthlyGain = (actual, expVal) => card({
   tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12).\nExp uses budgeted operating costs + expected appreciation %.',
 });
 
-export const defNetPosition = (actual, pctOfSpend = null) => card({
+export const cardNetPosition = (actual, pctOfSpend = null) => card({
   label: 'Net Position',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -177,7 +177,7 @@ export const defNetPosition = (actual, pctOfSpend = null) => card({
   tooltip: 'Market Value + Total Income − Total Expenses − Loans.\nWhat you would walk away with after selling and clearing all mortgages.',
 });
 
-export const defPaybackPeriod = (paybackProps, expLabel, outstanding, income, expenses) => card({
+export const cardPaybackPeriod = (paybackProps, expLabel, outstanding, income, expenses) => card({
   label: 'Payback Period',
   ...paybackProps,
   secondary: expLabel ?? null,
@@ -189,7 +189,7 @@ export const defPaybackPeriod = (paybackProps, expLabel, outstanding, income, ex
   }\nExp uses budgeted cash flow.`,
 });
 
-export const defBreakEven = (breakEvenProps, expLabel) => card({
+export const cardBreakEven = (breakEvenProps, expLabel) => card({
   label: 'Break-even',
   ...breakEvenProps,
   secondary: expLabel ?? null,
@@ -199,7 +199,7 @@ export const defBreakEven = (breakEvenProps, expLabel) => card({
 
 // ── Appreciation metrics ──────────────────────────────────────────────────────
 
-export const defTotalAppreciation = (appr, apprPct, purchase) => card({
+export const cardTotalAppreciation = (appr, apprPct, purchase) => card({
   label: 'Total Appreciation',
   primary: fmt(appr),
   primaryCls: posCls(appr),
@@ -209,7 +209,7 @@ export const defTotalAppreciation = (appr, apprPct, purchase) => card({
   tooltip: 'Total unrealised gain: current Market Value minus original Purchase Price.',
 });
 
-export const defYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
+export const cardYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
   label: 'Yearly Appreciation',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -221,14 +221,14 @@ export const defYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
   tooltip: 'Annualised appreciation per property, summed.\nExp = sum of (purchase price × expected appreciation %) for properties where that is set.',
 });
 
-export const defProjectedYearEnd = (value) => card({
+export const cardProjectedYearEnd = (value) => card({
   label: 'Projected Year-End Value',
   primary: fmt(value),
   tertiary: 'At current appreciation rate',
   tooltip: 'Current market value plus the remaining fraction of the year times the current annual appreciation rate.',
 });
 
-export const defYearEndBalance = (actual, budgeted, ml) => card({
+export const cardYearEndBalance = (actual, budgeted, ml) => card({
   label: 'Year-End Balance',
   primary: fmt(actual),
   primaryCls: posCls(actual),
@@ -238,7 +238,7 @@ export const defYearEndBalance = (actual, budgeted, ml) => card({
 
 // ── Property-specific metrics ─────────────────────────────────────────────────
 
-export const defEconVacancy = (actual) => card({
+export const cardEconVacancy = (actual) => card({
   label: 'Economic Vacancy',
   primary: actual != null ? `${Math.min(actual, 100).toFixed(1)}%` : '—',
   primaryCls: actual != null
@@ -250,7 +250,7 @@ export const defEconVacancy = (actual) => card({
   tooltip: 'Lost rent due to vacancy ÷ Potential rent (trailing 12 months).\n\nMeasured from Vacant→Rented status changes in the Events log.\nRent value at the time of each vacancy is used for lost-rent calculation.\nTarget: < 5%.',
 });
 
-export const defIRR = (actual, hasPossDate) => card({
+export const cardIRR = (actual, hasPossDate) => card({
   label: 'IRR',
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null
@@ -262,7 +262,7 @@ export const defIRR = (actual, hasPossDate) => card({
   tooltip: 'Internal Rate of Return — the annualised rate that makes NPV of all cash flows zero.\nTarget: 10–15%+ for real estate.',
 });
 
-export const defMaintCapEx = (actual) => card({
+export const cardMaintCapEx = (actual) => card({
   label: 'Maint+CapEx Ratio',
   primary: actual != null ? fPct(actual) : '—',
   primaryCls: actual != null
@@ -276,7 +276,7 @@ export const defMaintCapEx = (actual) => card({
 
 // ── Property summary cards ────────────────────────────────────────────────────
 
-export const defMarketValue = (marketPrice, appr, apprPct, purchasePrice) => card({
+export const cardMarketValue = (marketPrice, appr, apprPct, purchasePrice) => card({
   label: 'Market Value',
   primary: fmt(marketPrice),
   secondary: appr !== 0
@@ -287,10 +287,10 @@ export const defMarketValue = (marketPrice, appr, apprPct, purchasePrice) => car
   tooltip: `Current estimated market value.\nAppreciation: ${fmt(appr)} (${apprPct !== null ? apprPct.toFixed(1) + '%' : 'n/a'} over purchase price of ${fmt(purchasePrice)}).`,
 });
 
-export const defEquity = (equity, equityPct, loanToValue, ltvCls) => card({
+export const cardEquity = (cardEquity, equityPct, loanToValue, ltvCls) => card({
   label: 'Equity',
-  primary: fmt(equity),
-  primaryCls: equity >= 0 ? 'text-success' : 'text-danger',
+  primary: fmt(cardEquity),
+  primaryCls: cardEquity >= 0 ? 'text-success' : 'text-danger',
   secondary: equityPct !== null ? fp(equityPct) + ' of value' : null,
   secondaryCls: equityPct !== null && equityPct >= 50 ? 'text-success' : '',
   tertiary: loanToValue > 0 ? `LTV ${fPct(loanToValue)}` : null,
@@ -298,7 +298,7 @@ export const defEquity = (equity, equityPct, loanToValue, ltvCls) => card({
   tooltip: 'Market Value − Loan Amount.\nLTV shown — below 65%: conservative. 65–80%: normal. Above 80%: high risk.',
 });
 
-export const defAvailEquity = (availableEquity, equityTotal = null) => card({
+export const cardAvailEquity = (availableEquity, equityTotal = null) => card({
   label: 'Avail. Equity',
   primary: availableEquity > 0 ? fmt(availableEquity) : '—',
   primaryCls: availableEquity > 0 ? 'text-success' : 'text-secondary',
@@ -309,32 +309,32 @@ export const defAvailEquity = (availableEquity, equityTotal = null) => card({
   tooltip: 'Equity accessible via refinancing while staying at ≤80% LTV.\nFormula: max(0, 80% × Market Value − Loan Amount).',
 });
 
-export const defMonthlyRent = (monthlyRent) => card({
+export const cardMonthlyRent = (cardMonthlyRent) => card({
   label: 'Monthly Rent',
-  primary: monthlyRent ? fmt(monthlyRent) : '—',
+  primary: cardMonthlyRent ? fmt(cardMonthlyRent) : '—',
   tooltip: 'Configured monthly rent. Used for Cap Rate and OER calculations.',
 });
 
-export const defYtdOpProfit = (value, marketValue = null, label = 'YTD Op. Profit') => card({
+export const cardYtdOpProfit = (value, cardMarketValue = null, label = 'YTD Op. Profit') => card({
   label,
   primary: fmt(value),
   primaryCls: value >= 0 ? 'text-success' : 'text-danger',
-  secondary: marketValue != null && value !== 0
-    ? fp(value / marketValue * 100) + ' YTD ROI' : null,
+  secondary: cardMarketValue != null && value !== 0
+    ? fp(value / cardMarketValue * 100) + ' YTD ROI' : null,
   secondaryCls: value >= 0 ? 'text-success' : 'text-danger',
-  tertiary: marketValue == null ? 'Trailing 12 months' : null,
+  tertiary: cardMarketValue == null ? 'Trailing 12 months' : null,
   tooltip: 'Income minus operating expenses (principal excluded) over the trailing 12 months.\nYTD ROI = YTD Operating Profit ÷ Portfolio Value.',
 });
 
-export const defLoanAmount = (loanAmount, loanPct) => card({
+export const cardLoanAmount = (cardLoanAmount, loanPct) => card({
   label: 'Loan Amount',
-  primary: fmt(loanAmount),
+  primary: fmt(cardLoanAmount),
   primaryCls: 'text-danger',
   secondary: loanPct !== null ? fp(loanPct) + ' of value' : null,
   tooltip: 'Outstanding mortgage or loan balance. Update this when you pay it down to keep LTV accurate.',
 });
 
-export const defMortgageRate = (rate, annualInterest) => card({
+export const cardMortgageRate = (rate, annualInterest) => card({
   label: 'Mortgage Rate',
   primary: `${rate}%`,
   tertiary: annualInterest ? `~${fmt(annualInterest)}/yr in interest` : null,
@@ -343,17 +343,17 @@ export const defMortgageRate = (rate, annualInterest) => card({
 
 // ── Portfolio Analytics cards ─────────────────────────────────────────────────
 
-export const defAvailEquityPortfolio = (availEq, availEqPct, equity) => card({
+export const cardAvailEquityPortfolio = (availEq, availEqPct, cardEquity) => card({
   label: 'Avail. Equity',
   primary: fmt(availEq),
   primaryCls: availEq > 0 ? 'text-success' : 'text-secondary',
-  secondary: availEqPct !== null ? availEqPct.toFixed(1) + '% of ' + fmt(equity) : null,
+  secondary: availEqPct !== null ? availEqPct.toFixed(1) + '% of ' + fmt(cardEquity) : null,
   secondaryCls: availEq > 0 ? 'text-success' : '',
   tertiary: 'Borrowable at ≤80% LTV',
   tooltip: 'Equity you can access via HELOC or refinance without exceeding 80% LTV.\nFormula: max(0, 80% × Market Value − Loan Balance).',
 });
 
-export const defMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrincipal) => card({
+export const cardMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrincipal) => card({
   label: 'Mortgage / mo',
   primary: totalMortgage > 0 ? fmt(totalMortgage) : '—',
   secondary: monthlyInterest > 0 ? 'Interest: ' + fmt(Math.round(monthlyInterest)) : null,
@@ -365,7 +365,7 @@ export const defMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrin
 
 // ── Period section cards (FinancialPeriodSection / YtdSection) ────────────────
 
-export const defPeriodIncome = (income, prefix, scopeStr) => card({
+export const cardPeriodIncome = (income, prefix, scopeStr) => card({
   label: `${prefix}Income`,
   primary: fmt(income),
   primaryCls: 'text-success',
@@ -374,7 +374,7 @@ export const defPeriodIncome = (income, prefix, scopeStr) => card({
     : `All income ever recorded ${scopeStr} since the first entry.`,
 });
 
-export const defPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) => card({
+export const cardPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) => card({
   label: `${prefix}Expenses`,
   primary: fmt(expenses),
   primaryCls: 'text-danger',
@@ -382,39 +382,39 @@ export const defPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) 
   secondaryCls: 'text-success',
   tooltip: isYTD
     ? `All expenses ${scopeStr} in the trailing 12-month window.\n${principal > 0
-        ? `Includes ${fmt(principal)} of principal repayment — equity-building, not a true cost.`
-        : 'Principal repayments are equity-building payments, not true operating costs.'}`
-    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are equity-building, not operating costs.`,
+        ? `Includes ${fmt(principal)} of principal repayment — cardEquity-building, not a true cost.`
+        : 'Principal repayments are cardEquity-building payments, not true operating costs.'}`
+    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are cardEquity-building, not operating costs.`,
 });
 
-export const defPeriodNetExpenses = (netExpenses, prefix, isYTD) => card({
+export const cardPeriodNetExpenses = (netExpenses, prefix, isYTD) => card({
   label: `${prefix}Net Expenses`,
   primary: fmt(netExpenses),
   primaryCls: netExpenses >= 0 ? 'text-danger' : 'text-success',
   tooltip: isYTD
-    ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding equity-building payments.'
-    : 'Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build equity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.',
+    ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding cardEquity-building payments.'
+    : 'Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build cardEquity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.',
 });
 
-export const defPeriodBalance = (balance, prefix) => card({
+export const cardPeriodBalance = (balance, prefix) => card({
   label: `${prefix}Balance`,
   primary: fmt(balance),
   primaryCls: balance >= 0 ? 'text-success' : 'text-danger',
-  tooltip: `${prefix || 'All-time '}Income minus ${prefix || 'all-time '}Expenses. Raw cash in/out with no adjustments for equity-building payments.`,
+  tooltip: `${prefix || 'All-time '}Income minus ${prefix || 'all-time '}Expenses. Raw cash in/out with no adjustments for cardEquity-building payments.`,
 });
 
-export const defPeriodOperatingProfit = (operatingProfit, roi, prefix, scope, isYTD) => card({
+export const cardPeriodOperatingProfit = (operatingProfit, roi, prefix, scope, isYTD) => card({
   label: `${prefix}Operating Profit`,
   primary: fmt(operatingProfit),
   primaryCls: operatingProfit >= 0 ? 'text-success' : 'text-danger',
   secondary: roi !== null ? roi.toFixed(1) + '% ROI' : null,
   secondaryCls: roi !== null && roi >= 0 ? 'text-success' : 'text-danger',
-  tooltip: `${isYTD ? 'YTD' : 'All-time'} Income minus Net Expenses (down payment & principal excluded).\nThe true operating profit — money earned beyond your equity-building capital.${roi !== null ? `\nROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` : ''}`,
+  tooltip: `${isYTD ? 'YTD' : 'All-time'} Income minus Net Expenses (down payment & principal excluded).\nThe true operating profit — money earned beyond your cardEquity-building capital.${roi !== null ? `\nROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` : ''}`,
 });
 
 // ── Evaluator cards ───────────────────────────────────────────────────────────
 
-export const defEvalLTV = (ltvRatio) => card({
+export const cardEvalLTV = (ltvRatio) => card({
   label: 'Loan-to-Value',
   primary: fPct(ltvRatio),
   primaryCls: ltvRatio > 0.80 ? 'text-danger' : ltvRatio > 0.65 ? 'text-warning' : 'text-success',
@@ -422,39 +422,39 @@ export const defEvalLTV = (ltvRatio) => card({
   tooltip: 'Loan ÷ Purchase Price.\nHigher LTV = more risk. Lenders typically require ≤80%. Below 65% is conservative.',
 });
 
-export const defEvalCapRate = (capRate) => card({
+export const cardEvalCapRate = (cardCapRate) => card({
   label: 'Cap Rate',
-  primary: fPct(capRate),
-  primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-  tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
+  primary: fPct(cardCapRate),
+  primaryCls: cardCapRate > 0.07 ? 'text-success' : cardCapRate > 0.04 ? '' : 'text-danger',
+  tertiary: cardCapRate > 0.07 ? 'Strong yield' : cardCapRate > 0.04 ? 'Moderate yield' : 'Weak yield',
   tooltip: 'Net Operating Income ÷ Purchase Price.\nIgnores financing — useful for comparing properties. Target: 5–7%+ residential.',
 });
 
-export const defEvalCashOnCash = (cashOnCash) => card({
+export const cardEvalCashOnCash = (cardCashOnCash) => card({
   label: 'Cash-on-Cash',
-  primary: fPct(cashOnCash),
-  primaryCls: cashOnCash > 0.08 ? 'text-success' : cashOnCash > 0.04 ? '' : cashOnCash < 0 ? 'text-danger' : 'text-warning',
-  tertiary: cashOnCash > 0.08 ? 'Strong' : cashOnCash > 0.04 ? 'Moderate' : 'Weak',
+  primary: fPct(cardCashOnCash),
+  primaryCls: cardCashOnCash > 0.08 ? 'text-success' : cardCashOnCash > 0.04 ? '' : cardCashOnCash < 0 ? 'text-danger' : 'text-warning',
+  tertiary: cardCashOnCash > 0.08 ? 'Strong' : cardCashOnCash > 0.04 ? 'Moderate' : 'Weak',
   tooltip: 'Annual Cash Flow ÷ Cash Invested (down payment + one-off costs).\nMeasures how efficiently your capital works. Target: 6–10%+.',
 });
 
-export const defEvalExpenseRatio = (expenseRatio) => card({
+export const cardEvalExpenseRatio = (cardExpenseRatio) => card({
   label: 'Expense Ratio',
-  primary: fPct(expenseRatio),
-  primaryCls: expenseRatio < 0.35 ? 'text-success' : expenseRatio < 0.50 ? '' : 'text-danger',
-  tertiary: expenseRatio < 0.35 ? 'Lean' : expenseRatio < 0.50 ? 'Normal' : 'High costs',
+  primary: fPct(cardExpenseRatio),
+  primaryCls: cardExpenseRatio < 0.35 ? 'text-success' : cardExpenseRatio < 0.50 ? '' : 'text-danger',
+  tertiary: cardExpenseRatio < 0.35 ? 'Lean' : cardExpenseRatio < 0.50 ? 'Normal' : 'High costs',
   tooltip: 'Total Monthly Expenses ÷ Effective Monthly Rent.\nIncludes mortgage, tax, operating costs, repair reserve. Below 40% is healthy.',
 });
 
-export const defEvalRentToValue = (rentToValue) => card({
+export const cardEvalRentToValue = (cardRentToValue) => card({
   label: 'Rent-to-Value',
-  primary: fPct(rentToValue),
-  primaryCls: rentToValue > 0.01 ? 'text-success' : rentToValue > 0.007 ? '' : 'text-danger',
-  tertiary: rentToValue > 0.01 ? 'Meets 1% rule' : rentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
+  primary: fPct(cardRentToValue),
+  primaryCls: cardRentToValue > 0.01 ? 'text-success' : cardRentToValue > 0.007 ? '' : 'text-danger',
+  tertiary: cardRentToValue > 0.01 ? 'Meets 1% rule' : cardRentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
   tooltip: 'Annual Gross Rent ÷ Purchase Price.\nThe "1% rule": monthly rent ≥1% of price for cash-flow-positive property.',
 });
 
-export const defEvalAnnualNOI = (annualNOI) => card({
+export const cardEvalAnnualNOI = (annualNOI) => card({
   label: 'Annual NOI',
   primary: fmt(annualNOI) + '/yr',
   primaryCls: annualNOI >= 0 ? 'text-success' : 'text-danger',
@@ -463,7 +463,7 @@ export const defEvalAnnualNOI = (annualNOI) => card({
   tooltip: 'Net Operating Income = Annual Gross Rent − (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic.',
 });
 
-export const defEvalGRM = (grm) => card({
+export const cardEvalGRM = (grm) => card({
   label: 'GRM',
   primary: grm.toFixed(1) + 'x',
   primaryCls: grm < 10 ? 'text-success' : grm < 15 ? '' : 'text-danger',
@@ -471,7 +471,7 @@ export const defEvalGRM = (grm) => card({
   tooltip: 'Gross Rent Multiplier = Purchase Price ÷ Annual Gross Rent.\nLower is better. Typical range: 8–12x for good cash-flow markets.',
 });
 
-export const defEvalIRR10 = (irr10) => card({
+export const cardEvalIRR10 = (irr10) => card({
   label: 'IRR (10-yr)',
   primary: fp(irr10 * 100),
   primaryCls: irr10 > 0.15 ? 'text-success' : irr10 > 0.08 ? '' : irr10 < 0 ? 'text-danger' : 'text-warning',
@@ -479,14 +479,14 @@ export const defEvalIRR10 = (irr10) => card({
   tooltip: 'Internal Rate of Return over a 10-year horizon.\nAccounts for time-value of money. Target: 10–15%+ for real estate.',
 });
 
-export const defEvalMonthlyMortgage = (monthlyMortgage, effectiveRate, amortization) => card({
+export const cardEvalMonthlyMortgage = (monthlyMortgage, effectiveRate, amortization) => card({
   label: 'Monthly Mortgage',
   primary: fmt(monthlyMortgage) + '/mo',
   primaryCls: 'text-danger',
   tooltip: `Standard amortization payment at ${fp(effectiveRate)}% over ${amortization} years.`,
 });
 
-export const defEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
+export const cardEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
   label: 'Total Monthly Costs',
   primary: fmt(total) + '/mo',
   primaryCls: 'text-danger',
@@ -495,7 +495,7 @@ export const defEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) =>
   tooltip: 'Sum of mortgage payment, operating expenses, property tax, and repair reserve.',
 });
 
-export const defEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
+export const cardEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
   label: 'Avg Cash Flow',
   primary: fmt(cashFlow) + '/mo',
   primaryCls: cashFlow >= 0 ? 'text-success' : 'text-danger',
@@ -504,22 +504,22 @@ export const defEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
   tooltip: 'Effective rent (after vacancy) minus total monthly costs.',
 });
 
-export const defEvalMonthlyGain = (monthlyGain, cashFlow, monthlyAppr) => card({
+export const cardEvalMonthlyGain = (cardMonthlyGain, cashFlow, monthlyAppr) => card({
   label: 'Monthly Gain',
-  primary: fmt(monthlyGain) + '/mo',
-  primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
+  primary: fmt(cardMonthlyGain) + '/mo',
+  primaryCls: cardMonthlyGain >= 0 ? 'text-success' : 'text-danger',
   secondary: `CF ${fmt(cashFlow)} + Appr ${fmt(monthlyAppr)}`,
   secondaryCls: 'text-secondary',
   tooltip: 'Cash Flow + Monthly Appreciation.\nCaptures income and value growth together.',
 });
 
-export const defEvalPayback = (paybackProps) => card({
+export const cardEvalPayback = (paybackProps) => card({
   label: 'Payback Period',
   ...paybackProps,
   tooltip: 'Time for cumulative cash flow to recover all cash invested (down payment + one-off costs).\nUses cash flow only — does not include appreciation.',
 });
 
-export const defEvalBreakEven = (breakEvenProps) => card({
+export const cardEvalBreakEven = (breakEvenProps) => card({
   label: 'Break-even',
   ...breakEvenProps,
   tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways ≤ Payback Period since gain ≥ cash flow.',

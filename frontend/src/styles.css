@@ -985,6 +985,7 @@ table td {
     flex-direction: column;
     gap: 0.2rem;
     margin-bottom: 0.65rem;
+    justify-content: flex-end; /* pin input to bottom so rows align across columns */
 }
 
 .eval-label {

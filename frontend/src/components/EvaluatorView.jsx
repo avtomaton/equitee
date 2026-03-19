@@ -3,10 +3,10 @@ import StarRating from './StarRating.jsx';
 import MetricCard from './MetricCard.jsx';
 import { fmt, fPct, fp, NumInput, SliderInput } from './uiHelpers.jsx';
 import {
-  defEvalLTV, defEvalCapRate, defEvalCashOnCash, defEvalExpenseRatio, defEvalRentToValue,
-  defEvalAnnualNOI, defEvalGRM, defEvalIRR10,
-  defEvalMonthlyMortgage, defEvalTotalMonthlyCosts, defEvalAvgCashFlow, defEvalMonthlyGain,
-  defEvalPayback, defEvalBreakEven,
+  cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue,
+  cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10,
+  cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain,
+  cardEvalPayback, cardEvalBreakEven,
 } from '../metricDefs.jsx';
 import { calcInvestmentScore, calcMortgagePayment, calcIRR, calcPayback, calcBreakEven } from '../metrics.js';
 import { clamp } from '../utils.js';
@@ -44,7 +44,7 @@ function ScorePanel({ score }) {
 // ── Analysis tips (forward-looking, no historical records) ────────────────────
 
 function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
-  marketValue, monthlyRent, capRate, cashOnCash,
+  cardMarketValue, monthlyRent, capRate, cashOnCash,
   expenseRatio, ltvRatio, equity, monthlyMortgage, vacancyRate,
   oneOffExpense, repairReserve }) {
 
@@ -100,7 +100,7 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
       detail: `${fmt(oneOffExpense)} in upfront costs takes ${Math.ceil(oneOffExpense / Math.max(1, avgCashFlow))} months of cash flow to recover.` });
   }
   if (monthlyRent > 0 && capRate < 0.05) {
-    const targetRent = Math.round(marketValue * 0.06 / 12);
+    const targetRent = Math.round(cardMarketValue * 0.06 / 12);
     const delta = targetRent - monthlyRent;
     if (delta > 0) {
       items.push({ icon: '📈', cls: 'text-warning', label: 'Low cap rate',
@@ -115,9 +115,9 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
     items.push({ icon: '💎', cls: 'text-success', label: 'Strong appreciation projected',
       detail: `At ${fp(yearlyApprRatio * 100)}/yr appreciation, the property gains ${fmt(yearlyAppr)}/yr in value. Even modest cash flow becomes highly profitable long-term.` });
   }
-  if (repairReserve < 0.5 && marketValue > 200000) {
+  if (repairReserve < 0.5 && cardMarketValue > 200000) {
     items.push({ icon: '🔩', cls: 'text-warning', label: 'Low repair reserve',
-      detail: `A reserve below 0.5% of value may be insufficient. Industry standard is 1–1.5% (${fmt(marketValue * 0.01)}/yr) for repairs and maintenance.` });
+      detail: `A reserve below 0.5% of value may be insufficient. Industry standard is 1–1.5% (${fmt(cardMarketValue * 0.01)}/yr) for repairs and maintenance.` });
   }
 
   return items;
@@ -168,7 +168,7 @@ export default function EvaluatorView() {
     propertyType:       'Residential',
     purchasePrice:      500000,
     downPayment:        100000,
-    mortgageRate:       5.0,
+    cardMortgageRate:       5.0,
     amortization:       25,
     monthlyRent:        2500,
     monthlyOpEx:        300,
@@ -194,7 +194,7 @@ export default function EvaluatorView() {
 
     const effectiveRent        = p.monthlyRent * (1 + s.rentDelta / 100);
     const effectiveDownPayment = clamp(p.downPayment * (1 + s.downPaymentDelta / 100), 0, p.purchasePrice * 0.99);
-    const effectiveRate        = Math.max(0.1, p.mortgageRate + s.rateDelta);
+    const effectiveRate        = Math.max(0.1, p.cardMortgageRate + s.rateDelta);
     const loanAmount           = p.purchasePrice - effectiveDownPayment;
 
     const monthlyMortgage      = calcMortgagePayment(loanAmount, effectiveRate, p.amortization);
@@ -258,7 +258,7 @@ export default function EvaluatorView() {
 
     const analysis = buildAnalysis({
       avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
-      marketValue: p.purchasePrice, monthlyRent: effectiveRent,
+      cardMarketValue: p.purchasePrice, monthlyRent: effectiveRent,
       capRate, cashOnCash, expenseRatio, ltvRatio, equity,
       monthlyMortgage, vacancyRate: s.vacancyRate,
       oneOffExpense: s.oneOffExpense, repairReserve: s.repairReserve,
@@ -308,7 +308,7 @@ export default function EvaluatorView() {
           <NumInput label="Purchase Price"           value={inputs.purchasePrice}      onChange={v => set('purchasePrice', v)}      prefix="$" min={0} step={1000} />
           <NumInput label="Down Payment"             value={inputs.downPayment}        onChange={v => set('downPayment', v)}        prefix="$" min={0} step={1000}
             help={inputs.purchasePrice > 0 ? `${fp(inputs.downPayment / inputs.purchasePrice * 100)} of purchase price` : undefined} />
-          <NumInput label="Mortgage Rate"            value={inputs.mortgageRate}       onChange={v => set('mortgageRate', v)}       suffix="%" min={0} max={30} step={0.05} />
+          <NumInput label="Mortgage Rate"            value={inputs.cardMortgageRate}       onChange={v => set('cardMortgageRate', v)}       suffix="%" min={0} max={30} step={0.05} />
           <NumInput label="Amortization"             value={inputs.amortization}       onChange={v => set('amortization', v)}       suffix="yr" min={1} max={35} step={1} />
 
           <div className="eval-computed-row">
@@ -317,7 +317,7 @@ export default function EvaluatorView() {
           </div>
           <div className="eval-computed-row">
             <span>Monthly Payment</span>
-            <span className="text-danger">{fmt(calcMortgagePayment(inputs.purchasePrice - inputs.downPayment, inputs.mortgageRate, inputs.amortization))}/mo</span>
+            <span className="text-danger">{fmt(calcMortgagePayment(inputs.purchasePrice - inputs.downPayment, inputs.cardMortgageRate, inputs.amortization))}/mo</span>
           </div>
 
           <h3 className="eval-section-title" style={{ marginTop: '1rem' }}>Income &amp; Expenses</h3>
@@ -332,28 +332,28 @@ export default function EvaluatorView() {
         <div>
           <p className="stat-section-label">Investment Ratios</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {defEvalLTV(m.ltvRatio)}
-            {defEvalCapRate(m.capRate)}
-            {defEvalCashOnCash(m.cashOnCash)}
-            {inputs.monthlyRent > 0 && defEvalExpenseRatio(m.expenseRatio)}
-            {inputs.monthlyRent > 0 && defEvalRentToValue(m.rentToValue)}
+            {cardEvalLTV(m.ltvRatio)}
+            {cardEvalCapRate(m.capRate)}
+            {cardEvalCashOnCash(m.cashOnCash)}
+            {inputs.monthlyRent > 0 && cardEvalExpenseRatio(m.expenseRatio)}
+            {inputs.monthlyRent > 0 && cardEvalRentToValue(m.rentToValue)}
           </div>
 
           <p className="stat-section-label">NOI &amp; Return Projections</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {defEvalAnnualNOI(m.annualNetOpIncome)}
-            {m.grm !== null && inputs.monthlyRent > 0 && defEvalGRM(m.grm)}
-            {m.irr10 !== null && defEvalIRR10(m.irr10)}
+            {cardEvalAnnualNOI(m.annualNetOpIncome)}
+            {m.grm !== null && inputs.monthlyRent > 0 && cardEvalGRM(m.grm)}
+            {m.irr10 !== null && cardEvalIRR10(m.irr10)}
           </div>
 
           <p className="stat-section-label">Cash Flow &amp; Monthly Gain</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {defEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
-            {defEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
-            {defEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
-            {defEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
-            {defEvalPayback(m.payback)}
-            {defEvalBreakEven(m.breakEven)}
+            {cardEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
+            {cardEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
+            {cardEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
+            {cardEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
+            {cardEvalPayback(m.payback)}
+            {cardEvalBreakEven(m.breakEven)}
           </div>
 
           <ScorePanel score={m.score} />
@@ -404,7 +404,7 @@ export default function EvaluatorView() {
             </button>
           )}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem 2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem 2rem', alignItems: 'end' }}>
           <SliderInput label="Rent adjustment" value={scenario.rentDelta}
             onChange={v => setS('rentDelta', v)} min={-30} max={30} step={1}
             format={v => `${v >= 0 ? '+' : ''}${v}%`}
