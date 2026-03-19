@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
 import { API_URL, INITIAL_OPTIONS } from '../config.js';
-import { monthlyMortgageEquiv } from '../metrics.js';
 import { ModalOverlay, DateInput, selectOnFocus, today, QUICK_BTN_STYLE, PropertyOptions } from './ModalBase.jsx';
 
 const toFormState_Expense = (expense, property) => expense ? {
@@ -50,8 +49,7 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
   };
   const fillMortgage = () => {
     if (!selectedProp?.mortgage_payment) return;
-    const monthly = monthlyMortgageEquiv(selectedProp.mortgage_payment, selectedProp.mortgage_frequency);
-    quickFill({ amount: parseFloat(monthly.toFixed(2)), expense_category: 'Mortgage', expense_type: 'Recurrent',
+    quickFill({ amount: selectedProp.mortgage_payment, expense_category: 'Mortgage', expense_type: 'Recurrent',
       notes: `Mortgage payment (${selectedProp.mortgage_frequency || 'monthly'})` });
   };
 
