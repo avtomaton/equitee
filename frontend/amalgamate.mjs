@@ -39,6 +39,7 @@ const files = [
   'src/hooks.js',
   'src/hooks/usePortfolioMetrics.js',
   'src/hooks/useTransactionView.js',
+  'src/metricDefs.jsx',
   'src/components/Tooltip.jsx',
   'src/components/MultiSelect.jsx',
   'src/components/Collapsible.jsx',

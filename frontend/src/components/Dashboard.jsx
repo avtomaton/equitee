@@ -5,12 +5,18 @@ import {
 } from 'recharts';
 import PropertyCard from './PropertyCard.jsx';
 import KPICard from './KPICard.jsx';
-import { fmt, fp, fPct, mc, sn, SectionLabel, WindowPicker, wLabel, ltvColor, fmtPeriod, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
+import { fmt, fp, fPct, sn, SectionLabel, WindowPicker, wLabel, ltvColor, fmtPeriod, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
 import { API_URL } from '../config.js';
 import { avgMonthly, expGap, monthsLeftInYear } from '../metrics.js';
 import { usePortfolioAggregates } from '../hooks.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
+import {
+  defAvgIncome, defAvgExpenses, defAvgCashFlow, defAvgNOI,
+  defCapRate, defOER, defDSCR, defICR,
+  defMonthlyGain, defNetPosition, defPaybackPeriod, defBreakEven,
+  defTotalAppreciation, defYearlyAppreciation, defProjectedYearEnd, defYearEndBalance,
+} from '../metricDefs.jsx';
 
 export default function Dashboard({ properties, onPropertyClick }) {
   const [allIncome,   setAllIncome]   = useState([]);
@@ -123,29 +129,10 @@ export default function Dashboard({ properties, onPropertyClick }) {
       {/* ── Appreciation ── */}
       <SectionLabel>Appreciation</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'Total Appreciation', primary: fmt(agg.appr),
-          primaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.apprPct !== null && agg.purchase > 0 ? agg.apprPct.toFixed(1) + '% from ' + fmt(agg.purchase) : null,
-          secondaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total unrealised gain: current Market Value minus original Purchase Price across all properties.' })}
-        {mc({ label: 'Yearly Appreciation',
-          primary: fmt(agg.yearlyAppr),
-          primaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.yearlyApprPct !== null ? fp(agg.yearlyApprPct) + ' per year' : null,
-          secondaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null,
-            v => v >= 0 ? 'text-success' : 'text-danger',
-            v => fmt(v) + (agg.expYearlyApprPct ? ' (' + fp(agg.expYearlyApprPct) + '/yr)' : ''),
-            'Exp:', true, 500),
-          tooltip: 'Annualised appreciation per property, summed.\nExp = sum of (purchase price × expected appreciation %) across properties where that is set.' })}
-        {mc({ label: 'Projected Year-End Value', primary: fmt(agg.projectedYE),
-          tertiary: 'At current appreciation rate',
-          tooltip: 'Current market value plus the remaining fraction of the year times the current annual appreciation rate.' })}
-        {mc({ label: 'Year-End Balance',
-          primary: fmt(m.runRate),
-          primaryCls: m.runRate >= 0 ? 'text-success' : 'text-danger',
-          ...(m.budgeted != null ? expGap(m.runRate, m.budgeted, v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Budget:', true, 1000) : {}),
-          tooltip: `Projected Net Position at December 31st.\nRun-rate: current Net Position + avg monthly cash flow × ${ml} months + avg monthly appreciation × ${ml} months.\nBudget: same but using expected monthly cash flow and appreciation.` })}
+        {defTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
+        {defYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
+        {defProjectedYearEnd(agg.projectedYE)}
+        {defYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
       {/* ── Income & Expenses (all-time) ── */}
@@ -170,71 +157,26 @@ export default function Dashboard({ properties, onPropertyClick }) {
 
       {/* Row 1 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {mc({ label: `Avg Income (${avgWindow}M)`,
-          primary: fmt(avg.income), primaryCls: 'text-success',
-          ...expGap(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, () => 'text-success', fmt, 'Exp:', true, 50),
-          tooltip: `Average monthly income over the last ${avgWindow} complete months.\nExp = sum of all current monthly rents at 100% occupancy.` })}
-        {mc({ label: `Avg Expenses (${avgWindow}M)`,
-          primary: fmt(avg.expenses), primaryCls: 'text-danger',
-          ...expGap(avg.expenses, expExpensesVal,
-            v => v < agg.totalMonthlyRent * 0.65 ? '' : v < agg.totalMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
-            fmt, 'Exp:', false, 50),
-          tooltip: `Average monthly expenses over the last ${avgWindow} complete months.\nExp = budgeted op-ex (${agg.propertiesWithExpected} of ${properties.length} props) + avg mortgage.` })}
-        {mc({ label: `Avg Cash Flow (${avgWindow}M)`,
-          primary: fmt(avg.cashflow),
-          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.cashflow, m.expCF, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50),
-          tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.\nExp = budgeted NOI minus average mortgage payment.` })}
-        {mc({ label: `Avg NOI (${avgWindow}M)`,
-          primary: fmt(avg.noi),
-          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.noi, agg.expNOI, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50),
-          tooltip: 'Net Operating Income: avg monthly income minus all op-ex, excluding mortgage and principal.\nExp = total monthly rent minus budgeted operating expenses.' })}
+        {defAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
+        {defAvgExpenses(avg.expenses, expExpensesVal, avgWindow, agg.totalMonthlyRent)}
+        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {defAvgNOI(avg.noi, agg.expNOI, avgWindow)}
       </div>
 
       {/* Row 2 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {m.capRate !== null && mc({ label: `Cap Rate (${avgWindow}M)`,
-          primary: fPct(m.capRate),
-          primaryCls: m.capRate > 0.07 ? 'text-success' : m.capRate > 0.04 ? '' : 'text-danger',
-          ...expGap(m.capRate, m.expCap, v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct, 'Exp:', true, 0.005),
-          tertiary: m.capRate > 0.07 ? 'Strong yield' : m.capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-          tooltip: 'Portfolio Cap Rate = annualised NOI ÷ total market value.\n> 7%: strong. 4–7%: moderate. < 4%: weak.' })}
-        {m.oer !== null && mc({ label: `OER (${avgWindow}M)`,
-          primary: fPct(m.oer),
-          primaryCls: m.oer < 0.35 ? 'text-success' : m.oer < 0.50 ? '' : 'text-danger',
-          ...expGap(m.oer, m.expOER, v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false, 0.02),
-          tertiary: m.oer < 0.35 ? 'Efficient' : m.oer < 0.50 ? 'Normal' : 'High costs',
-          tooltip: 'Operating Expense Ratio = avg op-ex ÷ avg gross income.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.' })}
-        {m.dscr !== null && mc({ label: `DSCR (${avgWindow}M)`,
-          primary: m.dscr.toFixed(2) + 'x',
-          primaryCls: m.dscr >= 1.25 ? 'text-success' : m.dscr >= 1.0 ? 'text-warning' : 'text-danger',
-          ...expGap(m.dscr, m.expDSCR, v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger', v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.dscr >= 1.25 ? 'Healthy coverage' : m.dscr >= 1.0 ? 'Marginal' : 'Below 1x',
-          tooltip: 'Debt Service Coverage Ratio = avg monthly NOI ÷ avg mortgage payment.' })}
-        {m.icr !== null && mc({ label: `ICR (${avgWindow}M)`,
-          primary: m.icr.toFixed(2) + 'x',
-          primaryCls: m.icr >= 2 ? 'text-success' : m.icr >= 1.25 ? '' : 'text-danger',
-          ...expGap(m.icr, m.expICR, v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger', v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.icr >= 2 ? 'Strong' : m.icr >= 1.25 ? 'Adequate' : 'Weak',
-          tooltip: 'Interest Coverage Ratio = annualised NOI ÷ total annual interest (loan \u00d7 rate) across all properties.\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.' })}
+        {m.capRate !== null && defCapRate(m.capRate, m.expCap, avgWindow)}
+        {m.oer !== null && defOER(m.oer, m.expOER, avgWindow)}
+        {m.dscr !== null && defDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {defICR(m.icr, m.expICR, avgWindow)}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {mc({ label: 'Monthly Gain', primary: fmt(m.mg),
-          primaryCls: m.mg >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(m.mg, m.expMG, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50),
-          tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12).\nExp uses budgeted operating costs + expected appreciation %.' })}
-        {mc({ label: 'Net Position', primary: fmt(agg.sellingProfit),
-          primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Market Value + Total Income − Total Expenses − Loans.' })}
-        {mc({ label: 'Payback Period', ...m.payback,
-          secondary: m.expPPLabel, secondaryCls: m.expPPLabel ? 'text-success' : '',
-          tooltip: `Time until all recorded expenses are recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(agg.expenses)} − ${fmt(agg.income)}).\nExp uses budgeted cash flow.` })}
-        {mc({ label: 'Break-even', ...m.breakEven,
-          secondary: m.expBELabel, secondaryCls: m.expBELabel ? 'text-success' : '',
-          tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.' })}
+        {defMonthlyGain(m.mg, m.expMG)}
+        {defNetPosition(agg.sellingProfit)}
+        {defPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
+        {defBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
       {/* ── Charts ── */}

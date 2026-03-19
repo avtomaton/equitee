@@ -35,7 +35,7 @@ export const wLabel = w => !w ? 'All' : w >= 24 ? `${w / 12}Y` : `${w}M`;
 
 // ── MetricCard shorthand ──────────────────────────────────────────────────────
 /** Drop-in <MetricCard> with standard flex sizing. */
-export const mc = props => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
+// mc has been removed — all metric cards are now defined in metricDefs.jsx
 
 // ── Evaluator input components (shared by EvaluatorView & RenovationView) ────
 

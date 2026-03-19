@@ -2434,7 +2434,7 @@ const wLabel = w => !w ? 'All' : w >= 24 ? `${w / 12}Y` : `${w}M`;
 
 // ── MetricCard shorthand ──────────────────────────────────────────────────────
 /** Drop-in <MetricCard> with standard flex sizing. */
-const mc = props => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
+// mc has been removed — all metric cards are now defined in metricDefs.jsx
 
 // ── Evaluator input components (shared by EvaluatorView & RenovationView) ────
 
@@ -2905,6 +2905,531 @@ function useTransactionView({
 }
 
 
+// ── src/metricDefs.jsx─────────────────────────────────────
+/**
+ * metricDefs.jsx — Single source of truth for every metric card's
+ * label, tooltip, colour logic, and format.
+ *
+ * Each export is a function that accepts numeric values and returns
+ * a ready-to-render <MetricCard> element. Call sites just do:
+ *
+ *    *   {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+ *
+ * Rules:
+ *   - Tooltips live here; views never re-declare them
+ *   - Colour thresholds live here; views never re-declare them
+ *   - expGap calls live here so the "Exp:" secondary is consistent everywhere
+ *   - Defs that have no meaningful value to show return null (React-safe)
+ */
+
+
+const CARD_STYLE = { flex: '1 1 150px', minWidth: 140 };
+const card = props => <MetricCard {...props} style={CARD_STYLE} />;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const posCls  = v => v >= 0 ? 'text-success' : 'text-danger';
+const xCls    = v => v.toFixed(2) + 'x';
+const capCls  = v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger';
+const oerCls  = v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger';
+const dscrCls = v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger';
+const icrCls  = v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger';
+const lbl     = (w) => w ? (w >= 24 ? `${w / 12}Y` : `${w}M`) : 'All';
+
+// ── Average / rolling metrics ─────────────────────────────────────────────────
+
+const defAvgIncome = (actual, expVal, window) => card({
+  label: `Avg Income (${lbl(window)})`,
+  primary: fmt(actual),
+  primaryCls: 'text-success',
+  ...expGap(actual, expVal, () => 'text-success', fmt, 'Exp:', true, 50),
+  tooltip: `Average monthly income over the last ${window} complete months.\nExp = sum of all current monthly rents at 100% occupancy.`,
+});
+
+const defAvgExpenses = (actual, expVal, window, monthlyRent = 0) => card({
+  label: `Avg Expenses (${lbl(window)})`,
+  primary: fmt(actual),
+  primaryCls: 'text-danger',
+  ...expGap(actual, expVal,
+    v => v < monthlyRent * 0.65 ? '' : v < monthlyRent * 0.85 ? 'text-warning' : 'text-danger',
+    fmt, 'Exp:', false, 50),
+  tooltip: `Average monthly expenses over the last ${window} complete months (all categories including mortgage).\nExp = budgeted op-ex + expected mortgage.`,
+});
+
+const defAvgCashFlow = (actual, expVal, window) => card({
+  label: `Avg Cash Flow (${lbl(window)})`,
+  primary: fmt(actual),
+  primaryCls: posCls(actual),
+  ...expGap(actual, expVal, posCls, fmt, 'Exp:', true, 50),
+  tooltip: `Average monthly (Income − Expenses) over the last ${window} complete months.\nExp = budgeted NOI minus expected mortgage payment.`,
+});
+
+const defAvgNOI = (actual, expVal, window) => card({
+  label: `Avg NOI (${lbl(window)})`,
+  primary: fmt(actual),
+  primaryCls: posCls(actual),
+  ...expGap(actual, expVal, posCls, fmt, 'Exp:', true, 50),
+  tooltip: 'Net Operating Income: avg monthly income minus all op-ex, excluding mortgage and principal.\nExp = total monthly rent minus budgeted operating expenses.',
+});
+
+// ── Ratio metrics ─────────────────────────────────────────────────────────────
+
+const defCapRate = (actual, expVal, window) => card({
+  label: `Cap Rate${window ? ` (${lbl(window)})` : ''}`,
+  primary: actual != null ? fPct(actual) : '—',
+  primaryCls: actual != null ? capCls(actual) : 'text-secondary',
+  ...(actual != null ? expGap(actual, expVal, capCls, fPct, 'Exp:', true, 0.005) : {}),
+  tertiary: actual != null
+    ? (actual > 0.07 ? 'Strong yield' : actual > 0.04 ? 'Moderate yield' : 'Weak yield')
+    : undefined,
+  tooltip: 'Annual NOI ÷ Market Value (portfolio) or Purchase Price (property).\n> 7%: strong. 4–7%: moderate. < 4%: weak.',
+});
+
+const defOER = (actual, expVal, window) => card({
+  label: `OER${window ? ` (${lbl(window)})` : ''}`,
+  primary: actual != null ? fPct(actual) : '—',
+  primaryCls: actual != null ? oerCls(actual) : 'text-secondary',
+  ...(actual != null ? expGap(actual, expVal, oerCls, fPct, 'Exp:', false, 0.02) : {}),
+  tertiary: actual != null
+    ? (actual < 0.35 ? 'Efficient' : actual < 0.50 ? 'Normal' : 'High costs')
+    : 'No income in window',
+  tooltip: 'Operating Expense Ratio = op-ex ÷ gross income. Excludes mortgage and principal.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
+});
+
+const defDSCR = (actual, expVal, window, noMortgageLabel) => {
+  if (actual == null) return card({
+    label: `DSCR${window ? ` (${lbl(window)})` : ''}`,
+    primary: '—',
+    primaryCls: 'text-secondary',
+    tertiary: noMortgageLabel ?? 'No mortgage expenses recorded',
+    tooltip: 'Debt Service Coverage = monthly NOI ÷ mortgage payment.\n≥ 1.25x: comfortable. 1.0–1.25x: marginal. < 1.0x: income doesn\'t cover the mortgage.',
+  });
+  return card({
+    label: `DSCR${window ? ` (${lbl(window)})` : ''}`,
+    primary: actual.toFixed(2) + 'x',
+    primaryCls: dscrCls(actual),
+    ...expGap(actual, expVal, dscrCls, xCls, 'Exp:', true, 0.05),
+    tertiary: actual >= 1.25 ? 'Healthy coverage' : actual >= 1.0 ? 'Marginal' : 'Below 1x',
+    tooltip: 'Debt Service Coverage = monthly NOI ÷ mortgage payment.\n≥ 1.25x: comfortable. 1.0–1.25x: marginal. < 1.0x: income doesn\'t cover the mortgage.',
+  });
+};
+
+const defICR = (actual, expVal, window) => {
+  if (actual == null) return null;
+  return card({
+    label: `ICR${window ? ` (${lbl(window)})` : ''}`,
+    primary: actual.toFixed(2) + 'x',
+    primaryCls: icrCls(actual),
+    ...expGap(actual, expVal, icrCls, xCls, 'Exp:', true, 0.05),
+    tertiary: actual >= 2 ? 'Strong' : actual >= 1.25 ? 'Adequate' : 'Weak',
+    tooltip: 'Interest Coverage Ratio = annualised NOI ÷ total annual interest (loan × rate).\n≥ 2.0x: strong. 1.25–2.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.',
+  });
+};
+
+const defLTV = (ratio) => card({
+  label: 'Loan-to-Value',
+  primary: fPct(ratio),
+  primaryCls: ratio > 0.80 ? 'text-danger' : ratio > 0.65 ? '' : 'text-success',
+  tertiary: ratio > 0.80 ? 'High leverage' : ratio < 0.55 ? 'Low leverage' : 'Moderate leverage',
+  tooltip: 'Loan ÷ Market Value. Below 65%: conservative. 65–80%: normal. Above 80%: high risk.',
+});
+
+const defCashOnCash = (actual, expVal) => card({
+  label: 'Cash-on-Cash',
+  primary: fPct(actual),
+  primaryCls: actual > 0.08 ? 'text-success' : actual > 0.04 ? '' : actual < 0 ? 'text-danger' : 'text-warning',
+  ...expGap(actual, expVal,
+    v => v > 0.08 ? 'text-success' : v > 0.04 ? '' : v < 0 ? 'text-danger' : 'text-warning',
+    fPct, 'Exp:', true, 0.005),
+  tooltip: 'Annual Cash Flow ÷ Equity. Measures how hard your invested equity is working.\nTarget: 6–10%+.',
+});
+
+const defExpenseRatio = (actual, expVal) => card({
+  label: 'Expense Ratio',
+  primary: fPct(actual),
+  primaryCls: actual < 0.35 ? 'text-success' : actual < 0.50 ? '' : 'text-danger',
+  ...expGap(actual, expVal,
+    v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger',
+    fPct, 'Exp:', false),
+  tooltip: 'Avg Monthly Expenses ÷ Monthly Rent (all costs including mortgage).\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
+});
+
+const defRentToValue = (ratio) => card({
+  label: 'Rent-to-Value',
+  primary: fPct(ratio),
+  primaryCls: ratio > 0.01 ? 'text-success' : ratio > 0.007 ? '' : 'text-danger',
+  tertiary: ratio > 0.01 ? 'Passes 1% rule' : ratio > 0.007 ? 'Near 1% rule' : 'Below 1% rule',
+  tooltip: 'Monthly Rent ÷ Purchase Price. The 1% rule: monthly rent ≥ 1% of purchase price signals healthy cash flow potential.',
+});
+
+// ── Gain / position metrics ───────────────────────────────────────────────────
+
+const defMonthlyGain = (actual, expVal) => card({
+  label: 'Monthly Gain',
+  primary: fmt(actual),
+  primaryCls: posCls(actual),
+  ...expGap(actual, expVal, posCls, fmt, 'Exp:', true, 50),
+  tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12).\nExp uses budgeted operating costs + expected appreciation %.',
+});
+
+const defNetPosition = (actual, pctOfSpend = null) => card({
+  label: 'Net Position',
+  primary: fmt(actual),
+  primaryCls: posCls(actual),
+  secondary: pctOfSpend != null ? pctOfSpend.toFixed(1) + '% of net spending' : null,
+  secondaryCls: pctOfSpend != null ? posCls(pctOfSpend) : '',
+  tooltip: 'Market Value + Total Income − Total Expenses − Loans.\nWhat you would walk away with after selling and clearing all mortgages.',
+});
+
+const defPaybackPeriod = (paybackProps, expLabel, outstanding, income, expenses) => card({
+  label: 'Payback Period',
+  ...paybackProps,
+  secondary: expLabel ?? null,
+  secondaryCls: expLabel ? 'text-success' : '',
+  tooltip: `Time until all recorded expenses are recovered by cumulative cash flow.${
+    outstanding != null && income != null && expenses != null
+      ? `\nNumerator = Total Expenses − Total Income (${fmt(expenses)} − ${fmt(income)}).`
+      : ''
+  }\nExp uses budgeted cash flow.`,
+});
+
+const defBreakEven = (breakEvenProps, expLabel) => card({
+  label: 'Break-even',
+  ...breakEvenProps,
+  secondary: expLabel ?? null,
+  secondaryCls: expLabel ? 'text-success' : '',
+  tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.',
+});
+
+// ── Appreciation metrics ──────────────────────────────────────────────────────
+
+const defTotalAppreciation = (appr, apprPct, purchase) => card({
+  label: 'Total Appreciation',
+  primary: fmt(appr),
+  primaryCls: posCls(appr),
+  secondary: apprPct != null && purchase > 0
+    ? apprPct.toFixed(1) + '% from ' + fmt(purchase) : null,
+  secondaryCls: posCls(appr),
+  tooltip: 'Total unrealised gain: current Market Value minus original Purchase Price.',
+});
+
+const defYearlyAppreciation = (actual, expVal, expPct, apprPct) => card({
+  label: 'Yearly Appreciation',
+  primary: fmt(actual),
+  primaryCls: posCls(actual),
+  secondary: apprPct != null ? fp(apprPct) + ' per year' : null,
+  secondaryCls: posCls(actual),
+  ...expGap(actual, expVal ?? null, posCls,
+    v => fmt(v) + (expPct ? ` (${fp(expPct)}/yr)` : ''),
+    'Exp:', true, 500),
+  tooltip: 'Annualised appreciation per property, summed.\nExp = sum of (purchase price × expected appreciation %) for properties where that is set.',
+});
+
+const defProjectedYearEnd = (value) => card({
+  label: 'Projected Year-End Value',
+  primary: fmt(value),
+  tertiary: 'At current appreciation rate',
+  tooltip: 'Current market value plus the remaining fraction of the year times the current annual appreciation rate.',
+});
+
+const defYearEndBalance = (actual, budgeted, ml) => card({
+  label: 'Year-End Balance',
+  primary: fmt(actual),
+  primaryCls: posCls(actual),
+  ...expGap(actual, budgeted, posCls, fmt, 'Budget:', true, 1000),
+  tooltip: `Projected Net Position at December 31st.\nRun-rate: current Net Position + avg monthly cash flow × ${ml} months + avg monthly appreciation × ${ml} months.\nBudget: same but using expected monthly cash flow and appreciation.`,
+});
+
+// ── Property-specific metrics ─────────────────────────────────────────────────
+
+const defEconVacancy = (actual) => card({
+  label: 'Economic Vacancy',
+  primary: actual != null ? `${Math.min(actual, 100).toFixed(1)}%` : '—',
+  primaryCls: actual != null
+    ? (actual > 10 ? 'text-danger' : actual > 4 ? 'text-warning' : 'text-success')
+    : 'text-secondary',
+  tertiary: actual != null
+    ? (actual > 10 ? 'High loss' : actual > 4 ? 'Moderate' : 'Low')
+    : 'No status events recorded',
+  tooltip: 'Lost rent due to vacancy ÷ Potential rent (trailing 12 months).\n\nMeasured from Vacant→Rented status changes in the Events log.\nRent value at the time of each vacancy is used for lost-rent calculation.\nTarget: < 5%.',
+});
+
+const defIRR = (actual, hasPossDate) => card({
+  label: 'IRR',
+  primary: actual != null ? fPct(actual) : '—',
+  primaryCls: actual != null
+    ? (actual > 0.15 ? 'text-success' : actual > 0.08 ? '' : actual < 0 ? 'text-danger' : 'text-warning')
+    : 'text-secondary',
+  tertiary: actual != null
+    ? (actual > 0.15 ? 'Excellent' : actual > 0.08 ? 'Good' : actual < 0 ? 'Loss' : 'Below target')
+    : (!hasPossDate ? 'No possession date set' : 'Need ≥ 2 months of records'),
+  tooltip: 'Internal Rate of Return — the annualised rate that makes NPV of all cash flows zero.\nTarget: 10–15%+ for real estate.',
+});
+
+const defMaintCapEx = (actual) => card({
+  label: 'Maint+CapEx Ratio',
+  primary: actual != null ? fPct(actual) : '—',
+  primaryCls: actual != null
+    ? (actual < 0.05 ? 'text-success' : actual < 0.12 ? '' : 'text-danger')
+    : 'text-secondary',
+  tertiary: actual != null
+    ? (actual < 0.05 ? 'Low' : actual < 0.12 ? 'Normal' : 'High')
+    : 'Set monthly rent to compute',
+  tooltip: 'YTD Maintenance + Capital Expenditure ÷ Annual gross rental income.\nNorm: 5–10% of gross rent.',
+});
+
+// ── Property summary cards ────────────────────────────────────────────────────
+
+const defMarketValue = (marketPrice, appr, apprPct, purchasePrice) => card({
+  label: 'Market Value',
+  primary: fmt(marketPrice),
+  secondary: appr !== 0
+    ? (appr >= 0 ? '+' : '') + fmt(appr) + (apprPct !== null ? ' (' + apprPct.toFixed(1) + '%)' : '')
+    : null,
+  secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
+  tertiary: `purchased ${fmt(purchasePrice)}`,
+  tooltip: `Current estimated market value.\nAppreciation: ${fmt(appr)} (${apprPct !== null ? apprPct.toFixed(1) + '%' : 'n/a'} over purchase price of ${fmt(purchasePrice)}).`,
+});
+
+const defEquity = (equity, equityPct, loanToValue, ltvCls) => card({
+  label: 'Equity',
+  primary: fmt(equity),
+  primaryCls: equity >= 0 ? 'text-success' : 'text-danger',
+  secondary: equityPct !== null ? fp(equityPct) + ' of value' : null,
+  secondaryCls: equityPct !== null && equityPct >= 50 ? 'text-success' : '',
+  tertiary: loanToValue > 0 ? `LTV ${fPct(loanToValue)}` : null,
+  tertiaryCls: ltvCls,
+  tooltip: 'Market Value − Loan Amount.\nLTV shown — below 65%: conservative. 65–80%: normal. Above 80%: high risk.',
+});
+
+const defAvailEquity = (availableEquity, equityTotal = null) => card({
+  label: 'Avail. Equity',
+  primary: availableEquity > 0 ? fmt(availableEquity) : '—',
+  primaryCls: availableEquity > 0 ? 'text-success' : 'text-secondary',
+  secondary: equityTotal !== null && availableEquity > 0
+    ? (availableEquity / equityTotal * 100).toFixed(1) + '% of ' + fmt(equityTotal) : null,
+  secondaryCls: availableEquity > 0 ? 'text-success' : '',
+  tertiary: availableEquity > 0 ? 'Above 20% LTV threshold' : 'LTV too high',
+  tooltip: 'Equity accessible via refinancing while staying at ≤80% LTV.\nFormula: max(0, 80% × Market Value − Loan Amount).',
+});
+
+const defMonthlyRent = (monthlyRent) => card({
+  label: 'Monthly Rent',
+  primary: monthlyRent ? fmt(monthlyRent) : '—',
+  tooltip: 'Configured monthly rent. Used for Cap Rate and OER calculations.',
+});
+
+const defYtdOpProfit = (value, marketValue = null, label = 'YTD Op. Profit') => card({
+  label,
+  primary: fmt(value),
+  primaryCls: value >= 0 ? 'text-success' : 'text-danger',
+  secondary: marketValue != null && value !== 0
+    ? fp(value / marketValue * 100) + ' YTD ROI' : null,
+  secondaryCls: value >= 0 ? 'text-success' : 'text-danger',
+  tertiary: marketValue == null ? 'Trailing 12 months' : null,
+  tooltip: 'Income minus operating expenses (principal excluded) over the trailing 12 months.\nYTD ROI = YTD Operating Profit ÷ Portfolio Value.',
+});
+
+const defLoanAmount = (loanAmount, loanPct) => card({
+  label: 'Loan Amount',
+  primary: fmt(loanAmount),
+  primaryCls: 'text-danger',
+  secondary: loanPct !== null ? fp(loanPct) + ' of value' : null,
+  tooltip: 'Outstanding mortgage or loan balance. Update this when you pay it down to keep LTV accurate.',
+});
+
+const defMortgageRate = (rate, annualInterest) => card({
+  label: 'Mortgage Rate',
+  primary: `${rate}%`,
+  tertiary: annualInterest ? `~${fmt(annualInterest)}/yr in interest` : null,
+  tooltip: 'Annual mortgage interest rate. Used to compute interest cost and interest coverage ratio.',
+});
+
+// ── Portfolio Analytics cards ─────────────────────────────────────────────────
+
+const defAvailEquityPortfolio = (availEq, availEqPct, equity) => card({
+  label: 'Avail. Equity',
+  primary: fmt(availEq),
+  primaryCls: availEq > 0 ? 'text-success' : 'text-secondary',
+  secondary: availEqPct !== null ? availEqPct.toFixed(1) + '% of ' + fmt(equity) : null,
+  secondaryCls: availEq > 0 ? 'text-success' : '',
+  tertiary: 'Borrowable at ≤80% LTV',
+  tooltip: 'Equity you can access via HELOC or refinance without exceeding 80% LTV.\nFormula: max(0, 80% × Market Value − Loan Balance).',
+});
+
+const defMortgagePerMonth = (totalMortgage, monthlyInterest, mortgagePrincipal) => card({
+  label: 'Mortgage / mo',
+  primary: totalMortgage > 0 ? fmt(totalMortgage) : '—',
+  secondary: monthlyInterest > 0 ? 'Interest: ' + fmt(Math.round(monthlyInterest)) : null,
+  secondaryCls: 'text-danger',
+  tertiary: mortgagePrincipal != null && mortgagePrincipal > 0
+    ? 'Principal: ' + fmt(Math.round(mortgagePrincipal)) : null,
+  tooltip: 'Average monthly mortgage payments across all filtered properties (from recorded expense data).\nInterest estimate = loan × rate ÷ 12.',
+});
+
+// ── Period section cards (FinancialPeriodSection / YtdSection) ────────────────
+
+const defPeriodIncome = (income, prefix, scopeStr) => card({
+  label: `${prefix}Income`,
+  primary: fmt(income),
+  primaryCls: 'text-success',
+  tooltip: prefix.trim()
+    ? `All income recorded ${scopeStr} in the trailing 12-month window.`
+    : `All income ever recorded ${scopeStr} since the first entry.`,
+});
+
+const defPeriodExpenses = (expenses, principal, prefix, scopeStr, isYTD) => card({
+  label: `${prefix}Expenses`,
+  primary: fmt(expenses),
+  primaryCls: 'text-danger',
+  secondary: principal > 0 ? `excl. ${fmt(principal)} principal` : null,
+  secondaryCls: 'text-success',
+  tooltip: isYTD
+    ? `All expenses ${scopeStr} in the trailing 12-month window.\n${principal > 0
+        ? `Includes ${fmt(principal)} of principal repayment — equity-building, not a true cost.`
+        : 'Principal repayments are equity-building payments, not true operating costs.'}`
+    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are equity-building, not operating costs.`,
+});
+
+const defPeriodNetExpenses = (netExpenses, prefix, isYTD) => card({
+  label: `${prefix}Net Expenses`,
+  primary: fmt(netExpenses),
+  primaryCls: netExpenses >= 0 ? 'text-danger' : 'text-success',
+  tooltip: isYTD
+    ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding equity-building payments.'
+    : 'Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build equity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.',
+});
+
+const defPeriodBalance = (balance, prefix) => card({
+  label: `${prefix}Balance`,
+  primary: fmt(balance),
+  primaryCls: balance >= 0 ? 'text-success' : 'text-danger',
+  tooltip: `${prefix || 'All-time '}Income minus ${prefix || 'all-time '}Expenses. Raw cash in/out with no adjustments for equity-building payments.`,
+});
+
+const defPeriodOperatingProfit = (operatingProfit, roi, prefix, scope, isYTD) => card({
+  label: `${prefix}Operating Profit`,
+  primary: fmt(operatingProfit),
+  primaryCls: operatingProfit >= 0 ? 'text-success' : 'text-danger',
+  secondary: roi !== null ? roi.toFixed(1) + '% ROI' : null,
+  secondaryCls: roi !== null && roi >= 0 ? 'text-success' : 'text-danger',
+  tooltip: `${isYTD ? 'YTD' : 'All-time'} Income minus Net Expenses (down payment & principal excluded).\nThe true operating profit — money earned beyond your equity-building capital.${roi !== null ? `\nROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` : ''}`,
+});
+
+// ── Evaluator cards ───────────────────────────────────────────────────────────
+
+const defEvalLTV = (ltvRatio) => card({
+  label: 'Loan-to-Value',
+  primary: fPct(ltvRatio),
+  primaryCls: ltvRatio > 0.80 ? 'text-danger' : ltvRatio > 0.65 ? 'text-warning' : 'text-success',
+  tertiary: ltvRatio > 0.80 ? 'High leverage' : ltvRatio < 0.55 ? 'Conservative' : 'Moderate leverage',
+  tooltip: 'Loan ÷ Purchase Price.\nHigher LTV = more risk. Lenders typically require ≤80%. Below 65% is conservative.',
+});
+
+const defEvalCapRate = (capRate) => card({
+  label: 'Cap Rate',
+  primary: fPct(capRate),
+  primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
+  tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
+  tooltip: 'Net Operating Income ÷ Purchase Price.\nIgnores financing — useful for comparing properties. Target: 5–7%+ residential.',
+});
+
+const defEvalCashOnCash = (cashOnCash) => card({
+  label: 'Cash-on-Cash',
+  primary: fPct(cashOnCash),
+  primaryCls: cashOnCash > 0.08 ? 'text-success' : cashOnCash > 0.04 ? '' : cashOnCash < 0 ? 'text-danger' : 'text-warning',
+  tertiary: cashOnCash > 0.08 ? 'Strong' : cashOnCash > 0.04 ? 'Moderate' : 'Weak',
+  tooltip: 'Annual Cash Flow ÷ Cash Invested (down payment + one-off costs).\nMeasures how efficiently your capital works. Target: 6–10%+.',
+});
+
+const defEvalExpenseRatio = (expenseRatio) => card({
+  label: 'Expense Ratio',
+  primary: fPct(expenseRatio),
+  primaryCls: expenseRatio < 0.35 ? 'text-success' : expenseRatio < 0.50 ? '' : 'text-danger',
+  tertiary: expenseRatio < 0.35 ? 'Lean' : expenseRatio < 0.50 ? 'Normal' : 'High costs',
+  tooltip: 'Total Monthly Expenses ÷ Effective Monthly Rent.\nIncludes mortgage, tax, operating costs, repair reserve. Below 40% is healthy.',
+});
+
+const defEvalRentToValue = (rentToValue) => card({
+  label: 'Rent-to-Value',
+  primary: fPct(rentToValue),
+  primaryCls: rentToValue > 0.01 ? 'text-success' : rentToValue > 0.007 ? '' : 'text-danger',
+  tertiary: rentToValue > 0.01 ? 'Meets 1% rule' : rentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
+  tooltip: 'Annual Gross Rent ÷ Purchase Price.\nThe "1% rule": monthly rent ≥1% of price for cash-flow-positive property.',
+});
+
+const defEvalAnnualNOI = (annualNOI) => card({
+  label: 'Annual NOI',
+  primary: fmt(annualNOI) + '/yr',
+  primaryCls: annualNOI >= 0 ? 'text-success' : 'text-danger',
+  secondary: `${fmt(annualNOI / 12)}/mo`,
+  secondaryCls: 'text-secondary',
+  tooltip: 'Net Operating Income = Annual Gross Rent − (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic.',
+});
+
+const defEvalGRM = (grm) => card({
+  label: 'GRM',
+  primary: grm.toFixed(1) + 'x',
+  primaryCls: grm < 10 ? 'text-success' : grm < 15 ? '' : 'text-danger',
+  tertiary: grm < 10 ? 'Attractive' : grm < 15 ? 'Moderate' : 'Expensive',
+  tooltip: 'Gross Rent Multiplier = Purchase Price ÷ Annual Gross Rent.\nLower is better. Typical range: 8–12x for good cash-flow markets.',
+});
+
+const defEvalIRR10 = (irr10) => card({
+  label: 'IRR (10-yr)',
+  primary: fp(irr10 * 100),
+  primaryCls: irr10 > 0.15 ? 'text-success' : irr10 > 0.08 ? '' : irr10 < 0 ? 'text-danger' : 'text-warning',
+  tertiary: irr10 > 0.15 ? 'Excellent' : irr10 > 0.08 ? 'Good' : irr10 < 0 ? 'Loss' : 'Below target',
+  tooltip: 'Internal Rate of Return over a 10-year horizon.\nAccounts for time-value of money. Target: 10–15%+ for real estate.',
+});
+
+const defEvalMonthlyMortgage = (monthlyMortgage, effectiveRate, amortization) => card({
+  label: 'Monthly Mortgage',
+  primary: fmt(monthlyMortgage) + '/mo',
+  primaryCls: 'text-danger',
+  tooltip: `Standard amortization payment at ${fp(effectiveRate)}% over ${amortization} years.`,
+});
+
+const defEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
+  label: 'Total Monthly Costs',
+  primary: fmt(total) + '/mo',
+  primaryCls: 'text-danger',
+  secondary: `Mortgage ${fmt(mortgage)} + OpEx ${fmt(opEx)} + Tax ${fmt(tax)} + Reserve ${fmt(reserve)}`,
+  secondaryCls: 'text-secondary',
+  tooltip: 'Sum of mortgage payment, operating expenses, property tax, and repair reserve.',
+});
+
+const defEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
+  label: 'Avg Cash Flow',
+  primary: fmt(cashFlow) + '/mo',
+  primaryCls: cashFlow >= 0 ? 'text-success' : 'text-danger',
+  secondary: vacancyRate > 0 ? `After ${vacancyRate}% vacancy` : null,
+  secondaryCls: 'text-secondary',
+  tooltip: 'Effective rent (after vacancy) minus total monthly costs.',
+});
+
+const defEvalMonthlyGain = (monthlyGain, cashFlow, monthlyAppr) => card({
+  label: 'Monthly Gain',
+  primary: fmt(monthlyGain) + '/mo',
+  primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
+  secondary: `CF ${fmt(cashFlow)} + Appr ${fmt(monthlyAppr)}`,
+  secondaryCls: 'text-secondary',
+  tooltip: 'Cash Flow + Monthly Appreciation.\nCaptures income and value growth together.',
+});
+
+const defEvalPayback = (paybackProps) => card({
+  label: 'Payback Period',
+  ...paybackProps,
+  tooltip: 'Time for cumulative cash flow to recover all cash invested (down payment + one-off costs).\nUses cash flow only — does not include appreciation.',
+});
+
+const defEvalBreakEven = (breakEvenProps) => card({
+  label: 'Break-even',
+  ...breakEvenProps,
+  tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways ≤ Payback Period since gain ≥ cash flow.',
+});
+
+
 // ── src/components/Tooltip.jsx─────────────────────────────
 
 /**
@@ -3269,16 +3794,6 @@ function DateRangeFilter({ value, onChange, customStart, customEnd, onCustomStar
 
 // ── src/components/FinancialPeriodSection.jsx──────────────
 
-/**
- * Unified income/expenses breakdown for any period — all-time or YTD.
- *
- * Props:
- *   income, expenses, netExpenses, balance, operatingProfit
- *   principal    — principal repaid in this period; shown as note on Expenses card
- *   roi          — shown as secondary on Operating Profit (percent number, e.g. 12.3)
- *   prefix       — label prefix, e.g. "YTD " (default "" = all-time)
- *   scope        — "portfolio" | "filtered" | "property"
- */
 function FinancialPeriodSection({
   income, expenses, netExpenses, balance, operatingProfit,
   principal = null, roi = null,
@@ -3291,103 +3806,13 @@ function FinancialPeriodSection({
       ? 'for filtered properties'
       : 'across all properties';
 
-  // Expenses card tooltip
-  const expTooltip = isYTD
-    ? `All expenses ${scopeStr} in the trailing 12-month window.\n${
-        principal > 0
-          ? `Includes ${fmt(principal)} of principal repayment — equity-building, not a true cost.`
-          : 'Principal repayments are equity-building payments, not true operating costs.'
-      }`
-    : `All expenses ever recorded ${scopeStr}.\nIncludes the initial down payment and all principal repayments paid to date — both are equity-building, not operating costs.`;
-
-  // Net Expenses tooltip — correct for both periods
-  const netExpTooltip = isYTD
-    ? 'YTD Expenses minus principal repayment in the same period.\nShows the true operating cost burden for the trailing 12 months, excluding equity-building payments.'
-    : `Total Expenses minus all principal payments (down payment + mortgage principal repaid to date).\nPrincipal payments build equity — they are not a true operating cost.\nFormula: Total Expenses − Total Principal Paid.`;
-
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-      {mc({ label: `${prefix}Income`, primary: fmt(income), primaryCls: 'text-success',
-        tooltip: isYTD
-          ? `All income recorded ${scopeStr} in the trailing 12-month window.`
-          : `All income ever recorded ${scopeStr} since the first entry.` })}
-
-      {mc({ label: `${prefix}Expenses`, primary: fmt(expenses), primaryCls: 'text-danger',
-        secondary: principal > 0 ? `excl. ${fmt(principal)} principal` : null,
-        secondaryCls: 'text-success',
-        tooltip: expTooltip })}
-
-      {mc({ label: `${prefix}Net Expenses`, primary: fmt(netExpenses),
-        primaryCls: netExpenses >= 0 ? 'text-danger' : 'text-success',
-        tooltip: netExpTooltip })}
-
-      {mc({ label: `${prefix}Balance`, primary: fmt(balance),
-        primaryCls: balance >= 0 ? 'text-success' : 'text-danger',
-        tooltip: `${prefix || 'All-time '}Income minus ${prefix || 'all-time '}Expenses. Raw cash in/out with no adjustments for equity-building payments.` })}
-
-      {mc({ label: `${prefix}Operating Profit`, primary: fmt(operatingProfit),
-        primaryCls: operatingProfit >= 0 ? 'text-success' : 'text-danger',
-        secondary: roi !== null ? roi.toFixed(1) + '% ROI' : null,
-        secondaryCls: roi !== null && roi >= 0 ? 'text-success' : 'text-danger',
-        tooltip: `${isYTD ? 'YTD' : 'All-time'} Income minus Net Expenses (down payment & principal excluded).\nThe true operating profit — money earned beyond your equity-building capital.\n${roi !== null ? `ROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` : ''}` })}
-    </div>
-  );
-}
-
-
-// ── src/components/IncomeExpensesSection.jsx───────────────
-
-const f = n => `$${Math.round(n).toLocaleString()}`;
-
-/**
- * All-time Income & Expenses breakdown, shared across Dashboard,
- * portfolio Analytics, and single-property detail.
- *
- * Required props:
- *   income, expenses, netExpenses, balance, operatingProfit
- *
- * Optional props:
- *   roi           — shown as secondary on Operating Profit card (decimal, e.g. 0.12)
- *   netPosition   — if provided, adds a Net Position card at the end
- *   scope         — "portfolio" | "filtered" | "property" (affects tooltip wording)
- */
-function IncomeExpensesSection({
-  income, expenses, netExpenses, balance, operatingProfit,
-  roi = null, netPosition = null, scope = 'portfolio',
-}) {
-  const mc = props => <MetricCard {...props} style={{ flex: '1 1 150px', minWidth: 140 }} />;
-
-  const scopeStr = scope === 'property'
-    ? 'for this property'
-    : scope === 'filtered'
-      ? 'for filtered properties'
-      : 'across all properties';
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-      {mc({ label: 'Total Income', primary: f(income), primaryCls: 'text-success',
-        tooltip: `All recorded income ${scopeStr} since inception.` })}
-
-      {mc({ label: 'Total Expenses', primary: f(expenses), primaryCls: 'text-danger',
-        tooltip: `All recorded expenses ${scopeStr}, including the initial down payment and principal repayments.` })}
-
-      {mc({ label: 'Net Expenses', primary: f(netExpenses),
-        primaryCls: netExpenses >= 0 ? 'text-danger' : 'text-success',
-        tooltip: `Total Expenses minus the initial down payment${scope !== 'property' ? 's' : ''}. The operating cost burden above the capital deployed.` })}
-
-      {mc({ label: 'Total Balance', primary: f(balance),
-        primaryCls: balance >= 0 ? 'text-success' : 'text-danger',
-        tooltip: 'Total Income − Total Expenses. Raw cash in/out with no adjustments.' })}
-
-      {mc({ label: 'Operating Profit', primary: f(operatingProfit),
-        primaryCls: operatingProfit >= 0 ? 'text-success' : 'text-danger',
-        secondary: roi !== null ? roi.toFixed(1) + '% ROI' : null,
-        secondaryCls: roi !== null && roi >= 0 ? 'text-success' : 'text-danger',
-        tooltip: `Total Income minus Net Expenses (principal & down payments excluded).\nThe true all-time operating profit.\nROI = Operating Profit ÷ ${scope === 'property' ? 'Market Value' : 'Portfolio Value'}.` })}
-
-      {netPosition !== null && mc({ label: 'Net Position', primary: f(netPosition),
-        primaryCls: netPosition >= 0 ? 'text-success' : 'text-danger',
-        tooltip: `Market Value + Income − Expenses − Loan${scope !== 'property' ? 's' : ''}.\nWhat you would walk away with ${scopeStr} if you sold everything today and cleared all mortgages.` })}
+      {defPeriodIncome(income, prefix, scopeStr)}
+      {defPeriodExpenses(expenses, principal ?? 0, prefix, scopeStr, isYTD)}
+      {defPeriodNetExpenses(netExpenses, prefix, isYTD)}
+      {defPeriodBalance(balance, prefix)}
+      {defPeriodOperatingProfit(operatingProfit, roi, prefix, scope, isYTD)}
     </div>
   );
 }
@@ -3395,38 +3820,14 @@ function IncomeExpensesSection({
 
 // ── src/components/YtdSection.jsx──────────────────────────
 
-/**
- * Shared trailing-12-month YTD breakdown.
- * Card order: Income → Expenses → Net Expenses → Balance → Operating Profit
- *
- * Props: ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdOpProfit
- */
 function YtdSection({ ytdInc, ytdExp, ytdBal, ytdPrin, ytdNetExp, ytdOpProfit }) {
-  const prinNote = ytdPrin > 0
-    ? `${fmt(ytdPrin)} of this is principal repayment — loan body reduction that builds equity, not a true operating cost.`
-    : 'No principal repayments detected in this window.';
-
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-      {mc({ label: 'YTD Income', primary: fmt(ytdInc), primaryCls: 'text-success',
-        tooltip: 'All income recorded in the trailing 12-month window.' })}
-
-      {mc({ label: 'YTD Expenses', primary: fmt(ytdExp), primaryCls: 'text-danger',
-        secondary: ytdPrin > 0 ? `incl. ${fmt(ytdPrin)} principal` : null,
-        secondaryCls: 'text-success',
-        tooltip: `All expenses in the trailing 12 months, including mortgage payments.\n${prinNote}` })}
-
-      {mc({ label: 'YTD Net Expenses', primary: fmt(ytdNetExp),
-        primaryCls: ytdNetExp >= 0 ? 'text-danger' : 'text-success',
-        tooltip: 'YTD Expenses minus principal repayment. Pure operating cost — what you actually spent running the property this year.' })}
-
-      {mc({ label: 'YTD Balance', primary: fmt(ytdBal),
-        primaryCls: ytdBal >= 0 ? 'text-success' : 'text-danger',
-        tooltip: 'YTD Income − YTD Expenses (raw, including principal payments).' })}
-
-      {mc({ label: 'YTD Operating Profit', primary: fmt(ytdOpProfit),
-        primaryCls: ytdOpProfit >= 0 ? 'text-success' : 'text-danger',
-        tooltip: 'YTD Income minus YTD Net Expenses (principal excluded).\nThe true operating profit over the trailing 12 months.' })}
+      {defPeriodIncome(ytdInc, 'YTD ', 'for this property')}
+      {defPeriodExpenses(ytdExp, ytdPrin ?? 0, 'YTD ', 'for this property', true)}
+      {defPeriodNetExpenses(ytdNetExp, 'YTD ', true)}
+      {defPeriodBalance(ytdBal, 'YTD ')}
+      {defPeriodOperatingProfit(ytdOpProfit, null, 'YTD ', 'property', true)}
     </div>
   );
 }
@@ -3763,123 +4164,28 @@ function Analytics({ filtered, allIncome, allExpenses }) {
       {/* ── Portfolio Summary ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem', paddingTop: '0.25rem' }}>
 
-        {mc({
-          label: 'Avail. Equity',
-          primary: fmt(availEq),
-          primaryCls: availEq > 0 ? 'text-success' : 'text-secondary',
-          secondary: availEqPct !== null ? availEqPct.toFixed(1) + '% of ' + fmt(agg.equity) : null,
-          secondaryCls: availEq > 0 ? 'text-success' : '',
-          tertiary: 'Borrowable at ≤80% LTV',
-          tooltip: 'Equity you can access via HELOC or refinance without exceeding 80% LTV.\nFormula: max(0, 80% × Market Value − Loan Balance).',
-        })}
+        {defAvailEquityPortfolio(availEq, availEqPct, agg.equity)}
 
-        {mc({
-          label: 'Mortgage / mo',
-          primary: totalMortgage > 0 ? fmt(totalMortgage) : '—',
-          secondary: monthlyInterest > 0 ? 'Interest: ' + fmt(Math.round(monthlyInterest)) : null,
-          secondaryCls: 'text-danger',
-          tertiary: mortgagePrincipal != null && mortgagePrincipal > 0 ? 'Principal: ' + fmt(Math.round(mortgagePrincipal)) : null,
-          tooltip: 'Average monthly mortgage payments across all filtered properties (from recorded expense data).\nInterest estimate = loan × rate ÷ 12.',
-        })}
+        {defMortgagePerMonth(totalMortgage, monthlyInterest, mortgagePrincipal)}
 
-        {m.dscr === null
-          ? mc({ label: 'DSCR', primary: '—', primaryCls: 'text-secondary', tertiary: 'No mortgage data',
-              tooltip: 'Debt Service Coverage requires mortgage expense records.' })
-          : mc({
-              label: `DSCR (${wLabel(avgWindow)})`,
-              primary: m.dscr.toFixed(2) + 'x',
-              primaryCls: m.dscr >= 1.25 ? 'text-success' : m.dscr >= 1.0 ? '' : 'text-danger',
-              ...expGap(m.dscr, m.expDSCR,
-                v => v >= 1.25 ? 'text-success' : v >= 1.0 ? '' : 'text-danger',
-                v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-              tertiary: m.dscr >= 1.25 ? 'Healthy' : m.dscr >= 1.0 ? 'Marginal' : 'Below 1x',
-              tooltip: 'Debt Service Coverage = avg NOI ÷ avg mortgage.\n≥ 1.25x: comfortable. 1.0–1.25x: marginal. < 1.0x: income doesn\'t cover debt.',
-            })}
+        {defDSCR(m.dscr, m.expDSCR, avgWindow)}
 
-        {m.icr !== null && mc({
-          label: `ICR (${wLabel(avgWindow)})`,
-          primary: m.icr.toFixed(2) + 'x',
-          primaryCls: m.icr >= 2 ? 'text-success' : m.icr >= 1.25 ? '' : 'text-danger',
-          ...expGap(m.icr, m.expICR,
-            v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger',
-            v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.icr >= 2 ? 'Strong' : m.icr >= 1.25 ? 'Adequate' : 'Weak',
-          tooltip: 'Interest Coverage Ratio = annualised NOI ÷ total annual interest (loan × rate).\n≥ 2.0x: strong. 1.25–2.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.',
-        })}
+        {defICR(m.icr, m.expICR, avgWindow)}
 
-        {mc({
-          label: `Avg Cash Flow (${wLabel(avgWindow)})`,
-          primary: fmt(avg.cashflow),
-          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.cashflow, m.expCF,
-            v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
-          tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.\nExp = budgeted NOI minus avg mortgage.`,
-        })}
+        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
 
-        {m.oer === null
-          ? mc({ label: 'OER', primary: '—', primaryCls: 'text-secondary', tertiary: 'No income in window',
-              tooltip: 'Operating Expense Ratio requires income records in the selected window.' })
-          : mc({
-              label: `OER (${wLabel(avgWindow)})`,
-              primary: fPct(m.oer),
-              primaryCls: m.oer < 0.35 ? 'text-success' : m.oer < 0.50 ? '' : 'text-danger',
-              ...expGap(m.oer, m.expOER, v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false, 0.02),
-              tertiary: m.oer < 0.35 ? 'Efficient' : m.oer < 0.50 ? 'Normal' : 'High costs',
-              tooltip: 'Operating Expense Ratio = avg op-ex ÷ avg gross income.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.',
-            })}
+        {defOER(m.oer, m.expOER, avgWindow)}
 
-        {mc({
-          label: 'YTD Operating Profit',
-          primary: fmt(agg.ytdNetBalance),
-          primaryCls: agg.ytdNetBalance >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.market > 0 && agg.ytdNetBalance !== 0
-            ? fp(agg.ytdNetBalance / agg.market * 100) + ' YTD ROI' : null,
-          secondaryCls: agg.ytdNetBalance >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'YTD Income minus YTD Net Expenses (excluding equity-building payments).\nYTD ROI = YTD Operating Profit ÷ Portfolio Value.',
-        })}
+        {defYtdOpProfit(agg.ytdNetBalance, agg.market, 'YTD Operating Profit')}
       </div>
 
       {/* ── Appreciation ── */}
       <p className="stat-section-label">Appreciation</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({
-          label: 'Total Appreciation', primary: fmt(agg.appr),
-          primaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.apprPct !== null && agg.purchase > 0
-            ? agg.apprPct.toFixed(1) + '% from ' + fmt(agg.purchase) : null,
-          secondaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total unrealised gain: current market value minus original purchase price across all filtered properties.',
-        })}
-
-        {mc({
-          label: 'Yearly Appreciation',
-          primary: fmt(agg.yearlyAppr),
-          primaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.yearlyApprPct !== null
-            ? (agg.yearlyAppr / agg.purchase * 100).toFixed(1) + '% per year' : null,
-          secondaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null,
-            v => v >= 0 ? 'text-success' : 'text-danger',
-            v => fmt(v) + (agg.expYearlyApprPct ? ' (' + agg.expYearlyApprPct.toFixed(1) + '%/yr)' : ''),
-            'Exp:', true, 500),
-          tooltip: 'Annualised appreciation per property, summed.\nExp = sum of (purchase price × expected appreciation %) for properties where that is set.',
-        })}
-
-        {mc({
-          label: 'Projected Year-End Value', primary: fmt(agg.projectedYE),
-          tertiary: 'At current appreciation rate',
-          tooltip: 'Current market value plus the remaining fraction of this year times the current annual appreciation rate.',
-        })}
-
-        {mc({
-          label: 'Year-End Balance',
-          primary: fmt(m.runRate),
-          primaryCls: m.runRate >= 0 ? 'text-success' : 'text-danger',
-          ...(m.budgeted != null ? expGap(m.runRate, m.budgeted,
-            v => v >= 0 ? 'text-success' : 'text-danger',
-            v => fmt(v), 'Budget:', true, 1000) : {}),
-          tooltip: `Projected net position at December 31st if current rates hold.\nRun-rate: current Net Position + avg monthly cash flow × ${ml} months + avg monthly appreciation × ${ml} months.`,
-        })}
+        {defTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
+        {defYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
+        {defProjectedYearEnd(agg.projectedYE)}
+        {defYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
       {/* ── Income & Expenses ── */}
@@ -3904,107 +4210,26 @@ function Analytics({ filtered, allIncome, allExpenses }) {
 
       {/* Row 1: Core income / NOI */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {mc({
-          label: `Avg Income (${wLabel(avgWindow)})`,
-          primary: fmt(avg.income), primaryCls: 'text-success',
-          ...expGap(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null,
-            () => 'text-success', v => fmt(v), 'Exp:', true, 50),
-          tooltip: `Average monthly income over the last ${avgWindow} complete months.\nExp = sum of all current monthly rents at 100% occupancy.`,
-        })}
-        {mc({
-          label: `Avg Expenses (${wLabel(avgWindow)})`,
-          primary: fmt(avg.expenses), primaryCls: 'text-danger',
-          ...expGap(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null,
-            v => v < agg.totalMonthlyRent * 0.65 ? '' : v < agg.totalMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
-            v => fmt(v), 'Exp:', false, 50),
-          tooltip: `Average monthly expenses over the last ${avgWindow} complete months.\nExp = budgeted op-ex (${agg.propertiesWithExpected} of ${filtered.length} props) + avg mortgage.`,
-        })}
-        {mc({
-          label: `Avg Cash Flow (${wLabel(avgWindow)})`,
-          primary: fmt(avg.cashflow),
-          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.cashflow, m.expCF,
-            v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
-          tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.\nExp = budgeted NOI minus average mortgage.`,
-        })}
-        {mc({
-          label: `Avg NOI (${wLabel(avgWindow)})`,
-          primary: fmt(avg.noi),
-          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.noi, agg.expNOI,
-            v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
-          tooltip: 'Net Operating Income: income minus op-ex, excluding mortgage and principal.\nExp = total monthly rent minus budgeted op-ex at full occupancy.',
-        })}
+        {defAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
+        {defAvgExpenses(avg.expenses, agg.totalExpectedOpEx > 0 ? agg.totalExpectedOpEx + avg.mortgage : null, avgWindow, agg.totalMonthlyRent)}
+        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {defAvgNOI(avg.noi, agg.expNOI, avgWindow)}
       </div>
 
       {/* Row 2: Key investment ratios */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {m.capRate !== null && mc({
-          label: `Cap Rate (${wLabel(avgWindow)})`,
-          primary: fPct(m.capRate),
-          primaryCls: m.capRate > 0.07 ? 'text-success' : m.capRate > 0.04 ? '' : 'text-danger',
-          ...expGap(m.capRate, m.expCap,
-            v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct, 'Exp:', true, 0.005),
-          tertiary: m.capRate > 0.07 ? 'Strong yield' : m.capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-          tooltip: 'Portfolio Cap Rate = annualised NOI ÷ total market value.\n> 7%: strong. 4–7%: moderate. < 4%: weak.',
-        })}
-        {m.oer !== null && mc({
-          label: `OER (${wLabel(avgWindow)})`,
-          primary: fPct(m.oer),
-          primaryCls: m.oer < 0.35 ? 'text-success' : m.oer < 0.50 ? '' : 'text-danger',
-          ...expGap(m.oer, m.expOER,
-            v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false, 0.02),
-          tertiary: m.oer < 0.35 ? 'Efficient' : m.oer < 0.50 ? 'Normal' : 'High costs',
-          tooltip: 'Operating Expense Ratio = avg op-ex ÷ avg gross income.\nBelow 35%: efficient. 35–50%: normal. Above 50%: high.',
-        })}
-        {m.dscr !== null && mc({
-          label: `DSCR (${wLabel(avgWindow)})`,
-          primary: m.dscr.toFixed(2) + 'x',
-          primaryCls: m.dscr >= 1.25 ? 'text-success' : m.dscr >= 1.0 ? 'text-warning' : 'text-danger',
-          ...expGap(m.dscr, m.expDSCR,
-            v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger',
-            v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.dscr >= 1.25 ? 'Healthy coverage' : m.dscr >= 1.0 ? 'Marginal' : 'Below 1x',
-          tooltip: 'Debt Service Coverage = avg monthly NOI ÷ avg mortgage.\n≥ 1.25x: healthy. 1.0–1.25x: marginal. < 1.0x: income doesn\'t cover debt.',
-        })}
-        {m.icr !== null && mc({
-          label: `ICR (${wLabel(avgWindow)})`,
-          primary: m.icr.toFixed(2) + 'x',
-          primaryCls: m.icr >= 2 ? 'text-success' : m.icr >= 1.25 ? '' : 'text-danger',
-          ...expGap(m.icr, m.expICR,
-            v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger',
-            v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.icr >= 2 ? 'Strong' : m.icr >= 1.25 ? 'Adequate' : 'Weak',
-          tooltip: 'Interest Coverage Ratio = annualised NOI ÷ total annual interest (loan × rate).\n≥ 2.0x: strong. 1.25–2.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.',
-        })}
+        {m.capRate !== null && defCapRate(m.capRate, m.expCap, avgWindow)}
+        {defOER(m.oer, m.expOER, avgWindow)}
+        {defDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {defICR(m.icr, m.expICR, avgWindow)}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {mc({
-          label: 'Monthly Gain', primary: fmt(m.mg),
-          primaryCls: m.mg >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(m.mg, m.expMG,
-            v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Exp:', true, 50),
-          tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12).\nCaptures income and value growth together.',
-        })}
-        {mc({
-          label: 'Net Position', primary: fmt(agg.sellingProfit),
-          primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
-          secondary: npPctA !== null ? npPctA.toFixed(1) + '% of net spending' : null,
-          secondaryCls: npPctA !== null ? (npPctA >= 0 ? 'text-success' : 'text-danger') : '',
-          tooltip: 'Market Value + Income − Expenses − Loans. Net proceeds if you sold all filtered properties today and cleared all mortgages.',
-        })}
-        {mc({
-          label: 'Payback Period', ...m.payback,
-          secondary: m.expPPLabel, secondaryCls: m.expPPLabel ? 'text-success' : '',
-          tooltip: `Time until all recorded expenses are recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(agg.expenses)} − ${fmt(agg.income)}).\nExp uses budgeted cash flow.`,
-        })}
-        {mc({
-          label: 'Break-even', ...m.breakEven,
-          secondary: m.expBELabel, secondaryCls: m.expBELabel ? 'text-success' : '',
-          tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.',
-        })}
+        {defMonthlyGain(m.mg, m.expMG)}
+        {defNetPosition(agg.sellingProfit, npPctA)}
+        {defPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
+        {defBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
       {/* ── Charts ── */}
@@ -4255,29 +4480,10 @@ function Dashboard({ properties, onPropertyClick }) {
       {/* ── Appreciation ── */}
       <SectionLabel>Appreciation</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'Total Appreciation', primary: fmt(agg.appr),
-          primaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.apprPct !== null && agg.purchase > 0 ? agg.apprPct.toFixed(1) + '% from ' + fmt(agg.purchase) : null,
-          secondaryCls: agg.appr >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Total unrealised gain: current Market Value minus original Purchase Price across all properties.' })}
-        {mc({ label: 'Yearly Appreciation',
-          primary: fmt(agg.yearlyAppr),
-          primaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          secondary: agg.yearlyApprPct !== null ? fp(agg.yearlyApprPct) + ' per year' : null,
-          secondaryCls: agg.yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null,
-            v => v >= 0 ? 'text-success' : 'text-danger',
-            v => fmt(v) + (agg.expYearlyApprPct ? ' (' + fp(agg.expYearlyApprPct) + '/yr)' : ''),
-            'Exp:', true, 500),
-          tooltip: 'Annualised appreciation per property, summed.\nExp = sum of (purchase price × expected appreciation %) across properties where that is set.' })}
-        {mc({ label: 'Projected Year-End Value', primary: fmt(agg.projectedYE),
-          tertiary: 'At current appreciation rate',
-          tooltip: 'Current market value plus the remaining fraction of the year times the current annual appreciation rate.' })}
-        {mc({ label: 'Year-End Balance',
-          primary: fmt(m.runRate),
-          primaryCls: m.runRate >= 0 ? 'text-success' : 'text-danger',
-          ...(m.budgeted != null ? expGap(m.runRate, m.budgeted, v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v), 'Budget:', true, 1000) : {}),
-          tooltip: `Projected Net Position at December 31st.\nRun-rate: current Net Position + avg monthly cash flow × ${ml} months + avg monthly appreciation × ${ml} months.\nBudget: same but using expected monthly cash flow and appreciation.` })}
+        {defTotalAppreciation(agg.appr, agg.apprPct, agg.purchase)}
+        {defYearlyAppreciation(agg.yearlyAppr, agg.totalExpectedYearlyAppr > 0 ? agg.totalExpectedYearlyAppr : null, agg.expYearlyApprPct, agg.yearlyApprPct)}
+        {defProjectedYearEnd(agg.projectedYE)}
+        {defYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
       {/* ── Income & Expenses (all-time) ── */}
@@ -4302,71 +4508,26 @@ function Dashboard({ properties, onPropertyClick }) {
 
       {/* Row 1 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {mc({ label: `Avg Income (${avgWindow}M)`,
-          primary: fmt(avg.income), primaryCls: 'text-success',
-          ...expGap(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, () => 'text-success', fmt, 'Exp:', true, 50),
-          tooltip: `Average monthly income over the last ${avgWindow} complete months.\nExp = sum of all current monthly rents at 100% occupancy.` })}
-        {mc({ label: `Avg Expenses (${avgWindow}M)`,
-          primary: fmt(avg.expenses), primaryCls: 'text-danger',
-          ...expGap(avg.expenses, expExpensesVal,
-            v => v < agg.totalMonthlyRent * 0.65 ? '' : v < agg.totalMonthlyRent * 0.85 ? 'text-warning' : 'text-danger',
-            fmt, 'Exp:', false, 50),
-          tooltip: `Average monthly expenses over the last ${avgWindow} complete months.\nExp = budgeted op-ex (${agg.propertiesWithExpected} of ${properties.length} props) + avg mortgage.` })}
-        {mc({ label: `Avg Cash Flow (${avgWindow}M)`,
-          primary: fmt(avg.cashflow),
-          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.cashflow, m.expCF, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50),
-          tooltip: `Average monthly (Income − Expenses) over the last ${avgWindow} complete months.\nExp = budgeted NOI minus average mortgage payment.` })}
-        {mc({ label: `Avg NOI (${avgWindow}M)`,
-          primary: fmt(avg.noi),
-          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(avg.noi, agg.expNOI, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50),
-          tooltip: 'Net Operating Income: avg monthly income minus all op-ex, excluding mortgage and principal.\nExp = total monthly rent minus budgeted operating expenses.' })}
+        {defAvgIncome(avg.income, agg.totalMonthlyRent > 0 ? agg.totalMonthlyRent : null, avgWindow)}
+        {defAvgExpenses(avg.expenses, expExpensesVal, avgWindow, agg.totalMonthlyRent)}
+        {defAvgCashFlow(avg.cashflow, m.expCF, avgWindow)}
+        {defAvgNOI(avg.noi, agg.expNOI, avgWindow)}
       </div>
 
       {/* Row 2 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.65rem' }}>
-        {m.capRate !== null && mc({ label: `Cap Rate (${avgWindow}M)`,
-          primary: fPct(m.capRate),
-          primaryCls: m.capRate > 0.07 ? 'text-success' : m.capRate > 0.04 ? '' : 'text-danger',
-          ...expGap(m.capRate, m.expCap, v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct, 'Exp:', true, 0.005),
-          tertiary: m.capRate > 0.07 ? 'Strong yield' : m.capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-          tooltip: 'Portfolio Cap Rate = annualised NOI ÷ total market value.\n> 7%: strong. 4–7%: moderate. < 4%: weak.' })}
-        {m.oer !== null && mc({ label: `OER (${avgWindow}M)`,
-          primary: fPct(m.oer),
-          primaryCls: m.oer < 0.35 ? 'text-success' : m.oer < 0.50 ? '' : 'text-danger',
-          ...expGap(m.oer, m.expOER, v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false, 0.02),
-          tertiary: m.oer < 0.35 ? 'Efficient' : m.oer < 0.50 ? 'Normal' : 'High costs',
-          tooltip: 'Operating Expense Ratio = avg op-ex ÷ avg gross income.\nBelow 35%: efficient. 35–50%: normal. Above 50%: review costs.' })}
-        {m.dscr !== null && mc({ label: `DSCR (${avgWindow}M)`,
-          primary: m.dscr.toFixed(2) + 'x',
-          primaryCls: m.dscr >= 1.25 ? 'text-success' : m.dscr >= 1.0 ? 'text-warning' : 'text-danger',
-          ...expGap(m.dscr, m.expDSCR, v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger', v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.dscr >= 1.25 ? 'Healthy coverage' : m.dscr >= 1.0 ? 'Marginal' : 'Below 1x',
-          tooltip: 'Debt Service Coverage Ratio = avg monthly NOI ÷ avg mortgage payment.' })}
-        {m.icr !== null && mc({ label: `ICR (${avgWindow}M)`,
-          primary: m.icr.toFixed(2) + 'x',
-          primaryCls: m.icr >= 2 ? 'text-success' : m.icr >= 1.25 ? '' : 'text-danger',
-          ...expGap(m.icr, m.expICR, v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger', v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: m.icr >= 2 ? 'Strong' : m.icr >= 1.25 ? 'Adequate' : 'Weak',
-          tooltip: 'Interest Coverage Ratio = annualised NOI ÷ total annual interest (loan \u00d7 rate) across all properties.\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.' })}
+        {m.capRate !== null && defCapRate(m.capRate, m.expCap, avgWindow)}
+        {m.oer !== null && defOER(m.oer, m.expOER, avgWindow)}
+        {m.dscr !== null && defDSCR(m.dscr, m.expDSCR, avgWindow)}
+        {defICR(m.icr, m.expICR, avgWindow)}
       </div>
 
       {/* Row 3: Monthly gain + net position + payback / break-even */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {mc({ label: 'Monthly Gain', primary: fmt(m.mg),
-          primaryCls: m.mg >= 0 ? 'text-success' : 'text-danger',
-          ...expGap(m.mg, m.expMG, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50),
-          tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly ÷ 12).\nExp uses budgeted operating costs + expected appreciation %.' })}
-        {mc({ label: 'Net Position', primary: fmt(agg.sellingProfit),
-          primaryCls: agg.sellingProfit >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Market Value + Total Income − Total Expenses − Loans.' })}
-        {mc({ label: 'Payback Period', ...m.payback,
-          secondary: m.expPPLabel, secondaryCls: m.expPPLabel ? 'text-success' : '',
-          tooltip: `Time until all recorded expenses are recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(agg.expenses)} − ${fmt(agg.income)}).\nExp uses budgeted cash flow.` })}
-        {mc({ label: 'Break-even', ...m.breakEven,
-          secondary: m.expBELabel, secondaryCls: m.expBELabel ? 'text-success' : '',
-          tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.' })}
+        {defMonthlyGain(m.mg, m.expMG)}
+        {defNetPosition(agg.sellingProfit)}
+        {defPaybackPeriod(m.payback, m.expPPLabel, m.outstanding, agg.income, agg.expenses)}
+        {defBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
       {/* ── Charts ── */}
@@ -5062,9 +5223,6 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
 
   const annualInterest = property.loan_amount > 0 && property.mortgage_rate > 0
     ? property.loan_amount * property.mortgage_rate / 100 : null;
-  const icr    = annualInterest > 0 ? annualNOI / annualInterest : null;
-  const expICR = (annualInterest > 0 && expected?.monthlyNOI != null)
-    ? expected.monthlyNOI * 12 / annualInterest : null;
 
   // ── Derived metrics that were previously inline IIFEs ─────────────────────
   // Economic vacancy: uses status-change and rent-change events to measure real
@@ -5090,6 +5248,9 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
 
   // ── Expected / budgeted values ────────────────────────────────────────────
   const expected       = calcExpected(property, avg.mortgage);
+  const icr    = annualInterest > 0 ? annualNOI / annualInterest : null;
+  const expICR = (annualInterest > 0 && expected?.monthlyNOI != null)
+    ? expected.monthlyNOI * 12 / annualInterest : null;
   const monthlyAppr    = yearlyAppr !== null ? yearlyAppr / 12 : 0;
   const monthlyGain    = avg.cashflow + monthlyAppr;
 
@@ -5243,39 +5404,14 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
       {/* ══ Summary & Insights ══════════════════════════════════════════════ */}
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', marginBottom: '0.85rem' }}>
-          {mc({ label: 'Market Value', primary: fmt(property.market_price),
-            secondary: appr !== 0 ? (appr >= 0 ? '+' : '') + fmt(appr) + (apprPct !== null ? ' (' + apprPct.toFixed(1) + '%)' : '') : null,
-            secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
-            tertiary: `purchased ${fmt(property.purchase_price)}`,
-            tooltip: `Current estimated market value.\nAppreciation: ${fmt(appr)} (${apprPct !== null ? apprPct.toFixed(1) + '%' : 'n/a'} over purchase price of ${fmt(property.purchase_price)}).` })}
-          {mc({ label: 'Equity', primary: fmt(equity),
-            primaryCls: equity >= 0 ? 'text-success' : 'text-danger',
-            secondary: equityPct !== null ? fp(equityPct) + ' of value' : null,
-            secondaryCls: equityPct !== null && equityPct >= 50 ? 'text-success' : '',
-            tertiary: loanToValue > 0 ? `LTV ${fPct(loanToValue)}` : null,
-            tertiaryCls: ltvColor(loanToValue).cls,
-            tooltip: 'Market Value − Loan Amount.\nLTV shown — below 65%: conservative. 65–80%: normal. Above 80%: high risk.' })}
-          {mc({ label: 'Avail. Equity', primary: availableEquity > 0 ? fmt(availableEquity) : '—',
-            primaryCls: availableEquity > 0 ? 'text-success' : 'text-secondary',
-            tertiary: availableEquity > 0 ? 'Above 20% LTV threshold' : 'LTV too high',
-            tooltip: 'Equity accessible via refinancing while staying at ≤80% LTV.\nFormula: (0.80 × Market Value) − Loan Amount.' })}
-          {mc({ label: 'Net Position', primary: fmt(sellingProfit),
-            primaryCls: sellingProfit >= 0 ? 'text-success' : 'text-danger',
-            secondary: npPct !== null ? npPct.toFixed(1) + '% of net spending' : null,
-            secondaryCls: npPct !== null ? (npPct >= 0 ? 'text-success' : 'text-danger') : '',
-            tooltip: `What you would net if you sold this property today and cleared the mortgage.\nFormula: Market Value + All Income − All Expenses − Loan Balance.` })}
-          {mc({ label: 'Monthly Rent', primary: monthlyRent ? fmt(monthlyRent) : '—',
-            tooltip: 'Configured monthly rent. Used for Cap Rate and OER calculations.' })}
-          {mc({ label: `Avg CF (${wLabel(avgWindow)})`, primary: fmt(avg.cashflow),
-            primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-            tooltip: `Average monthly (Income − Expenses) over the last ${wLabel(avgWindow)} of complete months.` })}
-          {mc({ label: `OER (${wLabel(avgWindow)})`, primary: avg.income > 0 ? fPct(avg.noiExpenses / avg.income) : '—',
-            primaryCls: avg.income > 0 ? (avg.noiExpenses / avg.income < 0.35 ? 'text-success' : avg.noiExpenses / avg.income < 0.5 ? '' : 'text-danger') : '',
-            tooltip: 'Operating Expense Ratio = op-ex ÷ income. Below 35%: efficient. 35–50%: normal. Above 50%: high.' })}
-          {mc({ label: 'YTD Op. Profit', primary: fmt(ytdNetBalance),
-            primaryCls: ytdNetBalance >= 0 ? 'text-success' : 'text-danger',
-            tertiary: 'Trailing 12 months',
-            tooltip: 'Income minus operating expenses (principal excluded) over the trailing 12 months.' })}
+          {defMarketValue(property.market_price, appr, apprPct, property.purchase_price)}
+          {defEquity(equity, equityPct, loanToValue, ltvColor(loanToValue).cls)}
+          {defAvailEquity(availableEquity)}
+          {defNetPosition(sellingProfit, npPct)}
+          {defMonthlyRent(monthlyRent)}
+          {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+          {defOER(avg.income > 0 ? avg.noiExpenses / avg.income : null, expected?.oer)}
+          {defYtdOpProfit(ytdNetBalance)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -5329,64 +5465,25 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
       {/* ══ Financing Efficiency ══════════════════════════════════════════════ */}
       <p className="stat-section-label">Financing Efficiency</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'Loan Amount', primary: fmt(property.loan_amount), primaryCls: 'text-danger',
-          secondary: loanPct !== null ? fp(loanPct) + ' of value' : null,
-          tooltip: 'Outstanding mortgage or loan balance. Update this when you pay it down to keep LTV accurate.' })}
-        {property.mortgage_rate > 0 && mc({ label: 'Mortgage Rate', primary: `${property.mortgage_rate}%`,
-          tertiary: annualInterest ? `~${fmt(annualInterest)}/yr in interest` : null,
-          tooltip: 'Annual mortgage interest rate. Used to compute interest cost and interest coverage ratio.' })}
-        {mc({ label: 'Loan-to-Value', primary: fPct(ltvRatio),
-          primaryCls: ltvColor(ltvRatio).cls,
-          tertiary: ltvRatio > 0.80 ? 'High leverage' : ltvRatio < 0.55 ? 'Low leverage' : 'Moderate leverage',
-          tooltip: 'Loan \u00f7 Market Value. Below 65%: conservative. 65\u201380%: normal. Above 80%: high risk.' })}
-        {mc({
-          label: `DSCR (${wLabel(avgWindow)})`,
-          primary: avg.mortgage > 0 ? (avg.noi / avg.mortgage).toFixed(2) + 'x' : '\u2014',
-          primaryCls: avg.mortgage > 0
-            ? (avg.noi / avg.mortgage >= 1.25 ? 'text-success' : avg.noi / avg.mortgage >= 1.0 ? 'text-warning' : 'text-danger')
-            : 'text-secondary',
-          ...(avg.mortgage > 0 ? expProps(avg.noi / avg.mortgage, expected?.dscr,
-            v => v >= 1.25 ? 'text-success' : v >= 1.0 ? 'text-warning' : 'text-danger',
-            v => v.toFixed(2) + 'x', 'Exp:', true, 0.05) : {}),
-          tertiary: avg.mortgage <= 0
-            ? (expected?.dscr != null ? `Exp: ${expected.dscr.toFixed(2)}x \u2014 no mortgage recorded` : 'No mortgage expenses recorded')
-            : undefined,
-          tooltip: 'Debt Service Coverage = monthly NOI \u00f7 mortgage payment.\n\u2265 1.25x: comfortable. 1.0\u20131.25x: marginal. < 1.0x: income doesn\u2019t cover the mortgage.' })}
-        {icr !== null && mc({ label: 'Interest Coverage', primary: icr.toFixed(2) + 'x',
-          primaryCls: icr >= 2 ? 'text-success' : icr >= 1.25 ? '' : 'text-danger',
-          ...expProps(icr, expICR,
-            v => v >= 2 ? 'text-success' : v >= 1.25 ? '' : 'text-danger',
-            v => v.toFixed(2) + 'x', 'Exp:', true, 0.05),
-          tertiary: icr >= 2 ? 'Strong' : icr >= 1.25 ? 'Adequate' : 'Weak',
-          tooltip: 'Annual NOI \u00f7 Annual Interest Expense (loan \u00d7 rate).\n\u2265 2.0x: strong. 1.25\u20132.0x: adequate. < 1.25x: tight.\nExp uses budgeted operating costs.' })}
+        {defLoanAmount(property.loan_amount, loanPct)}
+        {property.mortgage_rate > 0 && defMortgageRate(property.mortgage_rate, annualInterest)}
+        {defLTV(ltvRatio)}
+        {defDSCR(
+          avg.mortgage > 0 ? avg.noi / avg.mortgage : null,
+          expected?.dscr,
+          avgWindow,
+          expected?.dscr != null ? `Exp: ${expected.dscr.toFixed(2)}x — no mortgage recorded` : 'No mortgage expenses recorded',
+        )}
+        {defICR(icr, expICR, null)}
       </div>
 
       {/* ══ Investment Ratios ════════════════════════════════════════════════ */}
       <p className="stat-section-label">Investment Ratios</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({
-          label: 'Cap Rate', primary: fPct(capRate),
-          primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-          ...expProps(capRate, expected?.capRate,
-            v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct),
-          tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-          tooltip: 'Annual NOI \u00f7 Purchase Price. Financing-agnostic measure of a property\u2019s income yield.\nResidential target: 4\u20136%. Commercial: 6\u20138%+.' })}
-        {mc({
-          label: 'Cash-on-Cash', primary: fPct(cashOnCash),
-          primaryCls: cashOnCash > 0.08 ? 'text-success' : cashOnCash > 0.04 ? '' : cashOnCash < 0 ? 'text-danger' : 'text-warning',
-          ...expProps(cashOnCash, expected?.cashOnCash,
-            v => v > 0.08 ? 'text-success' : v > 0.04 ? '' : v < 0 ? 'text-danger' : 'text-warning', fPct),
-          tooltip: 'Annual Cash Flow \u00f7 Equity. Measures how hard your invested equity is working.\nTarget: 6\u201310%+.' })}
-        {monthlyRent > 0 && mc({
-          label: 'Expense Ratio', primary: fPct(expenseRatio),
-          primaryCls: expenseRatio < 0.35 ? 'text-success' : expenseRatio < 0.50 ? '' : 'text-danger',
-          ...expProps(expenseRatio, expected?.expenseRatio,
-            v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false),
-          tooltip: 'Avg Monthly Expenses \u00f7 Monthly Rent. All costs including mortgage.\nBelow 35%: efficient. 35\u201350%: normal. Above 50%: review costs.' })}
-        {monthlyRent > 0 && mc({ label: 'Rent-to-Value', primary: fPct(rentToValue),
-          primaryCls: rentToValue > 0.01 ? 'text-success' : rentToValue > 0.007 ? '' : 'text-danger',
-          tertiary: rentToValue > 0.01 ? 'Passes 1% rule' : rentToValue > 0.007 ? 'Near 1% rule' : 'Below 1% rule',
-          tooltip: 'Monthly Rent \u00f7 Purchase Price. The 1% rule: monthly rent \u2265 1% of purchase price signals healthy cash flow potential.' })}
+        {defCapRate(capRate, expected?.capRate, null)}
+        {defCashOnCash(cashOnCash, expected?.cashOnCash)}
+        {monthlyRent > 0 && defExpenseRatio(expenseRatio, expected?.expenseRatio)}
+        {monthlyRent > 0 && defRentToValue(rentToValue)}
       </div>
 
       {/* ══ Operating Metrics & Gain ══════════════════════════════════════════ */}
@@ -5397,86 +5494,26 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
 
       {/* Row 1: Cash flow & gain */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        {mc({ label: `Avg Income (${wLabel(avgWindow)})`, primary: fmt(avg.income), primaryCls: 'text-success',
-          tooltip: `Average monthly income over the last ${avgWindow} complete months.` })}
-        {mc({ label: `Avg Cash Flow (${wLabel(avgWindow)})`, primary: fmt(avg.cashflow),
-          primaryCls: avg.cashflow >= 0 ? 'text-success' : 'text-danger',
-          ...expProps(avg.cashflow, expMonthlyCF,
-            v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v)),
-          tooltip: `Average monthly (income \u2212 all expenses incl. mortgage) over the last ${avgWindow} months.\nExp = budgeted NOI minus expected mortgage.` })}
-        {mc({ label: 'Monthly Gain', primary: fmt(monthlyGain),
-          primaryCls: monthlyGain >= 0 ? 'text-success' : 'text-danger',
-          secondary: yearlyAppr !== null && expMonthlyGain == null
-            ? `CF ${fmt(avg.cashflow)} + Appr ${fmt(monthlyAppr)}/mo` : null,
-          secondaryCls: 'text-secondary',
-          ...monthlyGainExpProps,
-          tooltip: 'Avg Cash Flow + Monthly Appreciation (yearly \u00f7 12). Combines income and value growth in one number.\nExp uses budgeted operating costs, expected mortgage, and expected appreciation %.' })}
-        {mc({ label: 'Payback Period',
-          ...paybackPeriod,
-          secondary: expPayback, secondaryCls: expPayback ? 'text-success' : '',
-          tooltip: `Time until all recorded expenses are fully recovered by cumulative cash flow.\nNumerator = Total Expenses − Total Income (${fmt(property.total_expenses)} − ${fmt(property.total_income)}).\nExp uses budgeted cash flow.` })}
-        {mc({ label: 'Break-even',
-          ...breakEven,
-          secondary: expBreakEven, secondaryCls: expBreakEven ? 'text-success' : '',
-          tooltip: 'Time until Net Position reaches zero or better.\nUses monthly gain (cash flow + appreciation) to close the gap.\nExp uses budgeted monthly gain.' })}
+        {defAvgIncome(avg.income, null, avgWindow)}
+        {defAvgCashFlow(avg.cashflow, expMonthlyCF, avgWindow)}
+        {defMonthlyGain(monthlyGain, expMonthlyGain)}
+        {defPaybackPeriod(paybackPeriod, expPayback, pbOutstanding, property.total_income, property.total_expenses)}
+        {defBreakEven(breakEven, expBreakEven)}
       </div>
 
       {/* Row 2: NOI, expenses, cap rate */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        {mc({
-          label: `Avg NOI (${wLabel(avgWindow)})`, primary: fmt(avg.noi),
-          primaryCls: avg.noi >= 0 ? 'text-success' : 'text-danger',
-          ...expProps(avg.noi, expected?.monthlyNOI,
-            v => v >= 0 ? 'text-success' : 'text-danger', v => fmt(v)),
-          tooltip: 'Net Operating Income = avg monthly income \u2212 op-ex (excl. mortgage & principal).\nExp uses budgeted fixed costs + utilities + tax/12.' })}
-        {mc({
-          label: `Avg Expenses (${wLabel(avgWindow)})`, primary: fmt(avg.expenses),
-          primaryCls: avg.expenses > avg.income * 0.85 ? 'text-danger' : avg.expenses > avg.income * 0.65 ? 'text-warning' : '',
-          ...expProps(avg.expenses, expected?.monthlyExpenses,
-            v => v < (monthlyRent * 0.65) ? '' : v < (monthlyRent * 0.85) ? 'text-warning' : 'text-danger',
-            v => fmt(v), 'Exp:', false),
-          tooltip: 'Avg total monthly expenses (all categories including mortgage).\nExp = budgeted op-ex + actual avg mortgage payment.' })}
-        {mc({
-          label: 'Cap Rate', primary: fPct(capRate),
-          primaryCls: capRate > 0.07 ? 'text-success' : capRate > 0.04 ? '' : 'text-danger',
-          ...expProps(capRate, expected?.capRate,
-            v => v > 0.07 ? 'text-success' : v > 0.04 ? '' : 'text-danger', fPct),
-          tertiary: capRate > 0.07 ? 'Strong yield' : capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-          tooltip: 'Annual NOI \u00f7 Purchase Price. Same as in Investment Ratios — shown here in context with actual operating averages.' })}
+        {defAvgNOI(avg.noi, expected?.monthlyNOI, avgWindow)}
+        {defAvgExpenses(avg.expenses, expected?.monthlyExpenses, avgWindow, monthlyRent)}
+        {defCapRate(capRate, expected?.capRate, avgWindow)}
       </div>
 
       {/* Row 3: OER, IRR, vacancy, maint */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({
-          label: 'OER',
-          primary: avg.income > 0 ? fPct(oer) : '\u2014',
-          primaryCls: avg.income > 0 ? (oer < 0.35 ? 'text-success' : oer < 0.50 ? '' : 'text-danger') : 'text-secondary',
-          ...(avg.income > 0 ? expProps(oer, expected?.oer,
-            v => v < 0.35 ? 'text-success' : v < 0.50 ? '' : 'text-danger', fPct, 'Exp:', false) : {}),
-          tertiary: avg.income <= 0 ? 'No income in selected window' : (oer < 0.35 ? 'Efficient' : oer < 0.50 ? 'Normal' : 'High'),
-          tooltip: 'Operating Expense Ratio = op-ex \u00f7 gross income. Excludes mortgage and principal.' })}
-        {mc({
-          label: 'IRR',
-          primary: irr !== null ? fPct(irr) : '\u2014',
-          primaryCls: irr !== null
-            ? (irr > 0.15 ? 'text-success' : irr > 0.08 ? '' : irr < 0 ? 'text-danger' : 'text-warning')
-            : 'text-secondary',
-          tertiary: irr !== null
-            ? (irr > 0.15 ? 'Excellent' : irr > 0.08 ? 'Good' : irr < 0 ? 'Loss' : 'Below target')
-            : (!property.poss_date ? 'No possession date set' : 'Need \u2265 2 months of records'),
-          tooltip: 'Internal Rate of Return \u2014 the annualised rate that makes NPV of all cash flows zero.\nTarget: 10\u201315%+ for real estate.' })}
-        {mc({
-          label: 'Economic Vacancy',
-          primary: econVacancy !== null ? `${Math.min(econVacancy, 100).toFixed(1)}%` : '\u2014',
-          primaryCls: econVacancy !== null ? (econVacancy > 10 ? 'text-danger' : econVacancy > 4 ? 'text-warning' : 'text-success') : 'text-secondary',
-          tertiary: econVacancy !== null ? (econVacancy > 10 ? 'High loss' : econVacancy > 4 ? 'Moderate' : 'Low') : 'No status events recorded',
-          tooltip: 'Lost rent due to vacancy \u00f7 Potential rent (trailing 12 months).\n\nMeasured from Vacant\u2192Rented status changes in the Events log.\nRent value at the time of each vacancy is used for lost-rent calculation.\nTarget: < 5%.' })}
-        {mc({
-          label: 'Maint+CapEx Ratio',
-          primary: maintCapexRatio !== null ? fPct(maintCapexRatio) : '\u2014',
-          primaryCls: maintCapexRatio !== null ? (maintCapexRatio < 0.05 ? 'text-success' : maintCapexRatio < 0.12 ? '' : 'text-danger') : 'text-secondary',
-          tertiary: maintCapexRatio !== null ? (maintCapexRatio < 0.05 ? 'Low' : maintCapexRatio < 0.12 ? 'Normal' : 'High') : 'Set monthly rent to compute',
-          tooltip: 'YTD Maintenance + Capital Expenditure \u00f7 Annual gross rental income.\nNorm: 5\u201310% of gross rent.' })}
+        {defOER(avg.income > 0 ? oer : null, expected?.oer)}
+        {defIRR(irr, !!property.poss_date)}
+        {defEconVacancy(econVacancy)}
+        {defMaintCapEx(maintCapexRatio)}
       </div>
 
       {/* ══ Income & Expenses (all-time) ══════════════════════════════════════ */}
@@ -5497,28 +5534,10 @@ function PropertyDetail({ property, properties = [], onSelectProperty, onBack,
       {/* ══ Appreciation ══════════════════════════════════════════════════════ */}
       <p className="stat-section-label">Appreciation</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {mc({ label: 'Total Appreciation', primary: fmt(appr),
-          primaryCls: appr >= 0 ? 'text-success' : 'text-danger',
-          secondary: apprPct !== null && property.purchase_price > 0 ? apprPct.toFixed(1) + '% from ' + fmt(property.purchase_price) : null,
-          secondaryCls: appr >= 0 ? 'text-success' : 'text-danger',
-          tooltip: 'Market Value \u2212 Purchase Price. Total unrealised gain since acquisition.' })}
-        {mc({
-          label: 'Yearly Appreciation',
-          primary: yearlyAppr !== null ? fmt(yearlyAppr) : '\u2014',
-          primaryCls: yearlyAppr !== null ? (yearlyAppr >= 0 ? 'text-success' : 'text-danger') : 'text-secondary',
-          secondary: yearlyApprPct !== null ? fp(yearlyApprPct) + ' per year' : null,
-          secondaryCls: yearlyAppr !== null && yearlyAppr >= 0 ? 'text-success' : 'text-danger',
-          ...yearlyApprExpProps,
-          tooltip: 'Appreciation \u00f7 years held since possession date.\nExp uses your expected appreciation % of purchase price.' })}
-        {mc({ label: 'Projected Year-End', primary: fmt(projectedYE),
-          tertiary: yearlyAppr !== null ? 'At current appreciation rate' : 'No possession date',
-          tooltip: 'Current value + remaining year fraction \u00d7 annual appreciation rate.' })}
-        {mc({
-          label: 'Year-End Balance',
-          primary: fmt(yearEndRate),
-          primaryCls: yearEndRate >= 0 ? 'text-success' : 'text-danger',
-          ...yearEndExpProps,
-          tooltip: `Projected Net Position at December 31st.\n\nRun-rate: current Net Position + avg CF \u00d7 ${ml} months + avg monthly appreciation \u00d7 ${ml} months.\nBudget: same using your budgeted cash flow and expected appreciation %.` })}
+        {defTotalAppreciation(appr, apprPct, property.purchase_price)}
+        {defYearlyAppreciation(yearlyAppr, expYearlyAppr, expApprPct, yearlyApprPct)}
+        {defProjectedYearEnd(projectedYE)}
+        {defYearEndBalance(yearEndRate, yearEndBudg, ml)}
       </div>
 
       {/* Chart */}
@@ -6018,7 +6037,7 @@ function TenantsView({ properties, onAddTenant, onEditTenant, initialPropertyId 
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
 
       {/* Archive */}
@@ -6054,7 +6073,7 @@ function TenantsView({ properties, onAddTenant, onEditTenant, initialPropertyId 
                   </tbody>
                 </table>
               </div>
-        )}
+        ))}
       </div>
     </>
   );
@@ -6174,7 +6193,7 @@ function EventsView({ properties, initialPropertyId }) {
                           </div>
                         ) : (
                           <TruncatedCell text={ev.description || ''} />
-                        )}
+                        ))}
                       </td>
                     )}
                     <td>
@@ -6521,66 +6540,28 @@ function EvaluatorView() {
         <div>
           <p className="stat-section-label">Investment Ratios</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Loan-to-Value', primary: fPct(m.ltvRatio),
-              primaryCls: m.ltvRatio > 0.80 ? 'text-danger' : m.ltvRatio > 0.65 ? 'text-warning' : 'text-success',
-              tertiary: m.ltvRatio > 0.80 ? 'High leverage' : m.ltvRatio < 0.55 ? 'Conservative' : 'Moderate leverage',
-              tooltip: 'Loan \u00f7 Purchase Price.\nHigher LTV = more risk. Lenders typically require \u226480%. Below 65% is conservative.' })}
-            {mc({ label: 'Cap Rate', primary: fPct(m.capRate),
-              primaryCls: m.capRate > 0.07 ? 'text-success' : m.capRate > 0.04 ? '' : 'text-danger',
-              tertiary: m.capRate > 0.07 ? 'Strong yield' : m.capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-              tooltip: 'Net Operating Income \u00f7 Purchase Price.\nIgnores financing \u2014 useful for comparing properties. Target: 5\u20137%+ residential.' })}
-            {mc({ label: 'Cash-on-Cash', primary: fPct(m.cashOnCash),
-              primaryCls: m.cashOnCash > 0.08 ? 'text-success' : m.cashOnCash > 0.04 ? '' : m.cashOnCash < 0 ? 'text-danger' : 'text-warning',
-              tertiary: m.cashOnCash > 0.08 ? 'Strong' : m.cashOnCash > 0.04 ? 'Moderate' : 'Weak',
-              tooltip: 'Annual Cash Flow \u00f7 Cash Invested (down payment + one-off costs).\nMeasures how efficiently your capital works. Target: 6\u201310%+.' })}
-            {inputs.monthlyRent > 0 && mc({ label: 'Expense Ratio', primary: fPct(m.expenseRatio),
-              primaryCls: m.expenseRatio < 0.35 ? 'text-success' : m.expenseRatio < 0.50 ? '' : 'text-danger',
-              tertiary: m.expenseRatio < 0.35 ? 'Lean' : m.expenseRatio < 0.50 ? 'Normal' : 'High costs',
-              tooltip: 'Total Monthly Expenses \u00f7 Effective Monthly Rent.\nIncludes mortgage, tax, operating costs, repair reserve. Below 40% is healthy.' })}
-            {inputs.monthlyRent > 0 && mc({ label: 'Rent-to-Value', primary: fPct(m.rentToValue),
-              primaryCls: m.rentToValue > 0.01 ? 'text-success' : m.rentToValue > 0.007 ? '' : 'text-danger',
-              tertiary: m.rentToValue > 0.01 ? 'Meets 1% rule' : m.rentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
-              tooltip: 'Annual Gross Rent \u00f7 Purchase Price.\nThe "1% rule": monthly rent \u22651% of price for cash-flow-positive property.' })}
+            {defEvalLTV(m.ltvRatio)}
+            {defEvalCapRate(m.capRate)}
+            {defEvalCashOnCash(m.cashOnCash)}
+            {inputs.monthlyRent > 0 && defEvalExpenseRatio(m.expenseRatio)}
+            {inputs.monthlyRent > 0 && defEvalRentToValue(m.rentToValue)}
           </div>
 
           <p className="stat-section-label">NOI &amp; Return Projections</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Annual NOI', primary: fmt(m.annualNetOpIncome) + '/yr',
-              primaryCls: m.annualNetOpIncome >= 0 ? 'text-success' : 'text-danger',
-              secondary: `${fmt(m.annualNetOpIncome / 12)}/mo`, secondaryCls: 'text-secondary',
-              tooltip: 'Net Operating Income = Annual Gross Rent \u2212 (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic.' })}
-            {m.grm !== null && inputs.monthlyRent > 0 && mc({ label: 'GRM', primary: m.grm.toFixed(1) + 'x',
-              primaryCls: m.grm < 10 ? 'text-success' : m.grm < 15 ? '' : 'text-danger',
-              tertiary: m.grm < 10 ? 'Attractive' : m.grm < 15 ? 'Moderate' : 'Expensive',
-              tooltip: 'Gross Rent Multiplier = Purchase Price \u00f7 Annual Gross Rent.\nLower is better. Typical range: 8\u201312x for good cash-flow markets.' })}
-            {m.irr10 !== null && mc({ label: 'IRR (10-yr)', primary: fp(m.irr10 * 100),
-              primaryCls: m.irr10 > 0.15 ? 'text-success' : m.irr10 > 0.08 ? '' : m.irr10 < 0 ? 'text-danger' : 'text-warning',
-              tertiary: m.irr10 > 0.15 ? 'Excellent' : m.irr10 > 0.08 ? 'Good' : m.irr10 < 0 ? 'Loss' : 'Below target',
-              tooltip: 'Internal Rate of Return over a 10-year horizon.\nAccounts for time-value of money. Target: 10\u201315%+ for real estate.' })}
+            {defEvalAnnualNOI(m.annualNetOpIncome)}
+            {m.grm !== null && inputs.monthlyRent > 0 && defEvalGRM(m.grm)}
+            {m.irr10 !== null && defEvalIRR10(m.irr10)}
           </div>
 
           <p className="stat-section-label">Cash Flow &amp; Monthly Gain</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Monthly Mortgage', primary: fmt(m.monthlyMortgage) + '/mo', primaryCls: 'text-danger',
-              tooltip: `Standard amortization payment at ${fp(m.effectiveRate)}% over ${inputs.amortization} years.` })}
-            {mc({ label: 'Total Monthly Costs', primary: fmt(m.totalMonthlyExpenses) + '/mo', primaryCls: 'text-danger',
-              secondary: `Mortgage ${fmt(m.monthlyMortgage)} + OpEx ${fmt(inputs.monthlyOpEx)} + Tax ${fmt(m.monthlyTax)} + Reserve ${fmt(m.monthlyRepairReserve)}`,
-              secondaryCls: 'text-secondary',
-              tooltip: 'Sum of mortgage payment, operating expenses, property tax, and repair reserve.' })}
-            {mc({ label: 'Avg Cash Flow', primary: fmt(m.avgCashFlow) + '/mo',
-              primaryCls: m.avgCashFlow >= 0 ? 'text-success' : 'text-danger',
-              secondary: scenario.vacancyRate > 0 ? `After ${scenario.vacancyRate}% vacancy` : null,
-              secondaryCls: 'text-secondary',
-              tooltip: 'Effective rent (after vacancy) minus total monthly costs.' })}
-            {mc({ label: 'Monthly Gain', primary: fmt(m.monthlyGain) + '/mo',
-              primaryCls: m.monthlyGain >= 0 ? 'text-success' : 'text-danger',
-              secondary: `CF ${fmt(m.avgCashFlow)} + Appr ${fmt(m.monthlyAppr)}`,
-              secondaryCls: 'text-secondary',
-              tooltip: 'Cash Flow + Monthly Appreciation.\nCaptures income and value growth together.' })}
-            {mc({ label: 'Payback Period', ...m.payback,
-              tooltip: 'Time for cumulative cash flow to recover all cash invested (down payment + one-off costs).\nUses cash flow only — does not include appreciation.' })}
-            {mc({ label: 'Break-even', ...m.breakEven,
-              tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways \u2264 Payback Period since gain \u2265 cash flow.' })}
+            {defEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
+            {defEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
+            {defEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
+            {defEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
+            {defEvalPayback(m.payback)}
+            {defEvalBreakEven(m.breakEven)}
           </div>
 
           <ScorePanel score={m.score} />

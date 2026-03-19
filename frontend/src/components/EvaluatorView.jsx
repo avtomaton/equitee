@@ -1,7 +1,13 @@
 import { useState, useMemo } from 'react';
 import StarRating from './StarRating.jsx';
 import MetricCard from './MetricCard.jsx';
-import { fmt, fPct, fp, mc, NumInput, SliderInput } from './uiHelpers.jsx';
+import { fmt, fPct, fp, NumInput, SliderInput } from './uiHelpers.jsx';
+import {
+  defEvalLTV, defEvalCapRate, defEvalCashOnCash, defEvalExpenseRatio, defEvalRentToValue,
+  defEvalAnnualNOI, defEvalGRM, defEvalIRR10,
+  defEvalMonthlyMortgage, defEvalTotalMonthlyCosts, defEvalAvgCashFlow, defEvalMonthlyGain,
+  defEvalPayback, defEvalBreakEven,
+} from '../metricDefs.jsx';
 import { calcInvestmentScore, calcMortgagePayment, calcIRR, calcPayback, calcBreakEven } from '../metrics.js';
 import { clamp } from '../utils.js';
 
@@ -326,66 +332,28 @@ export default function EvaluatorView() {
         <div>
           <p className="stat-section-label">Investment Ratios</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Loan-to-Value', primary: fPct(m.ltvRatio),
-              primaryCls: m.ltvRatio > 0.80 ? 'text-danger' : m.ltvRatio > 0.65 ? 'text-warning' : 'text-success',
-              tertiary: m.ltvRatio > 0.80 ? 'High leverage' : m.ltvRatio < 0.55 ? 'Conservative' : 'Moderate leverage',
-              tooltip: 'Loan \u00f7 Purchase Price.\nHigher LTV = more risk. Lenders typically require \u226480%. Below 65% is conservative.' })}
-            {mc({ label: 'Cap Rate', primary: fPct(m.capRate),
-              primaryCls: m.capRate > 0.07 ? 'text-success' : m.capRate > 0.04 ? '' : 'text-danger',
-              tertiary: m.capRate > 0.07 ? 'Strong yield' : m.capRate > 0.04 ? 'Moderate yield' : 'Weak yield',
-              tooltip: 'Net Operating Income \u00f7 Purchase Price.\nIgnores financing \u2014 useful for comparing properties. Target: 5\u20137%+ residential.' })}
-            {mc({ label: 'Cash-on-Cash', primary: fPct(m.cashOnCash),
-              primaryCls: m.cashOnCash > 0.08 ? 'text-success' : m.cashOnCash > 0.04 ? '' : m.cashOnCash < 0 ? 'text-danger' : 'text-warning',
-              tertiary: m.cashOnCash > 0.08 ? 'Strong' : m.cashOnCash > 0.04 ? 'Moderate' : 'Weak',
-              tooltip: 'Annual Cash Flow \u00f7 Cash Invested (down payment + one-off costs).\nMeasures how efficiently your capital works. Target: 6\u201310%+.' })}
-            {inputs.monthlyRent > 0 && mc({ label: 'Expense Ratio', primary: fPct(m.expenseRatio),
-              primaryCls: m.expenseRatio < 0.35 ? 'text-success' : m.expenseRatio < 0.50 ? '' : 'text-danger',
-              tertiary: m.expenseRatio < 0.35 ? 'Lean' : m.expenseRatio < 0.50 ? 'Normal' : 'High costs',
-              tooltip: 'Total Monthly Expenses \u00f7 Effective Monthly Rent.\nIncludes mortgage, tax, operating costs, repair reserve. Below 40% is healthy.' })}
-            {inputs.monthlyRent > 0 && mc({ label: 'Rent-to-Value', primary: fPct(m.rentToValue),
-              primaryCls: m.rentToValue > 0.01 ? 'text-success' : m.rentToValue > 0.007 ? '' : 'text-danger',
-              tertiary: m.rentToValue > 0.01 ? 'Meets 1% rule' : m.rentToValue > 0.007 ? 'Near threshold' : 'Below 1% rule',
-              tooltip: 'Annual Gross Rent \u00f7 Purchase Price.\nThe "1% rule": monthly rent \u22651% of price for cash-flow-positive property.' })}
+            {defEvalLTV(m.ltvRatio)}
+            {defEvalCapRate(m.capRate)}
+            {defEvalCashOnCash(m.cashOnCash)}
+            {inputs.monthlyRent > 0 && defEvalExpenseRatio(m.expenseRatio)}
+            {inputs.monthlyRent > 0 && defEvalRentToValue(m.rentToValue)}
           </div>
 
           <p className="stat-section-label">NOI &amp; Return Projections</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Annual NOI', primary: fmt(m.annualNetOpIncome) + '/yr',
-              primaryCls: m.annualNetOpIncome >= 0 ? 'text-success' : 'text-danger',
-              secondary: `${fmt(m.annualNetOpIncome / 12)}/mo`, secondaryCls: 'text-secondary',
-              tooltip: 'Net Operating Income = Annual Gross Rent \u2212 (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic.' })}
-            {m.grm !== null && inputs.monthlyRent > 0 && mc({ label: 'GRM', primary: m.grm.toFixed(1) + 'x',
-              primaryCls: m.grm < 10 ? 'text-success' : m.grm < 15 ? '' : 'text-danger',
-              tertiary: m.grm < 10 ? 'Attractive' : m.grm < 15 ? 'Moderate' : 'Expensive',
-              tooltip: 'Gross Rent Multiplier = Purchase Price \u00f7 Annual Gross Rent.\nLower is better. Typical range: 8\u201312x for good cash-flow markets.' })}
-            {m.irr10 !== null && mc({ label: 'IRR (10-yr)', primary: fp(m.irr10 * 100),
-              primaryCls: m.irr10 > 0.15 ? 'text-success' : m.irr10 > 0.08 ? '' : m.irr10 < 0 ? 'text-danger' : 'text-warning',
-              tertiary: m.irr10 > 0.15 ? 'Excellent' : m.irr10 > 0.08 ? 'Good' : m.irr10 < 0 ? 'Loss' : 'Below target',
-              tooltip: 'Internal Rate of Return over a 10-year horizon.\nAccounts for time-value of money. Target: 10\u201315%+ for real estate.' })}
+            {defEvalAnnualNOI(m.annualNetOpIncome)}
+            {m.grm !== null && inputs.monthlyRent > 0 && defEvalGRM(m.grm)}
+            {m.irr10 !== null && defEvalIRR10(m.irr10)}
           </div>
 
           <p className="stat-section-label">Cash Flow &amp; Monthly Gain</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {mc({ label: 'Monthly Mortgage', primary: fmt(m.monthlyMortgage) + '/mo', primaryCls: 'text-danger',
-              tooltip: `Standard amortization payment at ${fp(m.effectiveRate)}% over ${inputs.amortization} years.` })}
-            {mc({ label: 'Total Monthly Costs', primary: fmt(m.totalMonthlyExpenses) + '/mo', primaryCls: 'text-danger',
-              secondary: `Mortgage ${fmt(m.monthlyMortgage)} + OpEx ${fmt(inputs.monthlyOpEx)} + Tax ${fmt(m.monthlyTax)} + Reserve ${fmt(m.monthlyRepairReserve)}`,
-              secondaryCls: 'text-secondary',
-              tooltip: 'Sum of mortgage payment, operating expenses, property tax, and repair reserve.' })}
-            {mc({ label: 'Avg Cash Flow', primary: fmt(m.avgCashFlow) + '/mo',
-              primaryCls: m.avgCashFlow >= 0 ? 'text-success' : 'text-danger',
-              secondary: scenario.vacancyRate > 0 ? `After ${scenario.vacancyRate}% vacancy` : null,
-              secondaryCls: 'text-secondary',
-              tooltip: 'Effective rent (after vacancy) minus total monthly costs.' })}
-            {mc({ label: 'Monthly Gain', primary: fmt(m.monthlyGain) + '/mo',
-              primaryCls: m.monthlyGain >= 0 ? 'text-success' : 'text-danger',
-              secondary: `CF ${fmt(m.avgCashFlow)} + Appr ${fmt(m.monthlyAppr)}`,
-              secondaryCls: 'text-secondary',
-              tooltip: 'Cash Flow + Monthly Appreciation.\nCaptures income and value growth together.' })}
-            {mc({ label: 'Payback Period', ...m.payback,
-              tooltip: 'Time for cumulative cash flow to recover all cash invested (down payment + one-off costs).\nUses cash flow only — does not include appreciation.' })}
-            {mc({ label: 'Break-even', ...m.breakEven,
-              tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways \u2264 Payback Period since gain \u2265 cash flow.' })}
+            {defEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
+            {defEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
+            {defEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
+            {defEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
+            {defEvalPayback(m.payback)}
+            {defEvalBreakEven(m.breakEven)}
           </div>
 
           <ScorePanel score={m.score} />
