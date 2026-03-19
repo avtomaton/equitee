@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import PropertyCard from './PropertyCard.jsx';
 import KPICard from './KPICard.jsx';
 import { fmt, fp, sn, SectionLabel, WindowPicker, ltvColor, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
@@ -50,9 +50,8 @@ export default function Dashboard({ properties, onPropertyClick }) {
   [allIncome, allExpenses, avgWindow]);
 
   // ── Chart data ────────────────────────────────────────────────────────────
-  const incExpData = properties.map(p => ({
+  const incExpData  = properties.map(p => ({
     name: sn(p.name), Income: p.total_income, Expenses: p.total_expenses,
-    Net: p.total_income - p.total_expenses,
   }));
   const apprData   = properties.map(p => ({ name: sn(p.name), Appreciation: p.market_price - p.purchase_price }));
   const equityData = properties.map(p => ({ name: sn(p.name), Equity: p.market_price - p.loan_amount, Loan: p.loan_amount }));
@@ -175,16 +174,15 @@ export default function Dashboard({ properties, onPropertyClick }) {
       {properties.length > 0 && (<>
         <div className="chart-container">
           <div className="chart-header"><h2 className="chart-title">Income vs Expenses by Property</h2></div>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={incExpData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={incExpData} barGap={4} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis dataKey="name" stroke="#9ca3af" />
-              <YAxis stroke="#9ca3af" />
+              <YAxis stroke="#9ca3af" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
               <Legend />
-              <Bar dataKey="Income"   fill="#10b981" name="Income" />
-              <Bar dataKey="Expenses" fill="#ef4444" name="Expenses" />
-              <Bar dataKey="Net"      fill="#3b82f6" name="Net" />
+              <Bar dataKey="Income"   fill="#10b981" radius={[4,4,0,0]} />
+              <Bar dataKey="Expenses" fill="#ef4444" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -192,12 +190,13 @@ export default function Dashboard({ properties, onPropertyClick }) {
           <div className="chart-container" style={{ margin: 0 }}>
             <div className="chart-header"><h2 className="chart-title">Appreciation by Property</h2></div>
             <ResponsiveContainer width="100%" height={210}>
-              <BarChart data={apprData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <BarChart data={apprData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                 <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-                <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
-                <Bar dataKey="Appreciation">
+                <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="4 2" />
+                <Bar dataKey="Appreciation" radius={[4,4,0,0]}>
                   {apprData.map((e, i) => <Cell key={i} fill={e.Appreciation >= 0 ? '#10b981' : '#ef4444'} />)}
                 </Bar>
               </BarChart>
@@ -206,13 +205,13 @@ export default function Dashboard({ properties, onPropertyClick }) {
           <div className="chart-container" style={{ margin: 0 }}>
             <div className="chart-header"><h2 className="chart-title">Equity vs Loan by Property</h2></div>
             <ResponsiveContainer width="100%" height={210}>
-              <BarChart data={equityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <BarChart data={equityData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                 <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-                <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
                 <Legend />
-                <Bar dataKey="Equity" stackId="a" fill="#10b981" />
+                <Bar dataKey="Equity" stackId="a" fill="#10b981" radius={[4,4,0,0]} />
                 <Bar dataKey="Loan"   stackId="a" fill="#ef4444" />
               </BarChart>
             </ResponsiveContainer>

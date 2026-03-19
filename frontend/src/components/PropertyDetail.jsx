@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import { API_URL } from '../config.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
@@ -184,9 +184,10 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
   // ── Chart data ────────────────────────────────────────────────────────────
   const chartData = [
-    { name: 'Income',           value: property.total_income },
-    { name: 'Net Exp',          value: Math.max(0, totalNetExp) },
-    { name: 'Operating Profit', value: totalNetBalance },
+    { name: 'Total Income',     value: property.total_income,  fill: '#10b981' },
+    { name: 'Net Expenses',     value: Math.max(0, totalNetExp), fill: '#ef4444' },
+    { name: 'Operating Profit', value: totalNetBalance,         fill: totalNetBalance >= 0 ? '#3b82f6' : '#f59e0b' },
+    { name: 'Net Position',     value: sellingProfit,           fill: sellingProfit >= 0 ? '#8b5cf6' : '#ef4444' },
   ];
 
   return (
@@ -412,13 +413,23 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
       {/* Chart */}
       <div className="chart-container">
         <div className="chart-header"><h2 className="chart-title">Financial Overview</h2></div>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="name" stroke="#9ca3af" />
-            <YAxis stroke="#9ca3af" />
-            <Tooltip contentStyle={DETAIL_TOOLTIP_STYLE} />
-            <Bar dataKey="value" fill="#3b82f6" />
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 80, left: 0, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+            <XAxis type="number" stroke="#9ca3af" tick={{ fontSize: 11 }}
+              tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+            <YAxis type="category" dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} width={115} />
+            <Tooltip
+              contentStyle={DETAIL_TOOLTIP_STYLE}
+              formatter={v => [`$${Number(v).toLocaleString()}`, '']}
+              labelFormatter={l => l}
+            />
+            <Bar dataKey="value" radius={[0,4,4,0]}>
+              {chartData.map((e, i) => <Cell key={i} fill={e.fill} />)}
+              <LabelList dataKey="value" position="right"
+                formatter={v => `$${Number(v).toLocaleString()}`}
+                style={{ fill: '#9ca3af', fontSize: 11 }} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>

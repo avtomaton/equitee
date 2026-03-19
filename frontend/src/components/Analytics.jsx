@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+         PieChart, Pie, Cell, LineChart, Line, ReferenceLine, LabelList } from 'recharts';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
 import { sn, WindowPicker, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import { COLORS } from '../config.js';
@@ -14,11 +15,15 @@ const G2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', ma
 function buildChartData(list) {
   const incExp = list.map(p => ({
     name: sn(p.name),
-    Income: p.total_income, Expenses: p.total_expenses,
-    Net: p.total_income - p.total_expenses,
+    Income: p.total_income,
+    Expenses: p.total_expenses,
   }));
-  const value = list.map(p => ({ name: sn(p.name), Value: p.market_price }));
-  const roi   = list.map(p => {
+  const value = list.map(p => ({
+    name: sn(p.name),
+    'Market Value': p.market_price,
+    'Purchase Price': p.purchase_price,
+  }));
+  const roi = list.map(p => {
     const net = p.total_income - (p.total_expenses - (p.purchase_price - p.loan_amount));
     return { name: sn(p.name), ROI: p.market_price ? parseFloat((net / p.market_price * 100).toFixed(2)) : 0 };
   });
@@ -34,7 +39,44 @@ function buildChartData(list) {
     const yrs  = yearsHeld(p);
     return { name: sn(p.name), Appreciation: appr, YearlyAppr: yrs ? parseFloat((appr / yrs).toFixed(0)) : null };
   });
-  return { incExp, value, roi, status, equity, equityPct, appreciation };
+  const capRates = list
+    .filter(p => p.purchase_price > 0 && p.monthly_rent > 0)
+    .map(p => ({
+      name: sn(p.name),
+      'Cap Rate': parseFloat(((p.monthly_rent * 12) / p.purchase_price * 100).toFixed(2)),
+    }))
+    .sort((a, b) => b['Cap Rate'] - a['Cap Rate']);
+  const ltv = list
+    .filter(p => p.loan_amount > 0 && p.market_price > 0)
+    .map(p => ({
+      name: sn(p.name),
+      LTV: parseFloat((p.loan_amount / p.market_price * 100).toFixed(1)),
+    }))
+    .sort((a, b) => b.LTV - a.LTV);
+  return { incExp, value, roi, status, equity, equityPct, appreciation, capRates, ltv };
+}
+
+function buildCashFlowTrend(allIncome, allExpenses, months = 12) {
+  const now = new Date();
+  const buckets = {};
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+    buckets[key] = { month: label, Income: 0, Expenses: 0 };
+  }
+  allIncome.forEach(r => {
+    const key = r.income_date?.slice(0, 7);
+    if (buckets[key]) buckets[key].Income += r.amount;
+  });
+  allExpenses.forEach(r => {
+    const key = r.expense_date?.slice(0, 7);
+    if (buckets[key]) buckets[key].Expenses += r.amount;
+  });
+  return Object.values(buckets).map(b => ({
+    ...b,
+    'Cash Flow': b.Income - b.Expenses,
+  }));
 }
 
 /**
@@ -51,6 +93,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
   // Chart data is derived from property records alone — no async needed.
   // Recomputes whenever the filtered list changes.
   const chartData = useMemo(() => buildChartData(filtered), [filtered]);
+  const cashFlowTrend = useMemo(() => buildCashFlowTrend(allIncome, allExpenses, 12), [allIncome, allExpenses]);
 
   // Aggregated portfolio metrics via shared hook
   const agg = usePortfolioAggregates(filtered, allIncome, allExpenses);
@@ -150,130 +193,201 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
       </div>
 
       {/* ── Charts ── */}
+
+      {/* Row 1: Cash flow trend (full width) + Status donut */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
         <div className="chart-container" style={{ margin: 0 }}>
-          <div className="chart-header"><h2 className="chart-title">Income vs Expenses by Property</h2></div>
+          <div className="chart-header"><h2 className="chart-title">Monthly Cash Flow — Trailing 12 Months</h2></div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chartData.incExp}>
+            <LineChart data={cashFlowTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <XAxis dataKey="month" stroke="#9ca3af" tick={{ fontSize: 10 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
+              <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="4 2" />
               <Legend />
-              <Bar dataKey="Income"   fill="#10b981" />
-              <Bar dataKey="Expenses" fill="#ef4444" />
-              <Bar dataKey="Net"      fill="#3b82f6" />
-            </BarChart>
+              <Line type="monotone" dataKey="Income" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Expenses" stroke="#ef4444" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Cash Flow" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 3 }} />
+            </LineChart>
           </ResponsiveContainer>
         </div>
         <div className="chart-container" style={{ margin: 0 }}>
-          <div className="chart-header"><h2 className="chart-title">Status Breakdown</h2></div>
+          <div className="chart-header"><h2 className="chart-title">Portfolio Status</h2></div>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={chartData.status} dataKey="value" nameKey="name"
-                cx="50%" cy="50%" outerRadius={75}
-                label={({ name, value }) => `${name}: ${value}`}>
+                cx="50%" cy="50%" innerRadius={52} outerRadius={80}
+                paddingAngle={3}
+                label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`}
+                labelLine={false}>
                 {chartData.status.map((entry, i) => (
                   <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, name) => [v + ' properties', name]} />
+              <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
+                fill="#f3f4f6" fontSize={22} fontWeight={700}>
+                {filtered.length}
+              </text>
+              <text x="50%" y="50%" dy={18} textAnchor="middle" dominantBaseline="middle"
+                fill="#9ca3af" fontSize={10}>
+                total
+              </text>
             </PieChart>
           </ResponsiveContainer>
         </div>
       </div>
 
+      {/* Row 2: Income vs Expenses | Cap Rate */}
       <div style={G2}>
         <div className="chart-container" style={{ margin: 0 }}>
-          <div className="chart-header"><h2 className="chart-title">Market Value by Property</h2></div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.value}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <div className="chart-header"><h2 className="chart-title">Income vs Expenses by Property</h2></div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.incExp} barGap={4} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
-              <Bar dataKey="Value" fill="#8b5cf6" />
+              <Legend />
+              <Bar dataKey="Income"   fill="#10b981" radius={[4,4,0,0]} />
+              <Bar dataKey="Expenses" fill="#ef4444" radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="chart-container" style={{ margin: 0 }}>
+          <div className="chart-header"><h2 className="chart-title">Cap Rate by Property (%)</h2></div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.capRates} layout="vertical" margin={{ top: 8, right: 48, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+              <XAxis type="number" stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `${v}%`} domain={[0, 'auto']} />
+              <YAxis type="category" dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} width={70} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => [`${v}%`, 'Cap Rate']} />
+              <ReferenceLine x={7} stroke="#10b981" strokeDasharray="4 2" label={{ value:'7% target', fill:'#10b981', fontSize:10, position:'insideTopRight' }} />
+              <Bar dataKey="Cap Rate" radius={[0,4,4,0]}>
+                {chartData.capRates.map((e, i) => (
+                  <Cell key={i} fill={e['Cap Rate'] >= 7 ? '#10b981' : e['Cap Rate'] >= 4 ? '#f59e0b' : '#ef4444'} />
+                ))}
+                <LabelList dataKey="Cap Rate" position="right" formatter={v => `${v}%`} style={{ fill: '#9ca3af', fontSize: 11 }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Row 3: Market Value with Purchase Price | ROI */}
+      <div style={G2}>
+        <div className="chart-container" style={{ margin: 0 }}>
+          <div className="chart-header"><h2 className="chart-title">Market Value vs Purchase Price</h2></div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.value} barGap={4} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
+              <Legend />
+              <Bar dataKey="Market Value"   fill="#8b5cf6" radius={[4,4,0,0]} />
+              <Bar dataKey="Purchase Price" fill="#374151" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">ROI by Property (%)</h2></div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.roi}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.roi} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `${v}%`} />
-              <Bar dataKey="ROI">
-                {chartData.roi.map((e, i) => <Cell key={i} fill={e.ROI >= 0 ? '#10b981' : '#ef4444'} />)}
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `${v}%`} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => [`${v}%`, 'ROI']} />
+              <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="4 2" />
+              <ReferenceLine y={8} stroke="#10b981" strokeDasharray="4 2" label={{ value:'8% target', fill:'#10b981', fontSize:10, position:'insideTopRight' }} />
+              <Bar dataKey="ROI" radius={[4,4,0,0]}>
+                {chartData.roi.map((e, i) => (
+                  <Cell key={i} fill={e.ROI >= 8 ? '#10b981' : e.ROI >= 0 ? '#f59e0b' : '#ef4444'} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
+      {/* Row 4: Equity vs Loan | Equity % */}
       <div style={G2}>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Equity vs Loan by Property</h2></div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.equity}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.equity} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
               <Legend />
-              <Bar dataKey="Equity" stackId="a" fill="#10b981" />
-              <Bar dataKey="Loan"   stackId="a" fill="#ef4444" />
+              <Bar dataKey="Equity" stackId="a" fill="#10b981" radius={[4,4,0,0]} />
+              <Bar dataKey="Loan"   stackId="a" fill="#ef4444" radius={[0,0,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Equity % by Property</h2></div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.equityPct}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.equityPct} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
               <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `${v}%`} />
-              <Bar dataKey="EquityPct">
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => [`${v}%`, 'Equity']} />
+              <ReferenceLine y={50} stroke="#6b7280" strokeDasharray="4 2" label={{ value:'50%', fill:'#6b7280', fontSize:10, position:'insideTopRight' }} />
+              <ReferenceLine y={80} stroke="#10b981" strokeDasharray="4 2" label={{ value:'80% refi', fill:'#10b981', fontSize:10, position:'insideTopRight' }} />
+              <Bar dataKey="EquityPct" radius={[4,4,0,0]}>
                 {chartData.equityPct.map((e, i) => (
-                  <Cell key={i} fill={e.EquityPct >= 50 ? '#10b981' : e.EquityPct >= 25 ? '#f59e0b' : '#ef4444'} />
+                  <Cell key={i} fill={e.EquityPct >= 80 ? '#10b981' : e.EquityPct >= 50 ? '#f59e0b' : '#ef4444'} />
                 ))}
+                <LabelList dataKey="EquityPct" position="top" formatter={v => `${v}%`} style={{ fill: '#9ca3af', fontSize: 10 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
+      {/* Row 5: Appreciation | LTV comparison */}
       <div style={{ ...G2, marginBottom: 0 }}>
         <div className="chart-container" style={{ margin: 0 }}>
-          <div className="chart-header"><h2 className="chart-title">Total Appreciation by Property</h2></div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.appreciation}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <div className="chart-header"><h2 className="chart-title">Appreciation by Property</h2></div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.appreciation} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
               <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
-              <Bar dataKey="Appreciation">
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, n) => [`$${Number(v).toLocaleString()}`, n]} />
+              <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="4 2" />
+              <Legend />
+              <Bar dataKey="Appreciation" name="Total" radius={[4,4,0,0]}>
                 {chartData.appreciation.map((e, i) => (
                   <Cell key={i} fill={e.Appreciation >= 0 ? '#10b981' : '#ef4444'} />
+                ))}
+              </Bar>
+              <Bar dataKey="YearlyAppr" name="Per Year" radius={[4,4,0,0]}>
+                {chartData.appreciation.map((e, i) => (
+                  <Cell key={i} fill={e.YearlyAppr != null ? (e.YearlyAppr >= 0 ? '#3b82f6' : '#f59e0b') : 'transparent'} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className="chart-container" style={{ margin: 0 }}>
-          <div className="chart-header"><h2 className="chart-title">Yearly Appreciation by Property</h2></div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={chartData.appreciation.filter(d => d.YearlyAppr !== null)}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} />
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}/yr`} />
-              <Bar dataKey="YearlyAppr">
-                {chartData.appreciation.filter(d => d.YearlyAppr !== null).map((e, i) => (
-                  <Cell key={i} fill={e.YearlyAppr >= 0 ? '#10b981' : '#ef4444'} />
+          <div className="chart-header"><h2 className="chart-title">Loan-to-Value by Property (%)</h2></div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData.ltv} layout="vertical" margin={{ top: 8, right: 48, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+              <XAxis type="number" stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `${v}%`} domain={[0, 100]} />
+              <YAxis type="category" dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }} width={70} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => [`${v}%`, 'LTV']} />
+              <ReferenceLine x={65} stroke="#10b981" strokeDasharray="4 2" label={{ value:'65%', fill:'#10b981', fontSize:10, position:'insideTopRight' }} />
+              <ReferenceLine x={80} stroke="#ef4444" strokeDasharray="4 2" label={{ value:'80%', fill:'#ef4444', fontSize:10, position:'insideTopRight' }} />
+              <Bar dataKey="LTV" radius={[0,4,4,0]}>
+                {chartData.ltv.map((e, i) => (
+                  <Cell key={i} fill={e.LTV <= 65 ? '#10b981' : e.LTV <= 80 ? '#f59e0b' : '#ef4444'} />
                 ))}
+                <LabelList dataKey="LTV" position="right" formatter={v => `${v}%`} style={{ fill: '#9ca3af', fontSize: 11 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
