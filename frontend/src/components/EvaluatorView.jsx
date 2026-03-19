@@ -1,13 +1,8 @@
 import { useState, useMemo } from 'react';
 import StarRating from './StarRating.jsx';
 import MetricCard from './MetricCard.jsx';
-import { fmt, fPct, fp, NumInput, SliderInput } from './uiHelpers.jsx';
-import {
-  cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue,
-  cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10,
-  cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain,
-  cardEvalPayback, cardEvalBreakEven,
-} from '../metricDefs.jsx';
+import { fmt, fp, NumInput, SliderInput } from './uiHelpers.jsx';
+import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain, cardEvalPayback, cardEvalBreakEven } from '../metricDefs.jsx';
 import { calcInvestmentScore, calcMortgagePayment, calcIRR, calcPayback, calcBreakEven } from '../metrics.js';
 import { clamp } from '../utils.js';
 

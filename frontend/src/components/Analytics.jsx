@@ -1,22 +1,12 @@
 import { useState, useMemo } from 'react';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell,
-} from 'recharts';
-import MetricCard from './MetricCard.jsx';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
-import { fmt, fPct, fp, sn, WindowPicker, wLabel, fmtPeriod, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
-import { COLORS, API_URL } from '../config.js';
-import { avgMonthly, yearsHeld, expGap, monthsLeftInYear } from '../metrics.js';
+import { sn, WindowPicker, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
+import { COLORS } from '../config.js';
+import { avgMonthly, yearsHeld, monthsLeftInYear } from '../metrics.js';
 import { usePortfolioAggregates } from '../hooks.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
-import {
-  cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI,
-  cardCapRate, cardOER, cardDSCR, cardICR,
-  cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven,
-  cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance,
-  cardAvailEquityPortfolio, cardMortgagePerMonth, cardYtdOpProfit,
-} from '../metricDefs.jsx';
+import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance, cardAvailEquityPortfolio, cardMortgagePerMonth, cardYtdOpProfit } from '../metricDefs.jsx';
 const STATUS_COLORS = { Rented: '#10b981', Vacant: '#ef4444', Primary: '#3b82f6' };
 const G2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' };
 

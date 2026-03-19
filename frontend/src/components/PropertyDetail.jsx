@@ -3,24 +3,16 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { API_URL } from '../config.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
-         expGap, monthsLeftInYear, yearFracRemaining,
+         monthsLeftInYear, yearFracRemaining,
          calcIRR, buildPropertyIRRCashFlows,
          calcPayback, calcBreakEven, analyzeProperty, calcEconVacancy } from '../metrics.js';
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
 import StarRating from './StarRating.jsx';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
-import { fmt, fmtDate, fp, fPct, WindowPicker, wLabel, ltvColor, fmtPeriod } from './uiHelpers.jsx';
+import { fmtDate, WindowPicker, ltvColor, fmtPeriod } from './uiHelpers.jsx';
 import { PropertyOptions } from '../modals/ModalBase.jsx';
-import {
-  cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI,
-  cardCapRate, cardOER, cardDSCR, cardICR, cardLTV, cardCashOnCash, cardExpenseRatio, cardRentToValue,
-  cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven,
-  cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance,
-  cardEconVacancy, cardIRR, cardMaintCapEx,
-  cardMarketValue, cardEquity, cardAvailEquity, cardMonthlyRent, cardYtdOpProfit,
-  cardLoanAmount, cardMortgageRate,
-} from '../metricDefs.jsx';
+import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardLTV, cardCashOnCash, cardExpenseRatio, cardRentToValue, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance, cardEconVacancy, cardIRR, cardMaintCapEx, cardMarketValue, cardEquity, cardAvailEquity, cardMonthlyRent, cardYtdOpProfit, cardLoanAmount, cardMortgageRate } from '../metricDefs.jsx';
 
 const DETAIL_TOOLTIP_STYLE = {
   background: '#1a1f2e', border: '1px solid #374151', borderRadius: '8px', color: '#f3f4f6',
@@ -175,27 +167,13 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const yearlyApprRatio = (yearlyAppr !== null && property.purchase_price > 0)
     ? yearlyAppr / property.purchase_price : 0;
 
-  const expProps = (actual, exp, colorFn, fmtFn, label = 'Exp:', hiIsGood = true, absThresh = 25) =>
-    expGap(actual, exp, colorFn, fmtFn, label, hiIsGood, absThresh);
-
   // ── Net Position card secondary ───────────────────────────────────────────
   const npPct = balance !== 0 ? (sellingProfit / Math.abs(balance) * 100) : null;
-
-  const monthlyGainExpProps = expGap(monthlyGain, expMonthlyGain, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Exp:', true, 50);
-
-  // yearlyApprExpProps: custom label + special tertiary when no possession date
-  const yearlyApprExpProps = expYearlyAppr == null ? {} : yearlyAppr === null
-    ? { secondary: `Exp: ${fmt(expYearlyAppr)} (${expApprPct}% per year)`,
-        secondaryCls: 'text-success',
-        tertiary: 'No possession date \u2014 cannot compute actual' }
-    : expGap(yearlyAppr, expYearlyAppr, v => v >= 0 ? 'text-success' : 'text-danger',
-        v => `${fmt(v)} (${expApprPct}% per year)`, 'Exp:', true, 200);
 
   // ── Year-End Balance ──────────────────────────────────────────────────────
   const ml          = monthsLeftInYear();
   const yearEndRate = sellingProfit + avg.cashflow * ml + monthlyAppr * ml;
   const yearEndBudg = expMonthlyGain != null ? sellingProfit + expMonthlyGain * ml : null;
-  const yearEndExpProps = expGap(yearEndRate, yearEndBudg, v => v >= 0 ? 'text-success' : 'text-danger', fmt, 'Budget:', true, 1000);
 
   // ── Property analysis ────────────────────────────────────────────────────
   const analysis = analyzeProperty(property, income, {

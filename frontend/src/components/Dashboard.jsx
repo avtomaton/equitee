@@ -1,22 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, Cell,
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import PropertyCard from './PropertyCard.jsx';
 import KPICard from './KPICard.jsx';
-import { fmt, fp, fPct, sn, SectionLabel, WindowPicker, wLabel, ltvColor, fmtPeriod, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
+import { fmt, fp, sn, SectionLabel, WindowPicker, ltvColor, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import FinancialPeriodSection from './FinancialPeriodSection.jsx';
 import { API_URL } from '../config.js';
-import { avgMonthly, expGap, monthsLeftInYear } from '../metrics.js';
+import { avgMonthly, monthsLeftInYear } from '../metrics.js';
 import { usePortfolioAggregates } from '../hooks.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
-import {
-  cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI,
-  cardCapRate, cardOER, cardDSCR, cardICR,
-  cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven,
-  cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance,
-} from '../metricDefs.jsx';
+import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance } from '../metricDefs.jsx';
 
 export default function Dashboard({ properties, onPropertyClick }) {
   const [allIncome,   setAllIncome]   = useState([]);

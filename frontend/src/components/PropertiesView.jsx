@@ -6,11 +6,11 @@ import Analytics from './Analytics.jsx';
 import StatCard from './StatCard.jsx';
 import KPICard from './KPICard.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
-import { INITIAL_OPTIONS, PROVINCES, COLORS, API_URL, COLUMN_DEFS } from '../config.js';
+import { INITIAL_OPTIONS, PROVINCES, API_URL, COLUMN_DEFS } from '../config.js';
 import { mergeOptions, trailingYear, makeInTrailingYear } from '../utils.js';
-import { yearsHeld, calcSimpleHealth, principalInRange, calcExpected, calcPortfolioInterest } from '../metrics.js';
+import { calcSimpleHealth, principalInRange, calcExpected, calcPortfolioInterest } from '../metrics.js';
 import { useColumnVisibility } from '../hooks.js';
-import { fmt, fp, ltvColor } from './uiHelpers.jsx';
+import { fmt, ltvColor } from './uiHelpers.jsx';
 
 // ── Archived section ──────────────────────────────────────────────────────────
 
