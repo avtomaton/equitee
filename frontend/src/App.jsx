@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from './config.js';
 
+import ErrorBoundary  from './components/ErrorBoundary.jsx';
 import Sidebar        from './components/Sidebar.jsx';
 import Dashboard      from './components/Dashboard.jsx';
 import PropertiesView from './components/PropertiesView.jsx';
@@ -9,9 +10,9 @@ import IncomeView     from './components/IncomeView.jsx';
 import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
+import EvaluatorView  from './components/EvaluatorView.jsx';
+import RenovationView from './components/RenovationView.jsx';
 
-import EvaluatorView   from './components/EvaluatorView.jsx';
-import RenovationView  from './components/RenovationView.jsx';
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
 import IncomeModal    from './modals/IncomeModal.jsx';
@@ -186,6 +187,7 @@ export default function App() {
     : null;
 
   return (
+    <ErrorBoundary>
     <div className="app">
       <Sidebar currentView={currentView} onNavigate={navigate} />
 
@@ -196,7 +198,9 @@ export default function App() {
             <span>{alert.message}</span>
           </div>
         )}
-        {renderView()}
+        <ErrorBoundary>
+          {renderView()}
+        </ErrorBoundary>
       </main>
 
       {modal?.type === 'property' && (
@@ -230,5 +234,6 @@ export default function App() {
         />
       )}
     </div>
+    </ErrorBoundary>
   );
 }
