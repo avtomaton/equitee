@@ -5,6 +5,12 @@ from functools import wraps
 import sqlite3
 from datetime import datetime
 
+from validation import (
+    validate_currency, validate_percentage,
+    validate_required, validate_table_name,
+    ValidationError
+)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -35,24 +41,22 @@ class NotFoundError(Exception):
 
 
 def handle_errors(f):
-    """Decorator: catch NotFoundError → 404, any other Exception → 500."""
+    """Decorator: catch NotFoundError -> 404,
+    ValidationError -> 400,
+    any other Exception -> 500."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         try:
             return f(*args, **kwargs)
         except NotFoundError as e:
             return jsonify({'error': str(e)}), 404
+        except ValidationError as e:
+            return jsonify({'error': str(e)}), 400
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     return wrapper
-
-
-def validate_required(data, fields):
-    """Return a 400 response if any field is missing from data, else None."""
-    for field in fields:
-        if field not in data:
-            return jsonify({'error': f'Missing required field: {field}'}), 400
-    return None
 
 
 def require_exists(cursor, table, resource_id, label):
@@ -60,6 +64,37 @@ def require_exists(cursor, table, resource_id, label):
     cursor.execute(f'SELECT id FROM {table} WHERE id = ?', (resource_id,))
     if not cursor.fetchone():
         raise NotFoundError(f'{label} not found')
+
+
+def check_property_params(data):
+    from validation import (
+        validate_currency, validate_percentage, validate_required,
+        validate_enum, validate_string_length
+    )
+
+    # Validate required fields
+    validate_required(data, [
+        'name', 'province', 'city', 'address', 'postalCode',
+        'purchasePrice', 'marketPrice', 'loanAmount', 'possDate',
+        'monthlyRent', 'status'
+    ])
+
+    # Validate numeric fields
+    purchase_price = validate_currency(data['purchasePrice'], 'purchasePrice')
+    market_price = validate_currency(data['marketPrice'], 'marketPrice')
+    loan_amount = validate_currency(data['loanAmount'], 'loanAmount')
+    mortgage_rate = validate_percentage(data.get('mortgageRate', 0), 'mortgageRate')
+    monthly_rent = validate_currency(data['monthlyRent'], 'monthlyRent')
+
+    # Validate enum fields
+    status = validate_enum(
+        data['status'], 'status',
+        ['Rented', 'Vacant', 'Primary']
+    )
+
+    # Validate string length
+    name = validate_string_length(data['name'], 'name', 200)
+    address = validate_string_length(data['address'], 'address', 500)
 
 
 def property_params(data):
@@ -184,9 +219,18 @@ def init_db():
         )
     ''')
 
+    # Create indexes (better performance)
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_expenses_property ON expenses(property_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_income_property ON income(property_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_property ON events(property_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_tenants_property ON tenants(property_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_income_date ON income(income_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_properties_archived ON properties(is_archived)')
+
     conn.commit()
     conn.close()
-    print("Database initialized successfully!")
+    print("✅ Database initialized successfully!")
 
 init_db()
 
@@ -245,15 +289,14 @@ def get_property(property_id):
             raise NotFoundError('Property not found')
         return jsonify(row_to_dict(row)), 200
 
+
 @app.route('/api/properties', methods=['POST'])
 @handle_errors
 def create_property():
     data = request.get_json()
-    err = validate_required(data, ['name', 'province', 'city', 'address', 'postalCode',
-                                   'purchasePrice', 'marketPrice', 'loanAmount', 'possDate',
-                                   'monthlyRent', 'status'])
-    if err:
-        return err
+
+    check_property_params(data)
+
     with db_cursor() as (_, cursor):
         cursor.execute('''
             INSERT INTO properties (name, province, city, address, postal_code,
@@ -461,24 +504,29 @@ def delete_income(income_id):
 @app.route('/api/tenants', methods=['GET'])
 @handle_errors
 def get_tenants():
+    """Get tenants with proper parameterization (no string formatting)."""
     with db_cursor() as (_, cursor):
-        property_id  = request.args.get('property_id')
-        arch_clause  = '' if request.args.get('archived') == '1' else 'AND t.is_archived = 0'
+        property_id = request.args.get('property_id')
+        is_archived = request.args.get('archived') == '1'
+
+        # Build query with parameterization, not f-strings
         if property_id:
-            cursor.execute(f'''
+            cursor.execute('''
                 SELECT t.*, p.name as property_name
                 FROM tenants t LEFT JOIN properties p ON t.property_id = p.id
-                WHERE t.property_id = ? {arch_clause}
+                WHERE t.property_id = ? AND t.is_archived = ?
                 ORDER BY t.lease_start DESC
-            ''', (property_id,))
+            ''', (property_id, 1 if is_archived else 0))
         else:
-            cursor.execute(f'''
+            cursor.execute('''
                 SELECT t.*, p.name as property_name
                 FROM tenants t LEFT JOIN properties p ON t.property_id = p.id
-                WHERE 1=1 {arch_clause}
+                WHERE t.is_archived = ?
                 ORDER BY t.lease_start DESC
-            ''')
+            ''', (1 if is_archived else 0,))
+
         return jsonify([dict(r) for r in cursor.fetchall()]), 200
+
 
 TENANT_JOIN = 'SELECT t.*, p.name as property_name FROM tenants t LEFT JOIN properties p ON t.property_id = p.id WHERE t.id = ?'
 
@@ -597,18 +645,24 @@ def get_statistics():
             'avgROI': (net_profit * 12 / total_value * 100) if total_value > 0 else 0
         }), 200
 
+
 @app.route('/api/import', methods=['POST'])
 @handle_errors
 def import_data():
+    """Bulk import with whitelist validation."""
     data = request.get_json()
     if not isinstance(data, list):
         return jsonify({'error': 'Data must be an array of properties'}), 400
+
     with db_cursor() as (_, cursor):
         cursor.execute('DELETE FROM expenses')
         cursor.execute('DELETE FROM income')
         cursor.execute('DELETE FROM properties')
 
         def insert_dynamic(table_name, row_data):
+            # Validate table name
+            validate_table_name(table_name)
+
             cursor.execute(f"PRAGMA table_info({table_name})")
             columns = [col["name"] for col in cursor.fetchall()]
             filtered = {k: row_data[k] for k in row_data if k in columns}
@@ -619,13 +673,16 @@ def import_data():
         imported_count = 0
         for prop in data:
             expenses = prop.pop("expenses", [])
-            income   = prop.pop("income",   [])
+            income = prop.pop("income", [])
             insert_dynamic("properties", prop)
-            for e in expenses: insert_dynamic("expenses", e)
-            for i in income:   insert_dynamic("income",   i)
+            for e in expenses:
+                insert_dynamic("expenses", e)
+            for i in income:
+                insert_dynamic("income", i)
             imported_count += 1
 
         return jsonify({'message': 'Import successful', 'imported': imported_count}), 200
+
 
 @app.route('/api/export', methods=['GET'])
 @handle_errors
