@@ -67,10 +67,7 @@ def require_exists(cursor, table, resource_id, label):
 
 
 def check_property_params(data):
-    from validation import (
-        validate_currency, validate_percentage, validate_required,
-        validate_enum, validate_string_length
-    )
+    from validation import validate_enum, validate_string_length
 
     # Validate required fields
     validate_required(data, [
@@ -232,7 +229,8 @@ def init_db():
     conn.close()
     print("✅ Database initialized successfully!")
 
-init_db()
+with app.app_context():
+    init_db()
 
 def row_to_dict(row):
     return dict(row)
@@ -264,9 +262,19 @@ def select_from_properties():
                   p.annual_property_tax,
                   p.mortgage_payment,
                   p.mortgage_frequency,
-                  IFNULL((SELECT SUM(amount) FROM expenses WHERE property_id = p.id), 0) AS total_expenses,
-                  IFNULL((SELECT SUM(amount) FROM income WHERE property_id = p.id), 0) AS total_income
+                  IFNULL(exp_agg.total_expenses, 0) AS total_expenses,
+                  IFNULL(inc_agg.total_income,   0) AS total_income
                FROM properties p
+               LEFT JOIN (
+                   SELECT property_id, SUM(amount) AS total_expenses
+                   FROM expenses
+                   GROUP BY property_id
+               ) exp_agg ON exp_agg.property_id = p.id
+               LEFT JOIN (
+                   SELECT property_id, SUM(amount) AS total_income
+                   FROM income
+                   GROUP BY property_id
+               ) inc_agg ON inc_agg.property_id = p.id
             '''
 
 # ── Properties ────────────────────────────────────────────────────────────────
@@ -315,6 +323,7 @@ def create_property():
 @handle_errors
 def update_property(property_id):
     data = request.get_json()
+    check_property_params(data)
     with db_cursor() as (_, cursor):
         cursor.execute('SELECT * FROM properties WHERE id = ?', (property_id,))
         old = cursor.fetchone()
@@ -407,9 +416,7 @@ def get_expenses():
 @handle_errors
 def create_expense():
     data = request.get_json()
-    err = validate_required(data, ['propertyId', 'expenseDate', 'amount', 'expenseType', 'expenseCategory'])
-    if err:
-        return err
+    validate_required(data, ['propertyId', 'expenseDate', 'amount', 'expenseType', 'expenseCategory'])
     with db_cursor() as (_, cursor):
         cursor.execute(
             'INSERT INTO expenses (property_id, expense_date, amount, expense_type, expense_category, notes, tax_deductible) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -463,9 +470,7 @@ def get_income():
 @handle_errors
 def create_income():
     data = request.get_json()
-    err = validate_required(data, ['propertyId', 'incomeDate', 'amount', 'incomeType'])
-    if err:
-        return err
+    validate_required(data, ['propertyId', 'incomeDate', 'amount', 'incomeType'])
     with db_cursor() as (_, cursor):
         cursor.execute(
             'INSERT INTO income (property_id, income_date, amount, income_type, notes) VALUES (?, ?, ?, ?, ?)',
@@ -534,9 +539,7 @@ TENANT_JOIN = 'SELECT t.*, p.name as property_name FROM tenants t LEFT JOIN prop
 @handle_errors
 def create_tenant():
     data = request.get_json()
-    err = validate_required(data, ['propertyId', 'name', 'leaseStart'])
-    if err:
-        return err
+    validate_required(data, ['propertyId', 'name', 'leaseStart'])
     with db_cursor() as (_, cursor):
         cursor.execute(
             'INSERT INTO tenants (property_id, name, phone, email, notes, lease_start, lease_end, deposit, rent_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -649,39 +652,49 @@ def get_statistics():
 @app.route('/api/import', methods=['POST'])
 @handle_errors
 def import_data():
-    """Bulk import with whitelist validation."""
+    """Bulk import with whitelist validation.
+
+    All mutations run inside a SAVEPOINT so that any error during the import
+    (bad data, constraint violation, etc.) automatically rolls back to the
+    pre-import state — the existing data is never lost on partial failure.
+    """
     data = request.get_json()
     if not isinstance(data, list):
         return jsonify({'error': 'Data must be an array of properties'}), 400
 
-    with db_cursor() as (_, cursor):
-        cursor.execute('DELETE FROM expenses')
-        cursor.execute('DELETE FROM income')
-        cursor.execute('DELETE FROM properties')
+    with db_cursor() as (conn, cursor):
+        cursor.execute('SAVEPOINT import_savepoint')
+        try:
+            cursor.execute('DELETE FROM expenses')
+            cursor.execute('DELETE FROM income')
+            cursor.execute('DELETE FROM properties')
 
-        def insert_dynamic(table_name, row_data):
-            # Validate table name
-            validate_table_name(table_name)
+            def insert_dynamic(table_name, row_data):
+                validate_table_name(table_name)
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = [col["name"] for col in cursor.fetchall()]
+                filtered = {k: row_data[k] for k in row_data if k in columns}
+                cursor.execute(
+                    f"INSERT INTO {table_name} ({', '.join(filtered)}) VALUES ({', '.join('?' for _ in filtered)})",
+                    tuple(filtered.values()))
 
-            cursor.execute(f"PRAGMA table_info({table_name})")
-            columns = [col["name"] for col in cursor.fetchall()]
-            filtered = {k: row_data[k] for k in row_data if k in columns}
-            cursor.execute(
-                f"INSERT INTO {table_name} ({', '.join(filtered)}) VALUES ({', '.join('?' for _ in filtered)})",
-                tuple(filtered.values()))
+            imported_count = 0
+            for prop in data:
+                expenses = prop.pop("expenses", [])
+                income   = prop.pop("income",   [])
+                insert_dynamic("properties", prop)
+                for e in expenses:
+                    insert_dynamic("expenses", e)
+                for i in income:
+                    insert_dynamic("income", i)
+                imported_count += 1
 
-        imported_count = 0
-        for prop in data:
-            expenses = prop.pop("expenses", [])
-            income = prop.pop("income", [])
-            insert_dynamic("properties", prop)
-            for e in expenses:
-                insert_dynamic("expenses", e)
-            for i in income:
-                insert_dynamic("income", i)
-            imported_count += 1
+            cursor.execute('RELEASE import_savepoint')
+            return jsonify({'message': 'Import successful', 'imported': imported_count}), 200
 
-        return jsonify({'message': 'Import successful', 'imported': imported_count}), 200
+        except Exception:
+            cursor.execute('ROLLBACK TO import_savepoint')
+            raise  # re-raise so @handle_errors returns a 500
 
 
 @app.route('/api/export', methods=['GET'])
