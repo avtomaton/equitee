@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
-import { API_URL, PROVINCES, INITIAL_OPTIONS } from '../config.js';
+import { PROVINCES, INITIAL_OPTIONS } from '../config.js';
+import { createProperty, updateProperty } from '../api.js';
 import { formatPostalCode } from '../utils.js';
 
 const toFormState_Property = (p) => p ? {
@@ -86,14 +87,11 @@ export default function PropertyModal({ property, onClose, onSave }) {
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
     try {
-      const url    = property ? `${API_URL}/properties/${property.id}` : `${API_URL}/properties`;
-      const method = property ? 'PUT' : 'POST';
-      const res    = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      if (property) {
+        await updateProperty(property.id, formData);
+      } else {
+        await createProperty(formData);
+      }
       onSave();
     } catch (err) {
       console.error(err);

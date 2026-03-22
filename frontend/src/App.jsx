@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { API_URL } from './config.js';
+import { getProperties, getProperty } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
 import Sidebar        from './components/Sidebar.jsx';
@@ -70,9 +70,7 @@ export default function App() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/properties`);
-      if (!res.ok) throw new Error('Failed to fetch');
-      const fresh = await res.json();
+      const fresh = await getProperties();
       setProperties(fresh);
       // Keep selectedProperty in sync so PropertyDetail shows updated values
       setSelectedProperty(prev => prev ? (fresh.find(p => p.id === prev.id) ?? prev) : null);
@@ -90,8 +88,7 @@ export default function App() {
 
   const handlePropertyClick = async (property) => {
     try {
-      const res  = await fetch(`${API_URL}/properties/${property.id}`);
-      const data = await res.json();
+      const data = await getProperty(property.id);
       setSelectedProperty(data);
       setCurrentView('property-detail');
       setHash('property-detail');

@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
          PieChart, Pie, Cell, LineChart, Line, ReferenceLine, LabelList } from 'recharts';
-import FinancialPeriodSection from './FinancialPeriodSection.jsx';
+import FinancialSummaryPanel from './FinancialSummaryPanel.jsx';
 import { sn, WindowPicker, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import { COLORS } from '../config.js';
 import { avgMonthly, yearsHeld, monthsLeftInYear } from '../metrics.js';
-import { usePortfolioAggregates } from '../hooks.js';
+import { usePortfolioAggregates } from '../hooks/usePortfolioAggregates.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
 import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance, cardAvailEquityPortfolio, cardMortgagePerMonth, cardYtdOpProfit } from '../metricDefs.jsx';
 const STATUS_COLORS = { Rented: '#10b981', Vacant: '#ef4444', Primary: '#3b82f6' };
@@ -149,18 +149,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
       </div>
 
       {/* ── Income & Expenses ── */}
-      <p className="stat-section-label">Income &amp; Expenses (all-time)</p>
-      <FinancialPeriodSection
-        income={agg.income} expenses={agg.expenses} netExpenses={agg.totalNetExp}
-        balance={agg.balance} operatingProfit={agg.netBalance} roi={agg.roi}
-        principal={agg.allTimePrin} scope="filtered" />
-
-      {/* ── YTD ── */}
-      <p className="stat-section-label">YTD — trailing 12 months</p>
-      <FinancialPeriodSection prefix="YTD "
-        income={agg.ytdInc} expenses={agg.ytdExp} netExpenses={agg.ytdNetExp}
-        balance={agg.ytdBal} operatingProfit={agg.ytdNetBalance}
-        principal={agg.ytdPrin} scope="filtered" />
+      <FinancialSummaryPanel properties={filtered} allIncome={allIncome} allExpenses={allExpenses} scope="filtered" />
 
       {/* ── Monthly Averages & Key Ratios ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>

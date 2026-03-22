@@ -1,13 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
-import { API_URL, INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
+import { INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
+import { getExpenses, getIncome, deleteExpense, deleteIncome } from '../api.js';
 import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
-import { useColumnVisibility } from '../hooks.js';
+import { useColumnVisibility } from './useColumnVisibility.js';
+
+// Map the endpoint string to typed api.js functions so call sites don't change.
+const API_FNS = {
+  expenses: { fetch: (propertyId) => getExpenses(propertyId), remove: deleteExpense },
+  income:   { fetch: (propertyId) => getIncome(propertyId),   remove: deleteIncome  },
+};
 
 /**
  * useTransactionView — shared state and logic for ExpensesView and IncomeView.
  *
  * @param {string}   viewName         – 'expenses' | 'income'  (matches COLUMN_DEFS keys)
- * @param {string}   endpoint         – API path segment, e.g. 'expenses' | 'income'
+ * @param {string}   endpoint         – 'expenses' | 'income'  (selects typed api functions)
  * @param {string}   dateField        – record field used for date filtering, e.g. 'expense_date'
  * @param {string}   defaultSortBy    – initial sortBy value
  * @param {object[]} properties       – property records from App state
@@ -23,18 +30,20 @@ export default function useTransactionView({
   seedTypeOptions, typeField,
   seedCategoryOptions, categoryField,
 }) {
-  const [records,         setRecords]         = useState([]);
-  const [loading,         setLoading]         = useState(true);
-  const [sortBy,          setSortBy]          = useState(defaultSortBy);
-  const [sortOrder,       setSortOrder]       = useState('desc');
-  const [filterProperty,  setFilterProperty]  = useState(initialPropertyId ? String(initialPropertyId) : 'all');
-  const [dateFilter,      setDateFilter]      = useState('all');
-  const [customDateStart, setCustomDateStart] = useState('');
-  const [customDateEnd,   setCustomDateEnd]   = useState('');
-  const [filterTypes,     setFilterTypes]     = useState(seedTypeOptions);
+  const { fetch: apiFetch, remove: apiRemove } = API_FNS[endpoint];
+
+  const [records,          setRecords]          = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [sortBy,           setSortBy]           = useState(defaultSortBy);
+  const [sortOrder,        setSortOrder]        = useState('desc');
+  const [filterProperty,   setFilterProperty]   = useState(initialPropertyId ? String(initialPropertyId) : 'all');
+  const [dateFilter,       setDateFilter]       = useState('all');
+  const [customDateStart,  setCustomDateStart]  = useState('');
+  const [customDateEnd,    setCustomDateEnd]    = useState('');
+  const [filterTypes,      setFilterTypes]      = useState(seedTypeOptions);
   const [filterCategories, setFilterCategories] = useState(seedCategoryOptions ?? []);
 
-  const colVis    = useColumnVisibility(viewName);
+  const colVis       = useColumnVisibility(viewName);
   const allColKeys   = COLUMN_DEFS[viewName].map(d => d.key);
   const allColLabels = Object.fromEntries(COLUMN_DEFS[viewName].map(d => [d.key, d.label]));
 
@@ -56,7 +65,7 @@ export default function useTransactionView({
     if (categoryField) setFilterCategories(c => mergeOptions(c, allCategories));
   }, [allCategories]);
 
-  // Load
+  // Load all records for every property, tagging each with property_name
   useEffect(() => { if (properties.length > 0) load(); }, [properties]);
 
   const load = async () => {
@@ -64,9 +73,9 @@ export default function useTransactionView({
       setLoading(true);
       const responses = await Promise.all(
         properties.map(p =>
-          fetch(`${API_URL}/${endpoint}?property_id=${p.id}`)
-            .then(r => r.ok ? r.json() : [])
+          apiFetch(p.id)
             .then(data => data.map(rec => ({ ...rec, property_name: p.name })))
+            .catch(() => [])
         )
       );
       setRecords(responses.flat());
@@ -76,8 +85,7 @@ export default function useTransactionView({
 
   const handleDelete = async (id) => {
     if (!confirm(`Delete this ${viewName.replace(/s$/, '')} record?`)) return;
-    const res = await fetch(`${API_URL}/${endpoint}/${id}`, { method: 'DELETE' });
-    if (res.ok) load();
+    try { await apiRemove(id); load(); } catch (err) { console.error(err); }
   };
 
   // Base: property filter only (unfiltered reference for stat cards)

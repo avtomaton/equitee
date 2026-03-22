@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
-import { API_URL } from '../config.js';
+import { getIncome, getExpenses, getTenants, getEvents } from '../api.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
          monthsLeftInYear, yearFracRemaining,
@@ -9,7 +9,7 @@ import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected
 import StatCard from './StatCard.jsx';
 import MetricCard from './MetricCard.jsx';
 import StarRating from './StarRating.jsx';
-import FinancialPeriodSection from './FinancialPeriodSection.jsx';
+import FinancialSummaryPanel from './FinancialSummaryPanel.jsx';
 import { fmtDate, WindowPicker, ltvColor, fmtPeriod } from './uiHelpers.jsx';
 import { PropertyOptions } from '../modals/ModalBase.jsx';
 import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardLTV, cardCashOnCash, cardExpenseRatio, cardRentToValue, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance, cardEconVacancy, cardIRR, cardMaintCapEx, cardMarketValue, cardEquity, cardAvailEquity, cardMonthlyRent, cardYtdOpProfit, cardLoanAmount, cardMortgageRate } from '../metricDefs.jsx';
@@ -32,18 +32,16 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     // Income and expenses are fetched atomically so YTD metrics never render
     // with one loaded and the other still empty (race condition → wrong YTD values).
     Promise.all([
-      fetch(`${API_URL}/income?property_id=${property.id}`).then(r => r.ok ? r.json() : []),
-      fetch(`${API_URL}/expenses?property_id=${property.id}`).then(r => r.ok ? r.json() : []),
+      getIncome(property.id),
+      getExpenses(property.id),
     ]).then(([inc, exp]) => {
       setIncome(inc);
       setExpenses(exp);
     }).catch(() => {});
 
     // Tenants and events don't affect financial metrics — load independently.
-    fetch(`${API_URL}/tenants?property_id=${property.id}`)
-      .then(r => r.ok ? r.json() : []).then(setTenants).catch(() => {});
-    fetch(`${API_URL}/events?property_id=${property.id}`)
-      .then(r => r.ok ? r.json() : []).then(setEvents).catch(() => {});
+    getTenants({ property_id: property.id }).then(setTenants).catch(() => {});
+    getEvents(property.id).then(setEvents).catch(() => {});
   }, [property?.id, property?.total_income, property?.total_expenses]);
 
   if (!property) return null;
@@ -52,6 +50,10 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const currTenants = tenants.filter(isCurrentTenant);
   const recentExp   = [...expenses].sort((a, b) => new Date(b.expense_date) - new Date(a.expense_date)).slice(0, 5);
   const isVacant    = property.status === 'Vacant';
+
+  // Tag records with property_id so FinancialSummaryPanel can key per-property amortisation
+  const taggedIncome   = useMemo(() => income.map(r   => ({ ...r, property_id: property.id })), [income,   property.id]);
+  const taggedExpenses = useMemo(() => expenses.map(r => ({ ...r, property_id: property.id })), [expenses, property.id]);
 
   const lastRentChange = useMemo(() => {
     const rentEvents = events
@@ -386,20 +388,13 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
         {cardMaintCapEx(maintCapexRatio)}
       </div>
 
-      {/* ══ Income & Expenses (all-time) ══════════════════════════════════════ */}
-      <p className="stat-section-label">Income &amp; Expenses (all-time)</p>
-      <FinancialPeriodSection
-        income={property.total_income} expenses={property.total_expenses}
-        netExpenses={totalNetExp} balance={balance}
-        operatingProfit={totalNetBalance} roi={roi}
-        principal={allTimePrin} scope="property" />
-
-      {/* ══ YTD ═══════════════════════════════════════════════════════════════ */}
-      <p className="stat-section-label">YTD — trailing 12 months</p>
-      <FinancialPeriodSection prefix="YTD "
-        income={ytdInc} expenses={ytdExp} netExpenses={ytdNetExp}
-        balance={ytdBal} operatingProfit={ytdNetBalance}
-        principal={ytdPrin} scope="property" />
+      {/* ══ Income & Expenses ═════════════════════════════════════════════════ */}
+      <FinancialSummaryPanel
+        properties={[property]}
+        allIncome={taggedIncome}
+        allExpenses={taggedExpenses}
+        scope="property"
+      />
 
       {/* ══ Appreciation ══════════════════════════════════════════════════════ */}
       <p className="stat-section-label">Appreciation</p>

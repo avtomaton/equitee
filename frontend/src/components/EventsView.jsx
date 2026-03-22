@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { API_URL, COLUMN_DEFS } from '../config.js';
+import { COLUMN_DEFS } from '../config.js';
+import { getEvents, updateEvent, deleteEvent } from '../api.js';
 import TruncatedCell from './Tooltip.jsx';
 import MultiSelect from './MultiSelect.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
-import { useColumnVisibility } from '../hooks.js';
+import { useColumnVisibility } from '../hooks/useColumnVisibility.js';
 import { PropertyOptions } from '../modals/ModalBase.jsx';
 
 export default function EventsView({ properties, initialPropertyId }) {
@@ -22,27 +23,22 @@ export default function EventsView({ properties, initialPropertyId }) {
   const loadEvents = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/events`);
-      if (res.ok) setEvents(await res.json());
+      setEvents(await getEvents());
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
 
   const saveEdit = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/events/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: editNotes }),
-      });
-      if (res.ok) { loadEvents(); setEditingId(null); }
+      await updateEvent(id, { description: editNotes });
+      loadEvents();
+      setEditingId(null);
     } catch (e) { console.error(e); }
   };
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this event?')) return;
-    const res = await fetch(`${API_URL}/events/${id}`, { method: 'DELETE' });
-    if (res.ok) loadEvents();
+    try { await deleteEvent(id); loadEvents(); } catch (e) { console.error(e); }
   };
 
   const filtered = events.filter(

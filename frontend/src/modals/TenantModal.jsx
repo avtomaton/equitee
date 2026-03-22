@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { API_URL } from '../config.js';
+import { createTenant, updateTenant } from '../api.js';
 import { ModalOverlay, DateInput, selectOnFocus, today, PropertyOptions } from './ModalBase.jsx';
 
 const toFormState_Tenant = (tenant, property) => tenant ? {
@@ -27,18 +27,17 @@ export default function TenantModal({ tenant, properties, property, onClose, onS
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const url    = tenant ? `${API_URL}/tenants/${tenant.id}` : `${API_URL}/tenants`;
-      const method = tenant ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          propertyId: formData.property_id, name: formData.name,
-          phone: formData.phone, email: formData.email, notes: formData.notes,
-          leaseStart: formData.lease_start, leaseEnd: formData.lease_end || null,
-          deposit: formData.deposit, rentAmount: formData.rent_amount,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      const payload = {
+        propertyId: formData.property_id, name: formData.name,
+        phone: formData.phone, email: formData.email, notes: formData.notes,
+        leaseStart: formData.lease_start, leaseEnd: formData.lease_end || null,
+        deposit: formData.deposit, rentAmount: formData.rent_amount,
+      };
+      if (tenant) {
+        await updateTenant(tenant.id, payload);
+      } else {
+        await createTenant(payload);
+      }
       onSave();
     } catch (err) { console.error(err); alert('Failed to save tenant'); }
   };

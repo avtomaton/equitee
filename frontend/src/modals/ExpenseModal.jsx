@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { API_URL, INITIAL_OPTIONS } from '../config.js';
+import { INITIAL_OPTIONS } from '../config.js';
+import { createExpense, updateExpense } from '../api.js';
 import { ModalOverlay, DateInput, selectOnFocus, today, QUICK_BTN_STYLE, PropertyOptions } from './ModalBase.jsx';
 
 const toFormState_Expense = (expense, property) => expense ? {
@@ -60,18 +61,17 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const url    = expense ? `${API_URL}/expenses/${expense.id}` : `${API_URL}/expenses`;
-      const method = expense ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          propertyId: formData.property_id, expenseDate: formData.expense_date,
-          amount: formData.amount, expenseType: formData.expense_type,
-          expenseCategory: formData.expense_category, notes: formData.notes,
-          taxDeductible: formData.tax_deductible,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      const payload = {
+        propertyId: formData.property_id, expenseDate: formData.expense_date,
+        amount: formData.amount, expenseType: formData.expense_type,
+        expenseCategory: formData.expense_category, notes: formData.notes,
+        taxDeductible: formData.tax_deductible,
+      };
+      if (expense) {
+        await updateExpense(expense.id, payload);
+      } else {
+        await createExpense(payload);
+      }
       onSave();
     } catch (err) { console.error(err); alert('Failed to save expense'); }
   };

@@ -3,42 +3,26 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import PropertyCard from './PropertyCard.jsx';
 import KPICard from './KPICard.jsx';
 import { fmt, fp, sn, SectionLabel, WindowPicker, ltvColor, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
-import FinancialPeriodSection from './FinancialPeriodSection.jsx';
-import { API_URL } from '../config.js';
+import FinancialSummaryPanel from './FinancialSummaryPanel.jsx';
+import { getEvents } from '../api.js';
 import { avgMonthly, monthsLeftInYear } from '../metrics.js';
-import { usePortfolioAggregates } from '../hooks.js';
+import { usePortfolioAggregates } from '../hooks/usePortfolioAggregates.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
+import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
 import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance } from '../metricDefs.jsx';
 
 export default function Dashboard({ properties, onPropertyClick }) {
-  const [allIncome,   setAllIncome]   = useState([]);
-  const [allExpenses, setAllExpenses] = useState([]);
+  const { allIncome, allExpenses } = usePropertyTransactions(properties);
   const [allEvents,   setAllEvents]   = useState({});   // keyed by property id
   const [avgWindow,   setAvgWindow]   = useState(3);
-  const [loading,     setLoading]     = useState(false);
 
   useEffect(() => {
     if (!properties.length) return;
-    setLoading(true);
-    Promise.all(
-      properties.map(p =>
-        fetch(`${API_URL}/income?property_id=${p.id}`).then(r => r.ok ? r.json() : [])
-          .then(d => d.map(i => ({ ...i, property_id: p.id })))
-      )
-    ).then(results => setAllIncome(results.flat())).catch(() => {});
-    Promise.all(
-      properties.map(p =>
-        fetch(`${API_URL}/expenses?property_id=${p.id}`).then(r => r.ok ? r.json() : [])
-          .then(d => d.map(e => ({ ...e, property_id: p.id })))
-      )
-    ).then(results => { setAllExpenses(results.flat()); setLoading(false); })
-      .catch(() => setLoading(false));
     // Events are fetched per-property and stored in a map so PropertyCard
     // can call calcEconVacancy with the correct event history.
     Promise.all(
       properties.map(p =>
-        fetch(`${API_URL}/events?property_id=${p.id}`).then(r => r.ok ? r.json() : [])
-          .then(evs => [p.id, evs])
+        getEvents(p.id).then(evs => [p.id, evs]).catch(() => [p.id, []])
       )
     ).then(pairs => setAllEvents(Object.fromEntries(pairs))).catch(() => {});
   }, [properties.map(p => p.id).join(',')]);
@@ -126,19 +110,8 @@ export default function Dashboard({ properties, onPropertyClick }) {
         {cardYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
-      {/* ── Income & Expenses (all-time) ── */}
-      <SectionLabel>Income &amp; Expenses (all-time)</SectionLabel>
-      <FinancialPeriodSection
-        income={agg.income} expenses={agg.expenses} netExpenses={agg.totalNetExp}
-        balance={agg.balance} operatingProfit={agg.netBalance} roi={agg.roi}
-        principal={agg.allTimePrin} scope="portfolio" />
-
-      {/* ── YTD ── */}
-      <SectionLabel>YTD — trailing 12 months</SectionLabel>
-      <FinancialPeriodSection prefix="YTD "
-        income={agg.ytdInc} expenses={agg.ytdExp} netExpenses={agg.ytdNetExp}
-        balance={agg.ytdBal} operatingProfit={agg.ytdNetBalance}
-        principal={agg.ytdPrin} scope="portfolio" />
+      {/* ── Income & Expenses ── */}
+      <FinancialSummaryPanel properties={properties} allIncome={allIncome} allExpenses={allExpenses} scope="portfolio" />
 
       {/* ── Monthly Averages & Key Ratios ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>

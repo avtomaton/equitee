@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { API_URL, COLUMN_DEFS } from '../config.js';
+import { COLUMN_DEFS } from '../config.js';
+import { getTenants, archiveTenant, restoreTenant } from '../api.js';
 import { isCurrentTenant } from '../utils.js';
 import { fmtDate } from './uiHelpers.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import MultiSelect from './MultiSelect.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
-import { useColumnVisibility } from '../hooks.js';
+import { useColumnVisibility } from '../hooks/useColumnVisibility.js';
 import { PropertyOptions } from '../modals/ModalBase.jsx';
 
 function TenantRow({ t, onEdit, onArchive, onRestore, archived, col }) {
@@ -66,8 +67,8 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
     try {
       setLoading(true);
       const [active, all] = await Promise.all([
-        fetch(`${API_URL}/tenants`).then(r => r.ok ? r.json() : []),
-        fetch(`${API_URL}/tenants?archived=1`).then(r => r.ok ? r.json() : []),
+        getTenants(),
+        getTenants({ archived: 1 }),
       ]);
       setTenants(active);
       setArchivedTenants(all.filter(t => t.is_archived));
@@ -77,13 +78,11 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
 
   const handleArchive = async (id) => {
     if (!confirm('Archive this tenant? They can be restored later.')) return;
-    const res = await fetch(`${API_URL}/tenants/${id}`, { method: 'DELETE' });
-    if (res.ok) loadTenants();
+    try { await archiveTenant(id); loadTenants(); } catch (e) { console.error(e); }
   };
 
   const handleRestore = async (id) => {
-    const res = await fetch(`${API_URL}/tenants/${id}/restore`, { method: 'POST' });
-    if (res.ok) loadTenants();
+    try { await restoreTenant(id); loadTenants(); } catch (e) { console.error(e); }
   };
 
   const filtered = useMemo(() => tenants.filter(t => {

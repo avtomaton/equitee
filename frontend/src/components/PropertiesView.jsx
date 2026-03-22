@@ -6,10 +6,12 @@ import Analytics from './Analytics.jsx';
 import StatCard from './StatCard.jsx';
 import KPICard from './KPICard.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
-import { INITIAL_OPTIONS, PROVINCES, API_URL, COLUMN_DEFS } from '../config.js';
+import { INITIAL_OPTIONS, PROVINCES, COLUMN_DEFS } from '../config.js';
 import { mergeOptions, trailingYear, makeInTrailingYear } from '../utils.js';
 import { calcSimpleHealth, principalInRange, calcExpected, calcPortfolioInterest } from '../metrics.js';
-import { useColumnVisibility } from '../hooks.js';
+import { useColumnVisibility } from '../hooks/useColumnVisibility.js';
+import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
+import { archiveProperty, restoreProperty, getProperties } from '../api.js';
 import { fmt, ltvColor } from './uiHelpers.jsx';
 
 // ── Archived section ──────────────────────────────────────────────────────────
@@ -76,8 +78,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
   const [archivedProps, setArchivedProps] = useState([]);
 
   // Income/expense records fetched once and shared with Analytics
-  const [allIncome,   setAllIncome]   = useState([]);
-  const [allExpenses, setAllExpenses] = useState([]);
+  const { allIncome, allExpenses } = usePropertyTransactions(properties);
 
   // Derived filter options
   const allStatuses  = useMemo(() => mergeOptions(INITIAL_OPTIONS.propertyStatuses, properties.map(p => p.status)), [properties]);
@@ -95,23 +96,8 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
   useEffect(() => { setFilterProvinces(prev => mergeOptions(prev, allProvinces)); }, [allProvinces]);
   useEffect(() => { setFilterCities(prev    => [...new Set([...prev, ...allCities])].sort()); }, [allCities]);
 
-  // Single fetch for income/expenses — shared with Analytics (eliminates double fetch)
-  useEffect(() => {
-    if (!properties.length) return;
-    const ids = properties.map(p => p.id);
-    Promise.all(ids.map(id =>
-      fetch(`${API_URL}/income?property_id=${id}`).then(r => r.ok ? r.json() : [])
-        .then(d => d.map(i => ({ ...i, property_id: id })))
-    )).then(r => setAllIncome(r.flat())).catch(() => {});
-    Promise.all(ids.map(id =>
-      fetch(`${API_URL}/expenses?property_id=${id}`).then(r => r.ok ? r.json() : [])
-        .then(d => d.map(e => ({ ...e, property_id: id })))
-    )).then(r => setAllExpenses(r.flat())).catch(() => {});
-  }, [properties.map(p => p.id).join(',')]);
-
   const loadArchived = useCallback(() => {
-    fetch(`${API_URL}/properties?archived=1`)
-      .then(r => r.ok ? r.json() : [])
+    getProperties(true)
       .then(all => setArchivedProps(all.filter(p => p.is_archived)))
       .catch(() => {});
   }, []);
@@ -120,15 +106,19 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
 
   const handleArchive = async (id) => {
     if (!confirm('Archive this property? It will be hidden from all views but can be restored.')) return;
-    const res = await fetch(`${API_URL}/properties/${id}`, { method: 'DELETE' });
-    if (res.ok) { onReloadProperties(); loadArchived(); }
-    else alert('Failed to archive property');
+    try {
+      await archiveProperty(id);
+      onReloadProperties();
+      loadArchived();
+    } catch { alert('Failed to archive property'); }
   };
 
   const handleRestore = async (id) => {
-    const res = await fetch(`${API_URL}/properties/${id}/restore`, { method: 'POST' });
-    if (res.ok) { onReloadProperties(); loadArchived(); }
-    else alert('Failed to restore property');
+    try {
+      await restoreProperty(id);
+      onReloadProperties();
+      loadArchived();
+    } catch { alert('Failed to restore property'); }
   };
 
   const filtered = useMemo(() => {

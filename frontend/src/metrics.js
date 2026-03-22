@@ -90,23 +90,141 @@ export const calcMortgagePayment = (principal, annualRatePct, amortYears) => {
   return principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
 };
 
+const groupPaymentsByMonth = (expenses) => {
+  const map = new Map();
+
+  for (const e of expenses) {
+    const d = new Date(e.expense_date);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+
+    if (!map.has(key)) {
+      map.set(key, []);
+    }
+    map.get(key).push(e);
+  }
+
+  return map;
+};
+
 /**
  * Compute the principal portion of each Mortgage expense record, walking
  * backwards from the current loan balance.
+ * The function is not quite accurate since sometimes payments
+ * can carry-forward across month boundary but good enough for now.
  */
-export const computeMortgagePrincipal = (mortgageExpenses, currentLoanBalance, annualRatePct) => {
+export const computeMortgagePrincipal_o = (
+  mortgageExpenses,
+  currentLoanBalance,
+  annualRatePct
+) => {
   if (!annualRatePct || mortgageExpenses.length === 0) return [];
+
   const monthlyRate = annualRatePct / 100 / 12;
-  const sorted = [...mortgageExpenses].sort((a, b) => new Date(a.expense_date) - new Date(b.expense_date));
+
+  // sort ascending
+  const sorted = [...mortgageExpenses].sort(
+    (a, b) => new Date(a.expense_date) - new Date(b.expense_date)
+  );
+
+  // group by month
+  const grouped = groupPaymentsByMonth(sorted);
+
+  const monthKeys = Array.from(grouped.keys()).sort(
+    (a, b) => new Date(a) - new Date(b)
+  );
+
   let balance = currentLoanBalance;
-  const result = new Array(sorted.length);
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const payment   = sorted[i].amount;
-    const interest  = balance * monthlyRate;
-    const principal = Math.max(0, payment - interest);
-    result[i] = { ...sorted[i], principal, interest: Math.min(payment, interest) };
-    balance   = balance + principal;
+  const result = [];
+
+  // iterate backwards like before
+  for (let i = monthKeys.length - 1; i >= 0; i--) {
+    const key = monthKeys[i];
+    const items = grouped.get(key);
+
+    const totalPayment = items.reduce((s, x) => s + x.amount, 0);
+
+    const interest = balance * monthlyRate;
+    const principalTotal = Math.max(0, totalPayment - interest);
+
+    // distribute principal proportionally across payments
+    for (const item of items) {
+      const ratio = item.amount / totalPayment;
+
+      const principal = principalTotal * ratio;
+      const itemInterest = Math.min(item.amount, interest * ratio);
+
+      result.push({
+        ...item,
+        principal,
+        interest: itemInterest,
+      });
+    }
+
+    balance = balance + principalTotal;
   }
+
+  return result;
+};
+
+/**
+ * Compute the principal portion of each mortgage expense record, walking
+ * backwards from the current loan balance.
+ * The function is still not quite accurate but it's closer to reality.
+ */
+export const computeMortgagePrincipal = (
+  mortgageExpenses,
+  currentLoanBalance,
+  annualRatePct
+) => {
+  if (!annualRatePct || mortgageExpenses.length === 0) return [];
+
+  // should be most accurate but banks may use slightly different formula
+  const dailyRate = annualRatePct / 100 / 365;
+
+  // sort ascending (oldest → newest)
+  const sorted = [...mortgageExpenses].sort(
+    (a, b) => new Date(a.expense_date) - new Date(b.expense_date)
+  );
+
+  let balance = currentLoanBalance;
+  let prevDate = new Date(sorted[0].expense_date);
+
+  const result = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const item = sorted[i];
+    const currDate = new Date(item.expense_date);
+
+    // days between payments
+    const days =
+      Math.max(
+        0,
+        Math.floor((currDate - prevDate) / (1000 * 60 * 60 * 24))
+      );
+
+    // accrue interest for the period
+    const interestAccrued = balance * dailyRate * days;
+
+    const payment = item.amount;
+
+    const interestPaid = Math.min(payment, interestAccrued);
+    const principalPaid = Math.max(0, payment - interestPaid);
+
+    result.push({
+      ...item,
+      days,
+      interest: interestPaid,
+      principal: principalPaid,
+      balance_before: balance,
+      balance_after: balance - principalPaid
+    });
+
+    // update balance
+    balance = balance - principalPaid;
+
+    prevDate = currDate;
+  }
+
   return result;
 };
 
