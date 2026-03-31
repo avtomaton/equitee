@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import StatCard from './StatCard.jsx';
@@ -8,13 +9,21 @@ import { fmtDate } from './uiHelpers.jsx';
 import { PropertyOptions } from '../modals/ModalBase.jsx';
 import useTransactionView from '../hooks/useTransactionView.js';
 
-export default function IncomeView({ properties, onAddIncome, onEditIncome, initialPropertyId }) {
+export default function IncomeView({ properties, onAddIncome, onEditIncome, initialPropertyId, onRegisterReload }) {
   const tx = useTransactionView({
     viewName: 'income', endpoint: 'income',
     dateField: 'income_date', defaultSortBy: 'income_date',
     properties, initialPropertyId,
     seedTypeOptions: INITIAL_OPTIONS.incomeTypes, typeField: 'income_type',
   });
+
+  // Register tx.load with App so handleSave can await it before restoring scroll
+  const loadRef = useRef(tx.load);
+  loadRef.current = tx.load;
+  useEffect(() => {
+    onRegisterReload?.(() => loadRef.current());
+    return () => onRegisterReload?.(null);
+  }, [onRegisterReload]);
 
   const { colVis, allColKeys, allColLabels, propName } = tx;
   const { visible, update: setVisible, col, isCustom, reset } = colVis;
@@ -54,8 +63,9 @@ export default function IncomeView({ properties, onAddIncome, onEditIncome, init
           <div className="table-controls">
             <div className="filter-group">
               <span className="filter-label">Filter:</span>
-              <select value={tx.filterProperty} onChange={e => tx.setFilterProperty(e.target.value)}>
-                <PropertyOptions properties={properties} placeholder="All Properties" />
+              <select value={tx.filterProperty} onChange={e => tx.setFilterProperty(e.target.value)}
+                className={tx.filterProperty !== 'all' ? 'filter-active' : ''}>
+                <PropertyOptions properties={properties} placeholder="All Properties" placeholderValue="all" />
               </select>
               <MultiSelect label="Type" options={tx.allTypes} selected={tx.filterTypes} onChange={tx.setFilterTypes} />
               <DateRangeFilter

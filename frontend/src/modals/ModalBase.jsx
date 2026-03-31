@@ -18,10 +18,10 @@ export const QUICK_BTN_STYLE = {
  * Usage: <select ...><PropertyOptions properties={properties} /></select>
  * Omit `placeholder` to skip the leading blank option (e.g. navigation selectors).
  */
-export function PropertyOptions({ properties, placeholder }) {
+export function PropertyOptions({ properties, placeholder, placeholderValue = '' }) {
   return (
     <>
-      {placeholder != null && <option value="">{placeholder}</option>}
+      {placeholder != null && <option value={placeholderValue}>{placeholder}</option>}
       {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
     </>
   );

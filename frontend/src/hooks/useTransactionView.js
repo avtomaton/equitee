@@ -1,29 +1,15 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
 import { getExpenses, getIncome, deleteExpense, deleteIncome } from '../api.js';
+import { useSilentLoading } from './useSilentLoading.js';
 import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
 import { useColumnVisibility } from './useColumnVisibility.js';
 
-// Map the endpoint string to typed api.js functions so call sites don't change.
 const API_FNS = {
   expenses: { fetch: (propertyId) => getExpenses(propertyId), remove: deleteExpense },
   income:   { fetch: (propertyId) => getIncome(propertyId),   remove: deleteIncome  },
 };
 
-/**
- * useTransactionView — shared state and logic for ExpensesView and IncomeView.
- *
- * @param {string}   viewName         – 'expenses' | 'income'  (matches COLUMN_DEFS keys)
- * @param {string}   endpoint         – 'expenses' | 'income'  (selects typed api functions)
- * @param {string}   dateField        – record field used for date filtering, e.g. 'expense_date'
- * @param {string}   defaultSortBy    – initial sortBy value
- * @param {object[]} properties       – property records from App state
- * @param {number|null} initialPropertyId
- * @param {string[]} seedTypeOptions  – INITIAL_OPTIONS slice for the main type filter
- * @param {string}   typeField        – record field for the type filter, e.g. 'expense_type'
- * @param {string[]} [seedCategoryOptions] – optional second filter seed (expenses only)
- * @param {string}   [categoryField]       – optional second filter field (expenses only)
- */
 export default function useTransactionView({
   viewName, endpoint, dateField, defaultSortBy,
   properties, initialPropertyId,
@@ -32,27 +18,29 @@ export default function useTransactionView({
 }) {
   const { fetch: apiFetch, remove: apiRemove } = API_FNS[endpoint];
 
-  const [records,          setRecords]          = useState([]);
-  const [loading,          setLoading]          = useState(true);
+  const [records, setRecords] = useState([]);
+  const { loading, wrapLoad, hasLoadedRef } = useSilentLoading();
+
   const [sortBy,           setSortBy]           = useState(defaultSortBy);
   const [sortOrder,        setSortOrder]        = useState('desc');
   const [filterProperty,   setFilterProperty]   = useState(initialPropertyId ? String(initialPropertyId) : 'all');
-  const [dateFilter,       setDateFilter]       = useState('all');
+  const [dateFilter,       setDateFilter]       = useState('currentYear');
   const [customDateStart,  setCustomDateStart]  = useState('');
   const [customDateEnd,    setCustomDateEnd]    = useState('');
   const [filterTypes,      setFilterTypes]      = useState(seedTypeOptions);
   const [filterCategories, setFilterCategories] = useState(seedCategoryOptions ?? []);
 
+  const seenTypesRef      = useRef(new Set(seedTypeOptions));
+  const seenCategoriesRef = useRef(new Set(seedCategoryOptions ?? []));
+
   const colVis       = useColumnVisibility(viewName);
   const allColKeys   = COLUMN_DEFS[viewName].map(d => d.key);
   const allColLabels = Object.fromEntries(COLUMN_DEFS[viewName].map(d => [d.key, d.label]));
 
-  // Sync jump property
   useEffect(() => {
     if (initialPropertyId) setFilterProperty(String(initialPropertyId));
   }, [initialPropertyId]);
 
-  // Derived option lists (merge seeded values with any new ones found in data)
   const allTypes = useMemo(() =>
     mergeOptions(seedTypeOptions, records.map(r => r[typeField])), [records]);
 
@@ -60,35 +48,58 @@ export default function useTransactionView({
     categoryField ? mergeOptions(seedCategoryOptions, records.map(r => r[categoryField])) : [],
   [records]);
 
-  useEffect(() => { setFilterTypes(t => mergeOptions(t, allTypes)); }, [allTypes]);
   useEffect(() => {
-    if (categoryField) setFilterCategories(c => mergeOptions(c, allCategories));
+    const newOnes = allTypes.filter(v => v && !seenTypesRef.current.has(v));
+    if (newOnes.length) {
+      newOnes.forEach(v => seenTypesRef.current.add(v));
+      setFilterTypes(prev => [...prev, ...newOnes]);
+    }
+  }, [allTypes]);
+
+  useEffect(() => {
+    if (!categoryField) return;
+    const newOnes = allCategories.filter(v => v && !seenCategoriesRef.current.has(v));
+    if (newOnes.length) {
+      newOnes.forEach(v => seenCategoriesRef.current.add(v));
+      setFilterCategories(prev => [...prev, ...newOnes]);
+    }
   }, [allCategories]);
 
-  // Load all records for every property, tagging each with property_name
-  useEffect(() => { if (properties.length > 0) load(); }, [properties]);
+  // propertiesRef: always current, lets load() be stable (no useCallback deps)
+  const propertiesRef = useRef(properties);
+  propertiesRef.current = properties;
 
   const load = async () => {
-    try {
-      setLoading(true);
+    await wrapLoad(async () => {
       const responses = await Promise.all(
-        properties.map(p =>
+        propertiesRef.current.map(p =>
           apiFetch(p.id)
             .then(data => data.map(rec => ({ ...rec, property_name: p.name })))
             .catch(() => [])
         )
       );
       setRecords(responses.flat());
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    });
   };
+
+  // Stable reference — always points to the latest load closure so callers
+  // (App's viewReloadRef) never hold a stale version.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const stableLoad = useCallback(() => loadRef.current(), []);
+
+  // Initial load — fires once when properties first become available.
+  // Does NOT re-fire on subsequent properties changes (background refreshes),
+  // so there is no spinner flash, page-height collapse, or scroll clamping.
+  useEffect(() => {
+    if (properties.length > 0 && !hasLoadedRef.current) load();
+  }, [properties]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDelete = async (id) => {
     if (!confirm(`Delete this ${viewName.replace(/s$/, '')} record?`)) return;
-    try { await apiRemove(id); load(); } catch (err) { console.error(err); }
+    try { await apiRemove(id); await stableLoad(); } catch (err) { console.error(err); }
   };
 
-  // Base: property filter only (unfiltered reference for stat cards)
   const baseRecords = useMemo(() =>
     filterProperty === 'all'
       ? records
@@ -126,21 +137,16 @@ export default function useTransactionView({
     : null;
 
   return {
-    // data
     records, loading, filtered, baseRecords,
     baseTotal, filteredTotal, isFiltered, pct, propName,
-    // sort
     sortBy, setSortBy, sortOrder, setSortOrder,
-    // filters
     filterProperty, setFilterProperty,
     dateFilter, setDateFilter,
     customDateStart, setCustomDateStart,
     customDateEnd, setCustomDateEnd,
     filterTypes, setFilterTypes, allTypes,
     filterCategories, setFilterCategories, allCategories,
-    // column visibility
     colVis, allColKeys, allColLabels,
-    // actions
-    load, handleDelete,
+    load: stableLoad, handleDelete,
   };
 }

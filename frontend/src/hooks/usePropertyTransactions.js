@@ -1,31 +1,23 @@
 import { useState, useEffect } from 'react';
-import { getIncome, getExpenses } from '../api.js';
+import { getIncome, getExpenses, getEvents } from '../api.js';
 
 /**
- * usePropertyTransactions — fetch and cache all income and expense records
- * for a given list of properties.
+ * usePropertyTransactions — fetch and cache income, expenses AND events
+ * for a list of properties. Re-fetches when the property ID set changes.
  *
- * Lifted out of PropertiesView so that Analytics (rendered inside the same
- * view) can consume the same already-fetched data without issuing its own
- * duplicate requests.
- *
- * Re-fetches whenever the set of property IDs changes.
- *
- * @param {object[]} properties — property records (need `.id` and `.name`)
- * @returns {{ allIncome: object[], allExpenses: object[] }}
+ * @returns {{ allIncome, allExpenses, allEvents }}
+ *   allEvents is keyed by property_id: { [id]: event[] }
  */
 export default function usePropertyTransactions(properties) {
   const [allIncome,   setAllIncome]   = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
+  const [allEvents,   setAllEvents]   = useState({});
 
-  // Stable cache key: only re-fetch when the property ID set actually changes
   const idKey = properties.map(p => p.id).join(',');
 
   useEffect(() => {
     if (!properties.length) return;
 
-    // Fetch income and expenses in parallel across all properties,
-    // tagging each record with its property_id so downstream code can filter.
     Promise.all(
       properties.map(p =>
         getIncome(p.id)
@@ -42,7 +34,19 @@ export default function usePropertyTransactions(properties) {
       )
     ).then(results => setAllExpenses(results.flat()));
 
+    Promise.all(
+      properties.map(p =>
+        getEvents(p.id)
+          .then(evs => [p.id, evs])
+          .catch(() => [p.id, []])
+      )
+    ).then(pairs => {
+      const map = {};
+      pairs.forEach(([id, evs]) => { map[id] = evs; });
+      setAllEvents(map);
+    });
+
   }, [idKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { allIncome, allExpenses };
+  return { allIncome, allExpenses, allEvents };
 }

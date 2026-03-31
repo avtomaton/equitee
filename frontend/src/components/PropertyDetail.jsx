@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import { getIncome, getExpenses, getTenants, getEvents } from '../api.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
-import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected,
+import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected, extractRateHistory,
          monthsLeftInYear, yearFracRemaining,
          calcIRR, buildPropertyIRRCashFlows,
          calcPayback, calcBreakEven, analyzeProperty, calcEconVacancy } from '../metrics.js';
@@ -62,6 +62,9 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     return rentEvents[0] ?? null;
   }, [events]);
 
+  // Rate history from mortgage_rate change events, used for accurate amortisation
+  const rateHistory = useMemo(() => extractRateHistory(events), [events]);
+
   // ── Financial fundamentals ────────────────────────────────────────────────
   const downPmt  = property.purchase_price - property.loan_amount;
   const equity   = property.market_price   - property.loan_amount;
@@ -83,8 +86,8 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const ytdInc        = income.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
   const ytdExp        = expenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
   const ytdBal        = ytdInc - ytdExp;
-  const ytdPrin       = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, ytdStart, ytdEnd);
-  const allTimePrin   = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, new Date(0), new Date());
+  const ytdPrin       = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, ytdStart, ytdEnd, rateHistory);
+  const allTimePrin   = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, new Date(0), new Date(), rateHistory);
 
   // Net Expenses = Total Expenses − allTimePrin (down payment + all mortgage principal repayments)
   const totalNetExp     = property.total_expenses - allTimePrin;
@@ -393,6 +396,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
         properties={[property]}
         allIncome={taggedIncome}
         allExpenses={taggedExpenses}
+        allEvents={{ [property.id]: events }}
         scope="property"
       />
 

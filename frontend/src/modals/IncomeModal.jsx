@@ -16,7 +16,7 @@ const toFormState_Income = (income, property) => income ? {
 };
 
 export default function IncomeModal({ income, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState_Income(income, property));
+  const [formData, setFormData] = useState(() => toFormState_Income(income, property ?? properties[0]));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 

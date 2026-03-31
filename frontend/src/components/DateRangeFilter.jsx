@@ -12,7 +12,11 @@
 export default function DateRangeFilter({ value, onChange, customStart, customEnd, onCustomStart, onCustomEnd }) {
   return (
     <>
-      <select value={value} onChange={e => onChange(e.target.value)}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={value !== 'all' ? 'filter-active' : ''}
+      >
         <option value="all">All Time</option>
         <option value="ytd">YTD</option>
         <option value="currentMonth">This Month</option>

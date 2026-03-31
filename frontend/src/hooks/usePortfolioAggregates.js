@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { yearsHeld, avgMonthly, calcExpected, principalInRange } from '../metrics.js';
+import { yearsHeld, avgMonthly, calcExpected, principalInRange, extractRateHistory } from '../metrics.js';
 import { makeInTrailingYear, trailingYear } from '../utils.js';
 
 /**
@@ -13,7 +13,7 @@ import { makeInTrailingYear, trailingYear } from '../utils.js';
  * @param {object[]} allExpenses — flat expense records with expense_date, amount, property_id
  * @returns {object} agg — all aggregated values
  */
-export function usePortfolioAggregates(properties, allIncome, allExpenses) {
+export function usePortfolioAggregates(properties, allIncome, allExpenses, allEvents = {}) {
   return useMemo(() => {
     const market   = properties.reduce((s, p) => s + p.market_price,   0);
     const purchase = properties.reduce((s, p) => s + p.purchase_price, 0);
@@ -39,8 +39,9 @@ export function usePortfolioAggregates(properties, allIncome, allExpenses) {
     const projectedYE = market + yearlyAppr * (1 - yearFrac);
 
     const allTimePrin = properties.reduce((sum, p) => {
-      const pe = allExpenses.filter(r => r.property_id === p.id);
-      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date());
+      const pe       = allExpenses.filter(r => r.property_id === p.id);
+      const rateHist = extractRateHistory(allEvents[p.id] ?? []);
+      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date(), rateHist);
     }, 0);
 
     // Net Expenses = Total Expenses − allTimePrin
@@ -60,8 +61,9 @@ export function usePortfolioAggregates(properties, allIncome, allExpenses) {
     const ytdExp  = allExpenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
     const ytdBal  = ytdInc - ytdExp;
     const ytdPrin = properties.reduce((sum, p) => {
-      const pe = allExpenses.filter(r => r.property_id === p.id);
-      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, ytdStart, ytdEnd);
+      const pe       = allExpenses.filter(r => r.property_id === p.id);
+      const rateHist = extractRateHistory(allEvents[p.id] ?? []);
+      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, ytdStart, ytdEnd, rateHist);
     }, 0);
     const ytdNetExp     = ytdExp  - ytdPrin;
     const ytdNetBalance = ytdInc  - ytdNetExp;
@@ -139,5 +141,5 @@ export function usePortfolioAggregates(properties, allIncome, allExpenses) {
       totalExpectedYearlyAppr, expYearlyApprPct,
       expNOI, expApprMo, perPropAvg, totalExpCF,
     };
-  }, [properties, allIncome, allExpenses]);
+  }, [properties, allIncome, allExpenses, allEvents]);
 }

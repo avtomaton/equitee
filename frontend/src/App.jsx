@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getProperties, getProperty } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
@@ -36,12 +36,22 @@ const setHash = (view) => {
 export default function App() {
   const [currentView, setCurrentView]   = useState(getViewFromHash);
   const [properties, setProperties]     = useState([]);
-  const [loading, setLoading]           = useState(true);
+  const [loading,        setLoading]        = useState(true);
+  // refreshing is true during background reloads (after save) — views stay mounted
+  const [refreshing,     setRefreshing]     = useState(false);
   const [alert, setAlert]               = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
 
   // modal state: { type: 'property'|'expense'|'income'|'tenant', data: obj|null, context: obj|null }
   const [modal, setModal] = useState(null);
+
+  // Scroll-preservation: save scroll position when modal opens, restore after save
+  const savedScroll = useRef(0);
+
+  // View reload registration — the mounted view registers its async reload fn here
+  // so handleSave can await it before restoring scroll (fully event-based, no timeouts)
+  const viewReloadRef = useRef(null);
+  const registerViewReload = (fn) => { viewReloadRef.current = fn; };
 
   // filter pre-selection when jumping from property detail
   const [jumpPropertyId, setJumpPropertyId] = useState(null);
@@ -67,9 +77,10 @@ export default function App() {
     setTimeout(() => setAlert(null), 4000);
   };
 
-  const loadData = async () => {
+  const loadData = async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (silent) setRefreshing(true);
+      else        setLoading(true);
       const fresh = await getProperties();
       setProperties(fresh);
       // Keep selectedProperty in sync so PropertyDetail shows updated values
@@ -78,13 +89,29 @@ export default function App() {
       console.error(err);
       showAlert('Failed to load data', 'error');
     } finally {
-      setLoading(false);
+      if (silent) setRefreshing(false);
+      else        setLoading(false);
     }
   };
 
-  const openModal  = (type, data = null, context = null) => setModal({ type, data, context });
+  const openModal  = (type, data = null, context = null) => {
+    savedScroll.current = window.scrollY;
+    setModal({ type, data, context });
+  };
   const closeModal = () => setModal(null);
-  const handleSave = async () => { await loadData(); closeModal(); showAlert('Saved successfully', 'success'); };
+  const handleSave = async () => {
+    const scrollPos = savedScroll.current;
+    closeModal();
+    showAlert('Saved successfully', 'success');
+    // Reload the current view's data and App's properties concurrently, then
+    // scroll. The view registers its own reload fn via onRegisterReload so we
+    // can await it directly — no timeouts, no polling.
+    await Promise.all([
+      viewReloadRef.current?.() ?? Promise.resolve(),
+      loadData({ silent: true }),
+    ]);
+    window.scrollTo({ top: scrollPos, behavior: 'instant' });
+  };
 
   const handlePropertyClick = async (property) => {
     try {
@@ -115,7 +142,7 @@ export default function App() {
           onPropertyClick={handlePropertyClick}
           onAddProperty={() => openModal('property')}
           onEditProperty={(p) => openModal('property', p)}
-          onReloadProperties={loadData}
+          onReloadProperties={() => loadData({ silent: true })}
         />;
 
       case 'expenses':
@@ -124,6 +151,7 @@ export default function App() {
           onAddExpense={() => openModal('expense')}
           onEditExpense={(e) => openModal('expense', e)}
           initialPropertyId={jumpPropertyId}
+          onRegisterReload={registerViewReload}
         />;
 
       case 'income':
@@ -132,6 +160,7 @@ export default function App() {
           onAddIncome={() => openModal('income')}
           onEditIncome={(i) => openModal('income', i)}
           initialPropertyId={jumpPropertyId}
+          onRegisterReload={registerViewReload}
         />;
 
       case 'tenants':
@@ -140,6 +169,7 @@ export default function App() {
           onAddTenant={() => openModal('tenant')}
           onEditTenant={(t) => openModal('tenant', t)}
           initialPropertyId={jumpPropertyId}
+          onRegisterReload={registerViewReload}
         />;
 
       case 'events':

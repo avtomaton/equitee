@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { principalInRange, computeMortgagePrincipal, monthlyMortgageEquiv } from '../metrics.js';
+import { principalInRange, computeMortgagePrincipal, monthlyMortgageEquiv, extractRateHistory } from '../metrics.js';
 import { parseLocalDate } from '../utils.js';
 
 // ── Category definitions ──────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ function getWindows() {
 
 // ── Core computation ──────────────────────────────────────────────────────────
 
-function computeWindow(properties, allIncome, allExpenses, start, end, divisor = 1) {
+function computeWindow(properties, allIncome, allExpenses, start, end, divisor = 1, allEvents = {}) {
   const inRange = dateStr => {
     if (!dateStr) return false;
     const d = parseLocalDate(dateStr);
@@ -88,9 +88,10 @@ function computeWindow(properties, allIncome, allExpenses, start, end, divisor =
   let principal = 0, interest = 0;
   for (const p of properties) {
     const propExp      = allExpenses.filter(r => r.property_id === p.id);
-    principal         += principalInRange(propExp, p.loan_amount, p.mortgage_rate || 0, start, end);
+    const rateHist     = extractRateHistory(allEvents[p.id] ?? []);
+    principal         += principalInRange(propExp, p.loan_amount, p.mortgage_rate || 0, start, end, rateHist);
     const mortRecs     = propExp.filter(r => r.expense_category === 'Mortgage');
-    const annotated    = computeMortgagePrincipal(mortRecs, p.loan_amount, p.mortgage_rate || 0);
+    const annotated    = computeMortgagePrincipal(mortRecs, p.loan_amount, p.mortgage_rate || 0, rateHist);
     const prinInWin    = annotated.filter(r => inRange(r.expense_date)).reduce((s, r) => s + r.principal, 0);
     const mortInWin    = propExp.filter(r => r.expense_category === 'Mortgage' && inRange(r.expense_date)).reduce((s, r) => s + r.amount, 0);
     interest          += Math.max(0, mortInWin - prinInWin);
@@ -158,7 +159,7 @@ function computeExpected(properties, allExpenses) {
 
 // ── Bar chart data ────────────────────────────────────────────────────────────
 
-function buildBarData(properties, allIncome, allExpenses, tabId) {
+function buildBarData(properties, allIncome, allExpenses, tabId, allEvents = {}) {
   const now = new Date(), y = now.getFullYear();
   const months = [], labels = [];
   if (tabId === 'lastYear') {
@@ -178,7 +179,7 @@ function buildBarData(properties, allIncome, allExpenses, tabId) {
       months.push({ start: new Date(d.getFullYear(), d.getMonth(), 1), end: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59) });
     }
   }
-  return { labels, data: months.map(({ start, end }) => computeWindow(properties, allIncome, allExpenses, start, end).cats) };
+  return { labels, data: months.map(({ start, end }) => computeWindow(properties, allIncome, allExpenses, start, end, 1, allEvents).cats) };
 }
 
 // ── Chart.js ─────────────────────────────────────────────────────────────────
@@ -243,7 +244,7 @@ const ExpBadge = ({ val }) => (
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function FinancialSummaryPanel({ properties, allIncome, allExpenses }) {
+export default function FinancialSummaryPanel({ properties, allIncome, allExpenses, allEvents = {} }) {
   const [tab,       setTab]       = useState('monthly');
   const [chartOpen, setChartOpen] = useState(false);
   const canvasRef = useRef(null);
@@ -253,15 +254,15 @@ export default function FinancialSummaryPanel({ properties, allIncome, allExpens
     const wins = getWindows();
     const computed = {};
     for (const [id, { start, end, divisor = 1 }] of Object.entries(wins)) {
-      computed[id] = computeWindow(properties, allIncome, allExpenses, start, end, divisor);
+      computed[id] = computeWindow(properties, allIncome, allExpenses, start, end, divisor, allEvents);
     }
     return { periods: computed, expected: computeExpected(properties, allExpenses) };
-  }, [properties, allIncome, allExpenses]);
+  }, [properties, allIncome, allExpenses, allEvents]);
 
   const barData = useMemo(() => {
     if (!periods || PIE_TABS.has(tab)) return null;
-    return buildBarData(properties, allIncome, allExpenses, tab);
-  }, [periods, tab, properties, allIncome, allExpenses]);
+    return buildBarData(properties, allIncome, allExpenses, tab, allEvents);
+  }, [periods, tab, properties, allIncome, allExpenses, allEvents]);
 
   useEffect(() => {
     if (!chartOpen || !canvasRef.current || !periods) return;

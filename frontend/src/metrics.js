@@ -169,70 +169,125 @@ export const computeMortgagePrincipal_o = (
 /**
  * Compute the principal portion of each mortgage expense record, walking
  * backwards from the current loan balance.
- * The function is still not quite accurate but it's closer to reality.
+ *
+ * Key insight: `currentLoanBalance` is the balance AFTER the most recent
+ * payment, not before it. We reconstruct prior balances by reversing the
+ * amortisation formula: if after payment P we have balance B_after, and
+ * the period was `days` days long, then:
+ *   B_before = (B_after + payment) / (1 + dailyRate * days)
+ *
+ * This is exact for daily-compounding linear-accrual and avoids the old
+ * bug of treating currentLoanBalance as the starting (pre-first-payment)
+ * balance.
+ *
+ * For the first (oldest) payment we have no prior date, so we assume a
+ * 30-day gap as a reasonable default.
  */
+/**
+ * Extract mortgage rate change history from events, returning a sorted array of
+ * { date: 'YYYY-MM-DD', rate: number } objects for use in rate-aware calculations.
+ * Uses created_at as the event date (editable by the user in EventsView).
+ */
+export const extractRateHistory = (events = []) =>
+  events
+    .filter(e => e.column_name === 'mortgage_rate' && e.new_value)
+    .map(e => {
+      const raw     = (e.created_at ?? '').split('T')[0].split(' ')[0];
+      const rate    = parseFloat(e.new_value);
+      const oldRate = parseFloat(e.old_value || '0');
+      return { date: raw, rate, oldRate };
+    })
+    .filter(e => e.date && e.rate > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+/**
+ * Return the mortgage rate (%) that was in effect on dateStr, given a sorted
+ * rateHistory array and the current (latest) fallback rate.
+ * The most recent history entry whose date <= dateStr wins; if none, returns fallbackRate.
+ */
+const rateAtDate = (dateStr, rateHistory, fallbackRate) => {
+  if (!rateHistory || rateHistory.length === 0) return fallbackRate;
+  let rate = fallbackRate;
+  for (const ev of rateHistory) {
+    if (ev.date <= dateStr) rate = ev.rate;
+    else break;
+  }
+  return rate;
+};
+
 export const computeMortgagePrincipal = (
   mortgageExpenses,
   currentLoanBalance,
-  annualRatePct
+  annualRatePct,
+  rateHistory = []
 ) => {
   if (!annualRatePct || mortgageExpenses.length === 0) return [];
 
-  // should be most accurate but banks may use slightly different formula
-  const dailyRate = annualRatePct / 100 / 365;
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-  // sort ascending (oldest → newest)
+  // Sort ascending (oldest → newest)
   const sorted = [...mortgageExpenses].sort(
     (a, b) => new Date(a.expense_date) - new Date(b.expense_date)
   );
 
-  let balance = currentLoanBalance;
-  let prevDate = new Date(sorted[0].expense_date);
+  // Pre-history rate: what was in effect before any recorded rate-change event.
+  // The earliest event's old_value is the original rate; fall back to the
+  // current annualRatePct only if no history exists (rate never changed).
+  const preHistoryRate =
+    rateHistory.length > 0 && rateHistory[0].oldRate > 0
+      ? rateHistory[0].oldRate
+      : annualRatePct;
 
-  const result = [];
+  // Walk backwards. balanceAfter starts as currentLoanBalance (balance
+  // after the last payment we have on record).
+  let balanceAfter = currentLoanBalance;
+  const results = new Array(sorted.length);
 
-  for (let i = 0; i < sorted.length; i++) {
-    const item = sorted[i];
-    const currDate = new Date(item.expense_date);
-
-    // days between payments
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const payment = sorted[i].amount;
     const days =
-      Math.max(
-        0,
-        Math.floor((currDate - prevDate) / (1000 * 60 * 60 * 24))
-      );
+      i === 0
+        ? 30 // no prior payment date available; assume ~1 month
+        : Math.max(
+            1,
+            Math.floor(
+              (new Date(sorted[i].expense_date) - new Date(sorted[i - 1].expense_date)) /
+                MS_PER_DAY
+            )
+          );
 
-    // accrue interest for the period
-    const interestAccrued = balance * dailyRate * days;
+    // Interest accrues during the period BEFORE this payment, so look up
+    // the rate that was in effect at the START of that period, not at the
+    // payment date.  For i=0 we pass '0000-01-01' which will always be
+    // before any event → returns preHistoryRate correctly.
+    const periodStart = i > 0 ? sorted[i - 1].expense_date : '0000-01-01';
+    const ratePct     = rateAtDate(periodStart, rateHistory, preHistoryRate);
+    const dailyRate   = ratePct / 100 / 365;
+    const balanceBefore = (balanceAfter + payment) / (1 + dailyRate * days);
+    const interest      = balanceBefore * dailyRate * days;
+    const principal     = Math.max(0, payment - interest);
 
-    const payment = item.amount;
-
-    const interestPaid = Math.min(payment, interestAccrued);
-    const principalPaid = Math.max(0, payment - interestPaid);
-
-    result.push({
-      ...item,
+    results[i] = {
+      ...sorted[i],
       days,
-      interest: interestPaid,
-      principal: principalPaid,
-      balance_before: balance,
-      balance_after: balance - principalPaid
-    });
+      interest,
+      principal,
+      balance_before: balanceBefore,
+      balance_after:  balanceAfter,
+    };
 
-    // update balance
-    balance = balance - principalPaid;
-
-    prevDate = currDate;
+    // Move one step further back
+    balanceAfter = balanceBefore;
   }
 
-  return result;
+  return results;
 };
 
 /**
  * Total principal paid within a date range (explicit Principal records +
  * principal portion of Mortgage records).
  */
-export const principalInRange = (expenseRecs, currentLoanBalance, annualRatePct, startDate, endDate) => {
+export const principalInRange = (expenseRecs, currentLoanBalance, annualRatePct, startDate, endDate, rateHistory = []) => {
   const inRange = (dateStr) => {
     if (!dateStr) return false;
     const [y, m, d] = dateStr.split('-').map(Number);
@@ -243,7 +298,7 @@ export const principalInRange = (expenseRecs, currentLoanBalance, annualRatePct,
     .filter(r => r.expense_category === 'Principal' && inRange(r.expense_date))
     .reduce((s, r) => s + r.amount, 0);
   const mortgageRecs = expenseRecs.filter(r => r.expense_category === 'Mortgage');
-  const withPrincipal = computeMortgagePrincipal(mortgageRecs, currentLoanBalance, annualRatePct);
+  const withPrincipal = computeMortgagePrincipal(mortgageRecs, currentLoanBalance, annualRatePct, rateHistory);
   const mortgagePrincipal = withPrincipal
     .filter(r => inRange(r.expense_date))
     .reduce((s, r) => s + r.principal, 0);

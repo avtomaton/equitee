@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import Collapsible from './Collapsible.jsx';
@@ -8,7 +8,7 @@ import KPICard from './KPICard.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
 import { INITIAL_OPTIONS, PROVINCES, COLUMN_DEFS } from '../config.js';
 import { mergeOptions, trailingYear, makeInTrailingYear } from '../utils.js';
-import { calcSimpleHealth, principalInRange, calcExpected, calcPortfolioInterest } from '../metrics.js';
+import { calcSimpleHealth, principalInRange, calcExpected, calcPortfolioInterest, extractRateHistory } from '../metrics.js';
 import { useColumnVisibility } from '../hooks/useColumnVisibility.js';
 import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
 import { archiveProperty, restoreProperty, getProperties } from '../api.js';
@@ -78,7 +78,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
   const [archivedProps, setArchivedProps] = useState([]);
 
   // Income/expense records fetched once and shared with Analytics
-  const { allIncome, allExpenses } = usePropertyTransactions(properties);
+  const { allIncome, allExpenses, allEvents } = usePropertyTransactions(properties);
 
   // Derived filter options
   const allStatuses  = useMemo(() => mergeOptions(INITIAL_OPTIONS.propertyStatuses, properties.map(p => p.status)), [properties]);
@@ -91,10 +91,33 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
   const [filterProvinces, setFilterProvinces] = useState(() => allProvinces);
   const [filterCities,    setFilterCities]    = useState(() => allCities);
 
-  useEffect(() => { setFilterStatuses(prev  => mergeOptions(prev, allStatuses)); },  [allStatuses]);
-  useEffect(() => { setFilterTypes(prev     => mergeOptions(prev, allTypes)); },     [allTypes]);
-  useEffect(() => { setFilterProvinces(prev => mergeOptions(prev, allProvinces)); }, [allProvinces]);
-  useEffect(() => { setFilterCities(prev    => [...new Set([...prev, ...allCities])].sort()); }, [allCities]);
+  // Track which values have been seen; only truly new values are appended to
+  // the selected set so that a user's deliberate deselection survives a data reload.
+  const seenStatusesRef  = useRef(null);
+  const seenTypesRef     = useRef(null);
+  const seenProvincesRef = useRef(null);
+  const seenCitiesRef    = useRef(null);
+  if (!seenStatusesRef.current)  seenStatusesRef.current  = new Set(allStatuses);
+  if (!seenTypesRef.current)     seenTypesRef.current     = new Set(allTypes);
+  if (!seenProvincesRef.current) seenProvincesRef.current = new Set(allProvinces);
+  if (!seenCitiesRef.current)    seenCitiesRef.current    = new Set(allCities);
+
+  useEffect(() => {
+    const newOnes = allStatuses.filter(v => v && !seenStatusesRef.current.has(v));
+    if (newOnes.length) { newOnes.forEach(v => seenStatusesRef.current.add(v)); setFilterStatuses(p => [...p, ...newOnes]); }
+  }, [allStatuses]);
+  useEffect(() => {
+    const newOnes = allTypes.filter(v => v && !seenTypesRef.current.has(v));
+    if (newOnes.length) { newOnes.forEach(v => seenTypesRef.current.add(v)); setFilterTypes(p => [...p, ...newOnes]); }
+  }, [allTypes]);
+  useEffect(() => {
+    const newOnes = allProvinces.filter(v => v && !seenProvincesRef.current.has(v));
+    if (newOnes.length) { newOnes.forEach(v => seenProvincesRef.current.add(v)); setFilterProvinces(p => [...p, ...newOnes]); }
+  }, [allProvinces]);
+  useEffect(() => {
+    const newOnes = allCities.filter(v => v && !seenCitiesRef.current.has(v));
+    if (newOnes.length) { newOnes.forEach(v => seenCitiesRef.current.add(v)); setFilterCities(p => [...p, ...newOnes]); }
+  }, [allCities]);
 
   const loadArchived = useCallback(() => {
     getProperties(true)
@@ -163,10 +186,11 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     const map = {};
     for (const p of filtered) {
       const pe = allExpenses.filter(r => r.property_id === p.id);
-      map[p.id] = principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date());
+      const rateHist = extractRateHistory(allEvents[p.id] ?? []);
+      map[p.id] = principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date(), rateHist);
     }
     return map;
-  }, [filtered, allExpenses]);
+  }, [filtered, allExpenses, allEvents]);
 
   // ── Summary stats ─────────────────────────────────────────────────────────
   const totalValue    = filtered.reduce((s, p) => s + p.market_price,   0);
@@ -203,8 +227,9 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     const ytdInc  = filtInc.filter(r => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
     const ytdExp  = filtExp.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
     const ytdPrin = filtered.reduce((sum, p) => {
-      const pe = filtExp.filter(r => r.property_id === p.id);
-      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, ytdStart, ytdEnd);
+      const pe       = filtExp.filter(r => r.property_id === p.id);
+      const rateHist = extractRateHistory(allEvents[p.id] ?? []);
+      return sum + principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, ytdStart, ytdEnd, rateHist);
     }, 0);
     const ytdOpProfit = ytdInc - (ytdExp - ytdPrin);
 

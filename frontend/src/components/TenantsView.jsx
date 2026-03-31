@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { COLUMN_DEFS } from '../config.js';
 import { getTenants, archiveTenant, restoreTenant } from '../api.js';
+import { useSilentLoading } from '../hooks/useSilentLoading.js';
 import { isCurrentTenant } from '../utils.js';
 import { fmtDate } from './uiHelpers.jsx';
 import TruncatedCell from './Tooltip.jsx';
@@ -45,13 +46,14 @@ function TenantRow({ t, onEdit, onArchive, onRestore, archived, col }) {
   );
 }
 
-export default function TenantsView({ properties, onAddTenant, onEditTenant, initialPropertyId }) {
+export default function TenantsView({ properties, onAddTenant, onEditTenant, initialPropertyId, onRegisterReload }) {
   const [tenants,         setTenants]         = useState([]);
   const [archivedTenants, setArchivedTenants] = useState([]);
-  const [loading,         setLoading]         = useState(true);
   const [showArchive,     setShowArchive]     = useState(false);
   const [filterProperty,  setFilterProperty]  = useState(initialPropertyId ? String(initialPropertyId) : 'all');
   const [filterStatus,    setFilterStatus]    = useState('all');
+
+  const { loading, wrapLoad } = useSilentLoading();
 
   const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('tenants');
   const allColKeys   = COLUMN_DEFS.tenants.map(d => d.key);
@@ -61,20 +63,28 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
     if (initialPropertyId) setFilterProperty(String(initialPropertyId));
   }, [initialPropertyId]);
 
-  useEffect(() => { loadTenants(); }, []);
-
   const loadTenants = async () => {
-    try {
-      setLoading(true);
+    await wrapLoad(async () => {
       const [active, all] = await Promise.all([
         getTenants(),
         getTenants({ archived: 1 }),
       ]);
       setTenants(active);
       setArchivedTenants(all.filter(t => t.is_archived));
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    });
   };
+
+  // Stable ref so App's viewReloadRef always calls the latest closure
+  const loadRef = useRef(loadTenants);
+  loadRef.current = loadTenants;
+
+  // Register with App so handleSave can await this reload before scrolling
+  useEffect(() => {
+    onRegisterReload?.(() => loadRef.current());
+    return () => onRegisterReload?.(null);
+  }, [onRegisterReload]);
+
+  useEffect(() => { loadTenants(); }, []);
 
   const handleArchive = async (id) => {
     if (!confirm('Archive this tenant? They can be restored later.')) return;
@@ -124,10 +134,12 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
           <div className="table-controls">
             <div className="filter-group">
               <span className="filter-label">Filter:</span>
-              <select value={filterProperty} onChange={e => setFilterProperty(e.target.value)}>
-                <PropertyOptions properties={properties} placeholder="All Properties" />
+              <select value={filterProperty} onChange={e => setFilterProperty(e.target.value)}
+                className={filterProperty !== 'all' ? 'filter-active' : ''}>
+                <PropertyOptions properties={properties} placeholder="All Properties" placeholderValue="all" />
               </select>
-              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                className={filterStatus !== 'all' ? 'filter-active' : ''}>
                 <option value="all">All</option>
                 <option value="current">Current</option>
                 <option value="past">Past</option>

@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import PropertyCard from './PropertyCard.jsx';
 import KPICard from './KPICard.jsx';
 import { fmt, fp, sn, SectionLabel, WindowPicker, ltvColor, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import FinancialSummaryPanel from './FinancialSummaryPanel.jsx';
-import { getEvents } from '../api.js';
 import { avgMonthly, monthsLeftInYear } from '../metrics.js';
 import { usePortfolioAggregates } from '../hooks/usePortfolioAggregates.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
@@ -12,22 +11,10 @@ import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
 import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance } from '../metricDefs.jsx';
 
 export default function Dashboard({ properties, onPropertyClick }) {
-  const { allIncome, allExpenses } = usePropertyTransactions(properties);
-  const [allEvents,   setAllEvents]   = useState({});   // keyed by property id
+  const { allIncome, allExpenses, allEvents } = usePropertyTransactions(properties);
   const [avgWindow,   setAvgWindow]   = useState(3);
 
-  useEffect(() => {
-    if (!properties.length) return;
-    // Events are fetched per-property and stored in a map so PropertyCard
-    // can call calcEconVacancy with the correct event history.
-    Promise.all(
-      properties.map(p =>
-        getEvents(p.id).then(evs => [p.id, evs]).catch(() => [p.id, []])
-      )
-    ).then(pairs => setAllEvents(Object.fromEntries(pairs))).catch(() => {});
-  }, [properties.map(p => p.id).join(',')]);
-
-  const agg = usePortfolioAggregates(properties, allIncome, allExpenses);
+  const agg = usePortfolioAggregates(properties, allIncome, allExpenses, allEvents);
 
   const avg = useMemo(() =>
     avgMonthly(allIncome, allExpenses, avgWindow),
@@ -111,7 +98,7 @@ export default function Dashboard({ properties, onPropertyClick }) {
       </div>
 
       {/* ── Income & Expenses ── */}
-      <FinancialSummaryPanel properties={properties} allIncome={allIncome} allExpenses={allExpenses} scope="portfolio" />
+      <FinancialSummaryPanel properties={properties} allIncome={allIncome} allExpenses={allExpenses} allEvents={allEvents} scope="portfolio" />
 
       {/* ── Monthly Averages & Key Ratios ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>

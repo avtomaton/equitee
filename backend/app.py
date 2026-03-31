@@ -399,6 +399,29 @@ def restore_property(property_id):
         cursor.execute('UPDATE properties SET is_archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (property_id,))
         return jsonify({'message': 'Property restored'}), 200
 
+@app.route('/api/properties/<int:property_id>/loan', methods=['POST'])
+@handle_errors
+def update_property_loan(property_id):
+    """Update loan_amount after a mortgage/principal payment and record the change as an event."""
+    data = request.get_json()
+    new_amount = float(data.get('loanAmount', 0))
+    description = data.get('description', 'Loan balance updated after payment')
+    with db_cursor() as (_, cursor):
+        require_exists(cursor, 'properties', property_id, 'Property')
+        cursor.execute('SELECT loan_amount FROM properties WHERE id = ?', (property_id,))
+        row = cursor.fetchone()
+        old_amount = float(row['loan_amount'] or 0)
+        cursor.execute(
+            'INSERT INTO events (property_id, column_name, old_value, new_value, description) VALUES (?, ?, ?, ?, ?)',
+            (property_id, 'loan_amount', str(old_amount), str(new_amount), description)
+        )
+        cursor.execute(
+            'UPDATE properties SET loan_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (new_amount, property_id)
+        )
+        cursor.execute(select_from_properties() + ' WHERE p.id = ?', (property_id,))
+        return jsonify(row_to_dict(cursor.fetchone())), 200
+
 # ── Expenses ──────────────────────────────────────────────────────────────────
 
 @app.route('/api/expenses', methods=['GET'])
@@ -614,8 +637,10 @@ def update_event(event_id):
     data = request.get_json()
     with db_cursor() as (_, cursor):
         require_exists(cursor, 'events', event_id, 'Event')
-        cursor.execute('UPDATE events SET description=? WHERE id=?',
-                       (data.get('description', ''), event_id))
+        cursor.execute(
+            'UPDATE events SET description=?, created_at=? WHERE id=?',
+            (data.get('description', ''), data.get('eventDate'), event_id)
+        )
         cursor.execute('SELECT * FROM events WHERE id = ?', (event_id,))
         return jsonify(dict(cursor.fetchone())), 200
 

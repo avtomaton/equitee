@@ -37,6 +37,7 @@ export const createProperty        = (data)             => post('/properties', d
 export const updateProperty        = (id, data)         => put(`/properties/${id}`, data);
 export const archiveProperty       = (id)               => del(`/properties/${id}`);
 export const restoreProperty       = (id)               => post(`/properties/${id}/restore`);
+export const updatePropertyLoan    = (id, data)         => post(`/properties/${id}/loan`, data);
 
 // ── Expenses ──────────────────────────────────────────────────────────────────
 

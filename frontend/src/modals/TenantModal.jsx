@@ -20,7 +20,7 @@ const toFormState_Tenant = (tenant, property) => tenant ? {
 };
 
 export default function TenantModal({ tenant, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState_Tenant(tenant, property));
+  const [formData, setFormData] = useState(() => toFormState_Tenant(tenant, property ?? properties[0]));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 

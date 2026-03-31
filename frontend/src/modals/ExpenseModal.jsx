@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { INITIAL_OPTIONS } from '../config.js';
-import { createExpense, updateExpense } from '../api.js';
+import { createExpense, updateExpense, updatePropertyLoan } from '../api.js';
 import { ModalOverlay, DateInput, selectOnFocus, today, QUICK_BTN_STYLE, PropertyOptions } from './ModalBase.jsx';
 
 const toFormState_Expense = (expense, property) => expense ? {
@@ -20,8 +20,21 @@ const toFormState_Expense = (expense, property) => expense ? {
 
 const NON_DEDUCTIBLE_CATEGORIES = ['Mortgage', 'Principal'];
 
+// Estimate days between payments based on mortgage frequency
+const freqToDays = (freq) => {
+  if (freq === 'bi-weekly')    return 14;
+  if (freq === 'semi-monthly') return 15;
+  if (freq === 'weekly')       return 7;
+  return 30; // monthly default
+};
+
 export default function ExpenseModal({ expense, properties, property, onClose, onSave }) {
-  const [formData, setFormData] = useState(() => toFormState_Expense(expense, property));
+  const [formData, setFormData] = useState(() => toFormState_Expense(expense, property ?? properties[0]));
+
+  // loanAmountAfter: the estimated loan balance after this payment.
+  // '' means not yet computed / not applicable.
+  // User can override it manually (highlighted yellow as a reminder).
+  const [loanAmountAfter, setLoanAmountAfter] = useState('');
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -53,10 +66,39 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
     quickFill({ amount: selectedProp.mortgage_payment, expense_category: 'Mortgage', expense_type: 'Recurrent',
       notes: `Mortgage payment (${selectedProp.mortgage_frequency || 'monthly'})` });
   };
+  const fillInsurance = () => {
+    if (!selectedProp?.expected_insurance) return;
+    quickFill({ amount: selectedProp.expected_insurance, expense_category: 'Insurance', expense_type: 'Recurrent', notes: 'Insurance' });
+  };
 
   const hasCondoFees  = selectedProp?.expected_condo_fees > 0;
   const hasMortgage   = selectedProp?.mortgage_payment > 0;
-  const showQuickFill = !expense && (hasCondoFees || hasMortgage);
+  const hasInsurance  = selectedProp?.expected_insurance > 0;
+  const showQuickFill = !expense && (hasCondoFees || hasMortgage || hasInsurance);
+
+  // Only show loan-amount-after field when adding (not editing) a Mortgage or Principal expense
+  const isMortgageLike = formData.expense_category === 'Mortgage' || formData.expense_category === 'Principal';
+  const showLoanField  = !expense && isMortgageLike;
+
+  // Recompute estimated loan balance after payment whenever relevant inputs change
+  useEffect(() => {
+    if (!showLoanField || !selectedProp?.loan_amount) {
+      setLoanAmountAfter('');
+      return;
+    }
+    const loanNow = selectedProp.loan_amount;
+    let principal = formData.amount;
+
+    if (formData.expense_category === 'Mortgage' && selectedProp.mortgage_rate > 0) {
+      const dailyRate = selectedProp.mortgage_rate / 100 / 365;
+      const days      = freqToDays(selectedProp.mortgage_frequency);
+      const interest  = loanNow * dailyRate * days;
+      principal       = Math.max(0, formData.amount - interest);
+    }
+    // For 'Principal' category the full amount reduces the balance directly.
+
+    setLoanAmountAfter(+(Math.max(0, loanNow - principal).toFixed(2)));
+  }, [showLoanField, selectedProp, formData.amount, formData.expense_category]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -71,6 +113,12 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
         await updateExpense(expense.id, payload);
       } else {
         await createExpense(payload);
+        // Update the property's loan_amount and log an event when recording a
+        // mortgage or principal payment.
+        if (isMortgageLike && loanAmountAfter !== '' && formData.property_id) {
+          const desc = `Loan balance updated after ${formData.expense_category} payment of $${formData.amount} on ${formData.expense_date}`;
+          await updatePropertyLoan(formData.property_id, { loanAmount: loanAmountAfter, description: desc });
+        }
       }
       onSave();
     } catch (err) { console.error(err); alert('Failed to save expense'); }
@@ -119,6 +167,11 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
                       </span>
                     </button>
                   )}
+                  {hasInsurance && (
+                    <button type="button" style={QUICK_BTN_STYLE} onClick={fillInsurance}>
+                      🛡️ Insurance &nbsp;<span style={{ opacity: 0.7, fontWeight: 400 }}>${selectedProp.expected_insurance}/mo</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -137,6 +190,29 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
                 {INITIAL_OPTIONS.expenseCategories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+
+            {showLoanField && (
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  Loan Balance After
+                  <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: '0.72rem' }}>
+                    — estimated · editable
+                  </span>
+                </label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={loanAmountAfter}
+                  onChange={e => setLoanAmountAfter(parseFloat(e.target.value) || 0)}
+                  onFocus={selectOnFocus}
+                  style={{
+                    background: 'rgba(234,179,8,0.12)',
+                    borderColor: 'rgba(234,179,8,0.55)',
+                    outline: 'none',
+                  }}
+                  title="Estimated loan balance after this payment. Will be saved to the property record. Edit if the computed value is wrong."
+                />
+              </div>
+            )}
 
             <div className="form-group">
               <label>Type *</label>

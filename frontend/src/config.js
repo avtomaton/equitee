@@ -14,9 +14,10 @@ export const PROVINCES = ['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 
 export const INITIAL_OPTIONS = {
   propertyStatuses:  ['Rented', 'Vacant', 'Primary'],
   propertyTypes:     ['Condo', 'House', 'Townhouse', 'Duplex', 'Commercial', 'Land'],
-  expenseCategories: ['Mortgage', 'Principal', 'Management', 'Maintenance', 'Insurance',
-                      'Utilities', 'Tax', 'Capital', 'Other'],
-  expenseTypes:      ['Recurrent', 'One-time'],
+  expenseCategories: ['Mortgage', 'Principal', 'Management', 'Renovation',
+                      'Maintenance', 'Insurance', 'Utilities', 'Legal', 'Tax',
+                      'Capital', 'Travel', 'Other'],
+  expenseTypes:      ['Recurrent', 'One-off'],
   incomeTypes:       ['Rent', 'Deposit', 'Parking', 'Laundry', 'Other'],
 };
 
