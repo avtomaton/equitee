@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useChartJs } from '../hooks/useChartJs.js';
 import { principalInRange, computeMortgagePrincipal, monthlyMortgageEquiv, extractRateHistory } from '../metrics.js';
 import { parseLocalDate } from '../utils.js';
 
@@ -183,24 +184,11 @@ function buildBarData(properties, allIncome, allExpenses, tabId, allEvents = {})
 }
 
 // ── Chart.js ─────────────────────────────────────────────────────────────────
-
-let chartJsLoaded = false;
-function loadChartJs(cb) {
-  if (window.Chart) { cb(); return; }
-  if (chartJsLoaded) { const t = setInterval(() => { if (window.Chart) { clearInterval(t); cb(); } }, 50); return; }
-  chartJsLoaded = true;
-  const s = document.createElement('script');
-  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
-  s.onload = cb;
-  document.head.appendChild(s);
-}
-
-let chartInstance = null;
-function destroyChart() { if (chartInstance) { chartInstance.destroy(); chartInstance = null; } }
+// Chart instances are managed via useRef inside the component (no module-level
+// singleton — that would break if two panels were ever mounted simultaneously).
 
 function buildBarChart(canvas, labels, data) {
-  destroyChart();
-  chartInstance = new window.Chart(canvas, {
+  const inst = new window.Chart(canvas, {
     type: 'bar',
     data: { labels, datasets: FLAT_CATS.map(c => ({ label: c.label, data: data.map(d => Math.round(d[c.key] || 0)), backgroundColor: c.color, stack: 'exp', borderWidth: 0 })) },
     options: {
@@ -212,13 +200,13 @@ function buildBarChart(canvas, labels, data) {
       },
     },
   });
+  return inst;
 }
 
 function buildPieChart(canvas, cats) {
-  destroyChart();
   const items = FLAT_CATS.map(c => ({ label: c.label, value: Math.round(cats[c.key] || 0), color: c.color })).filter(i => i.value > 0);
   const total = items.reduce((s, i) => s + i.value, 0) || 1;
-  chartInstance = new window.Chart(canvas, {
+  const inst = new window.Chart(canvas, {
     type: 'doughnut',
     data: { labels: items.map(i => i.label), datasets: [{ data: items.map(i => i.value), backgroundColor: items.map(i => i.color), borderWidth: 1, borderColor: 'rgba(128,128,128,0.2)' }] },
     options: {
@@ -229,6 +217,7 @@ function buildPieChart(canvas, cats) {
       },
     },
   });
+  return inst;
 }
 
 // ── Sub-component ─────────────────────────────────────────────────────────────
@@ -247,7 +236,9 @@ const ExpBadge = ({ val }) => (
 export default function FinancialSummaryPanel({ properties, allIncome, allExpenses, allEvents = {} }) {
   const [tab,       setTab]       = useState('monthly');
   const [chartOpen, setChartOpen] = useState(false);
-  const canvasRef = useRef(null);
+  const canvasRef  = useRef(null);
+  const chartRef   = useRef(null);   // per-instance, not module-level
+  const { ready: chartReady } = useChartJs();
 
   const { periods, expected } = useMemo(() => {
     if (!properties.length) return { periods: null, expected: null };
@@ -265,15 +256,14 @@ export default function FinancialSummaryPanel({ properties, allIncome, allExpens
   }, [periods, tab, properties, allIncome, allExpenses, allEvents]);
 
   useEffect(() => {
-    if (!chartOpen || !canvasRef.current || !periods) return;
+    if (!chartOpen || !canvasRef.current || !periods || !chartReady) return;
+    // Destroy previous chart before creating a new one
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
     const d = periods[tab];
-    loadChartJs(() => {
-      if (!canvasRef.current) return;
-      if (PIE_TABS.has(tab)) { buildPieChart(canvasRef.current, d.cats); }
-      else if (barData)       { buildBarChart(canvasRef.current, barData.labels, barData.data); }
-    });
-    return destroyChart;
-  }, [chartOpen, tab, periods, barData]);
+    if (PIE_TABS.has(tab)) { chartRef.current = buildPieChart(canvasRef.current, d.cats); }
+    else if (barData)       { chartRef.current = buildBarChart(canvasRef.current, barData.labels, barData.data); }
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [chartOpen, tab, periods, barData, chartReady]);
 
   if (!periods) return null;
 
@@ -451,18 +441,47 @@ export default function FinancialSummaryPanel({ properties, allIncome, allExpens
       {/* Chart (collapsible) */}
       {chartOpen && (
         <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border, var(--color-border-tertiary))' }}>
-          <div style={{ position: 'relative', height: isPie ? '200px' : '160px' }}>
-            <canvas key={isPie ? 'pie' : 'bar'} ref={canvasRef} />
-          </div>
-          {!isPie && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
-              {FLAT_CATS.map(c => (
-                <span key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                  <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: c.color, display: 'inline-block' }} />
-                  {c.label}
-                </span>
-              ))}
+          {isPie ? (
+            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', height: '200px', width: '200px', flexShrink: 0 }}>
+                <canvas key="pie" ref={canvasRef} />
+              </div>
+              {/* Legend beside the pie — only items with a value */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.32rem', flex: 1, minWidth: 160 }}>
+                {FLAT_CATS
+                  .map(c => ({ ...c, value: Math.round(d.cats[c.key] || 0) }))
+                  .filter(c => c.value > 0)
+                  .sort((a, b) => b.value - a.value)
+                  .map(c => {
+                    const total = FLAT_CATS.reduce((s, x) => s + Math.round(d.cats[x.key] || 0), 0) || 1;
+                    const pct = (c.value / total * 100).toFixed(1);
+                    return (
+                      <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: 9, height: 9, borderRadius: 2, flexShrink: 0, background: c.color }} />
+                        <span style={{ flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{c.label}</span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', minWidth: 34, textAlign: 'right' }}>{pct}%</span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 600, minWidth: 68, textAlign: 'right' }}>
+                          ${c.value.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
+          ) : (
+            <>
+              <div style={{ position: 'relative', height: '160px' }}>
+                <canvas key="bar" ref={canvasRef} />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
+                {FLAT_CATS.map(c => (
+                  <span key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                    <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: c.color, display: 'inline-block' }} />
+                    {c.label}
+                  </span>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}

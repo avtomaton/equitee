@@ -424,7 +424,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       {/* ── Analytics ── */}
       {properties.length > 0 && (
         <Collapsible title="📈 Analytics" defaultOpen={false}>
-          <Analytics filtered={filtered} allIncome={allIncome} allExpenses={allExpenses} />
+          <Analytics filtered={filtered} allIncome={allIncome} allExpenses={allExpenses} allEvents={allEvents} />
         </Collapsible>
       )}
 

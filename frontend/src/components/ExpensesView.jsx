@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useChartJs } from '../hooks/useChartJs.js';
 import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import StatCard from './StatCard.jsx';
@@ -28,18 +29,6 @@ const CAT_COLORS = {
 };
 const colorFor = cat => CAT_COLORS[cat] ?? '#888780';
 
-// ── Chart.js loader (singleton, same pattern as FinancialSummaryPanel) ────────
-let chartJsLoaded = false;
-function loadChartJs(cb) {
-  if (window.Chart) { cb(); return; }
-  if (chartJsLoaded) { const t = setInterval(() => { if (window.Chart) { clearInterval(t); cb(); } }, 50); return; }
-  chartJsLoaded = true;
-  const s = document.createElement('script');
-  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
-  s.onload = cb;
-  document.head.appendChild(s);
-}
-
 // ── Pie chart component ───────────────────────────────────────────────────────
 function ExpensesPieChart({ filtered }) {
   const canvasRef   = useRef(null);
@@ -55,13 +44,14 @@ function ExpensesPieChart({ filtered }) {
       .sort((a, b) => b.amount - a.amount);
   }, [filtered]);
 
-  useEffect(() => {
-    loadChartJs(() => {
-      if (!canvasRef.current || !slices.length) return;
-      if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+  const { ready: chartReady } = useChartJs();
 
-      const total = slices.reduce((s, x) => s + x.amount, 0);
-      chartRef.current = new window.Chart(canvasRef.current, {
+  useEffect(() => {
+    if (!chartReady || !canvasRef.current || !slices.length) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+
+    const total = slices.reduce((s, x) => s + x.amount, 0);
+    chartRef.current = new window.Chart(canvasRef.current, {
         type: 'doughnut',
         data: {
           labels: slices.map(x => x.cat),
@@ -89,9 +79,8 @@ function ExpensesPieChart({ filtered }) {
           },
         },
       });
-    });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-  }, [slices]);
+  }, [slices, chartReady]);
 
   if (!slices.length) return null;
 
@@ -132,6 +121,82 @@ function ExpensesPieChart({ filtered }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+
+// ── Tax Year Summary ─────────────────────────────────────────────────────────
+function TaxSummary({ filtered }) {
+  const [open, setOpen] = useState(false);
+
+  const { deductible, nonDeductible, byCategory } = useMemo(() => {
+    let ded = 0, nonDed = 0;
+    const cats = {};
+    for (const e of filtered) {
+      const isDed = !(e.tax_deductible === 0 || e.tax_deductible === false);
+      if (isDed) ded += e.amount; else nonDed += e.amount;
+      if (!cats[e.expense_category]) cats[e.expense_category] = { deductible: 0, nonDeductible: 0 };
+      if (isDed) cats[e.expense_category].deductible += e.amount;
+      else       cats[e.expense_category].nonDeductible += e.amount;
+    }
+    const sorted = Object.entries(cats)
+      .map(([cat, v]) => ({ cat, ...v, total: v.deductible + v.nonDeductible }))
+      .sort((a, b) => b.total - a.total);
+    return { deductible: ded, nonDeductible: nonDed, byCategory: sorted };
+  }, [filtered]);
+
+  const total = deductible + nonDeductible;
+
+  return (
+    <div className="table-container" style={{ marginBottom: '1rem' }}>
+      <div className="table-header" onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+        <div className="table-title">🧾 Tax Summary</div>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem' }}>{open ? '▲ collapse' : '▼ expand'}</span>
+      </div>
+      {open && filtered.length > 0 && (
+        <div style={{ padding: '1rem 1.5rem' }}>
+          <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 160px', background: 'rgba(16,185,129,0.1)', borderRadius: 8, padding: '0.75rem', border: '1px solid rgba(16,185,129,0.2)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: 4 }}>Tax Deductible</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--success)' }}>${Math.round(deductible).toLocaleString()}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{total > 0 ? (deductible/total*100).toFixed(1) : 0}% of total</div>
+            </div>
+            <div style={{ flex: '1 1 160px', background: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: '0.75rem', border: '1px solid rgba(239,68,68,0.15)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: 4 }}>Non-Deductible</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--danger)' }}>${Math.round(nonDeductible).toLocaleString()}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{total > 0 ? (nonDeductible/total*100).toFixed(1) : 0}% of total</div>
+            </div>
+            <div style={{ flex: '1 1 160px', background: 'var(--bg-tertiary)', borderRadius: 8, padding: '0.75rem', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: 4 }}>Total Expenses</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>${Math.round(total).toLocaleString()}</div>
+            </div>
+          </div>
+          <div className="table-scroll-wrap">
+            <table>
+              <thead><tr>
+                <th className="col-fill">Category</th>
+                <th className="col-shrink">Deductible</th>
+                <th className="col-shrink">Non-Deductible</th>
+                <th className="col-shrink">Total</th>
+              </tr></thead>
+              <tbody>
+                {byCategory.map(row => (
+                  <tr key={row.cat}>
+                    <td className="col-fill">{row.cat}</td>
+                    <td className="col-shrink text-success">{row.deductible > 0 ? '$' + Math.round(row.deductible).toLocaleString() : '—'}</td>
+                    <td className="col-shrink text-danger">{row.nonDeductible > 0 ? '$' + Math.round(row.nonDeductible).toLocaleString() : '—'}</td>
+                    <td className="col-shrink" style={{ fontWeight: 600 }}>${Math.round(row.total).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {open && filtered.length === 0 && (
+        <div className="empty-state" style={{ padding: '1.5rem' }}><div className="empty-state-text">No expenses in this period</div></div>
+      )}
     </div>
   );
 }
@@ -221,6 +286,9 @@ export default function ExpensesView({ properties, onAddExpense, onEditExpense, 
                 </div>
         )}
       </div>
+
+      {/* ── Tax Year Summary ─────────────────────────────────────────────────── */}
+      <TaxSummary filtered={filtered} />
 
       {/* ── Transactions table ──────────────────────────────────────────────── */}
       <div className="table-container">

@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
+import { useState, useMemo, useEffect } from 'react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import PropertyCard from './PropertyCard.jsx';
 import KPICard from './KPICard.jsx';
-import { fmt, fp, sn, SectionLabel, WindowPicker, ltvColor, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
+import { fmt, fp, sn, fmtDate, SectionLabel, WindowPicker, ltvColor, CHART_TOOLTIP_STYLE } from './uiHelpers.jsx';
 import FinancialSummaryPanel from './FinancialSummaryPanel.jsx';
 import { avgMonthly, monthsLeftInYear } from '../metrics.js';
+import { getTenants } from '../api.js';
+import { isCurrentTenant, parseLocalDate } from '../utils.js';
 import { usePortfolioAggregates } from '../hooks/usePortfolioAggregates.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
 import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
@@ -12,7 +14,22 @@ import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRat
 
 export default function Dashboard({ properties, onPropertyClick }) {
   const { allIncome, allExpenses, allEvents } = usePropertyTransactions(properties);
-  const [avgWindow,   setAvgWindow]   = useState(3);
+  const [avgWindow,       setAvgWindow]       = useState(3);
+  const [expiringLeases,  setExpiringLeases]  = useState([]);
+
+  // Fetch leases expiring within 90 days
+  useEffect(() => {
+    getTenants().then(tenants => {
+      const today = new Date();
+      const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + 90);
+      const expiring = tenants.filter(t => {
+        if (!t.lease_end || !isCurrentTenant(t)) return false;
+        const end = parseLocalDate(t.lease_end);
+        return end && end >= today && end <= cutoff;
+      }).sort((a, b) => parseLocalDate(a.lease_end) - parseLocalDate(b.lease_end));
+      setExpiringLeases(expiring);
+    }).catch(() => {});
+  }, [properties]);
 
   const agg = usePortfolioAggregates(properties, allIncome, allExpenses, allEvents);
 
@@ -21,6 +38,17 @@ export default function Dashboard({ properties, onPropertyClick }) {
   [allIncome, allExpenses, avgWindow]);
 
   // ── Chart data ────────────────────────────────────────────────────────────
+  const cashFlowTrend = useMemo(() => {
+    const now = new Date(), buckets = {};
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      buckets[key] = { month: d.toLocaleString('default', { month: 'short', year: '2-digit' }), Income: 0, Expenses: 0 };
+    }
+    allIncome.forEach(r => { const k = r.income_date?.slice(0,7); if (buckets[k]) buckets[k].Income += r.amount; });
+    allExpenses.forEach(r => { const k = r.expense_date?.slice(0,7); if (buckets[k]) buckets[k].Expenses += r.amount; });
+    return Object.values(buckets).map(b => ({ ...b, 'Cash Flow': b.Income - b.Expenses }));
+  }, [allIncome, allExpenses]);
   const incExpData  = properties.map(p => ({
     name: sn(p.name), Income: p.total_income, Expenses: p.total_expenses,
   }));
@@ -130,8 +158,53 @@ export default function Dashboard({ properties, onPropertyClick }) {
         {cardBreakEven(m.breakEven, m.expBELabel)}
       </div>
 
+      {/* ── Lease Expiry Alerts ── */}
+      {expiringLeases.length > 0 && (
+        <div className="table-container" style={{ marginBottom: '1.5rem' }}>
+          <div className="table-header">
+            <div className="table-title" style={{ color: 'var(--color-warning, #f59e0b)' }}>
+              ⚠️ Leases Expiring Soon ({expiringLeases.length})
+            </div>
+          </div>
+          <div style={{ padding: '0.5rem 1.25rem 1rem' }}>
+            {expiringLeases.map(t => {
+              const end = parseLocalDate(t.lease_end);
+              const days = Math.round((end - new Date()) / 86400000);
+              return (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ flex: 1, fontWeight: 500 }}>{t.name}</span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{t.property_name}</span>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>Expires {fmtDate(t.lease_end)}</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                    background: days <= 30 ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                    color: days <= 30 ? 'var(--danger)' : '#f59e0b' }}>
+                    {days}d
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Charts ── */}
       {properties.length > 0 && (<>
+        <div className="chart-container">
+          <div className="chart-header"><h2 className="chart-title">Monthly Cash Flow — Trailing 12 Months</h2></div>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={cashFlowTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="month" stroke="#9ca3af" tick={{ fontSize: 10 }} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={v => `$${Number(v).toLocaleString()}`} />
+              <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="4 2" />
+              <Legend />
+              <Line type="monotone" dataKey="Income" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Expenses" stroke="#ef4444" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Cash Flow" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
         <div className="chart-container">
           <div className="chart-header"><h2 className="chart-title">Income vs Expenses by Property</h2></div>
           <ResponsiveContainer width="100%" height={240}>

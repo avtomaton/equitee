@@ -32,6 +32,7 @@ export default function Sidebar({ currentView, onNavigate }) {
         <div className="nav-section-title">Tools</div>
         {navItem('evaluator',   '🧮', 'Evaluator')}
         {navItem('renovation',  '🔨', 'Renovation')}
+        {navItem('comparison',  '⚖️', 'Compare')}
       </div>
 
       <div className="nav-section">

@@ -3,6 +3,7 @@ import { getProperties, getProperty } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
 import Sidebar        from './components/Sidebar.jsx';
+import GlobalSearch   from './components/GlobalSearch.jsx';
 import Dashboard      from './components/Dashboard.jsx';
 import PropertiesView from './components/PropertiesView.jsx';
 import ExpensesView   from './components/ExpensesView.jsx';
@@ -11,7 +12,8 @@ import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 import EvaluatorView  from './components/EvaluatorView.jsx';
-import RenovationView from './components/RenovationView.jsx';
+import RenovationView  from './components/RenovationView.jsx';
+import ComparisonView  from './components/ComparisonView.jsx';
 
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
@@ -20,7 +22,7 @@ import TenantModal    from './modals/TenantModal.jsx';
 
 // ── URL routing helpers ───────────────────────────────────────────────────────
 
-const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator', 'renovation'];
+const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator', 'renovation', 'comparison'];
 
 const getViewFromHash = () => {
   const hash = window.location.hash.replace('#', '');
@@ -52,6 +54,16 @@ export default function App() {
   // so handleSave can await it before restoring scroll (fully event-based, no timeouts)
   const viewReloadRef = useRef(null);
   const registerViewReload = (fn) => { viewReloadRef.current = fn; };
+
+  // Global search data — loaded once for in-memory search across all records
+  const [searchIncome,   setSearchIncome]   = useState([]);
+  const [searchExpenses, setSearchExpenses] = useState([]);
+  useEffect(() => {
+    import('./api.js').then(({ getIncome, getExpenses }) => {
+      getIncome().then(setSearchIncome).catch(() => {});
+      getExpenses().then(setSearchExpenses).catch(() => {});
+    });
+  }, [properties.map(p=>p.id).join(',')]);
 
   // filter pre-selection when jumping from property detail
   const [jumpPropertyId, setJumpPropertyId] = useState(null);
@@ -178,6 +190,9 @@ export default function App() {
       case 'evaluator':
         return <EvaluatorView />;
 
+      case 'comparison':
+        return <ComparisonView properties={properties} onBack={() => navigate('dashboard')} />;
+
       case 'renovation':
         return <RenovationView />;
 
@@ -219,6 +234,15 @@ export default function App() {
       <Sidebar currentView={currentView} onNavigate={navigate} />
 
       <main className="main-content">
+        <div style={{ position: 'fixed', top: '1rem', right: '1.5rem', zIndex: 500 }}>
+          <GlobalSearch
+            properties={properties}
+            allIncome={searchIncome}
+            allExpenses={searchExpenses}
+            onNavigate={(view, propertyId) => { setJumpPropertyId(propertyId ?? null); navigate(view); }}
+            onPropertyDetail={handlePropertyClick}
+          />
+        </div>
         {alert && (
           <div className={`alert alert-${alert.type}`}>
             <span>{alert.type === 'success' ? '✓' : alert.type === 'error' ? '✗' : 'ℹ'}</span>

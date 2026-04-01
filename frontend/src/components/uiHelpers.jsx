@@ -39,16 +39,17 @@ export const wLabel = w => !w ? 'All' : w >= 24 ? `${w / 12}Y` : `${w}M`;
 
 // ── Evaluator input components (shared by EvaluatorView & RenovationView) ────
 
-export function NumInput({ label, value, onChange, prefix = '', suffix = '', min = 0, max, step = 1, help }) {
+export function NumInput({ label, value, onChange, prefix = '', suffix = '', min = 0, max, step = 1, help, compact = false }) {
   return (
-    <div className="eval-field">
-      <label className="eval-label">{label}</label>
-      {help && <span className="eval-help">{help}</span>}
+    <div className="eval-field" style={compact ? { marginBottom: '0.25rem' } : undefined}>
+      <label className="eval-label" style={compact ? { fontSize: '0.72rem', marginBottom: 1 } : undefined}>{label}</label>
+      {help && !compact && <span className="eval-help">{help}</span>}
       <div className="eval-input-wrap">
         {prefix && <span className="eval-affix">{prefix}</span>}
         <input
           type="number" className="eval-input"
           value={value} min={min} max={max} step={step}
+          style={compact ? { padding: '0.3rem 0.5rem', fontSize: '0.82rem' } : undefined}
           onChange={e => onChange(e.target.valueAsNumber || 0)}
         />
         {suffix && <span className="eval-affix eval-affix-right">{suffix}</span>}

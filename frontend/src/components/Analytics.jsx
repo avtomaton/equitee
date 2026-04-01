@@ -87,7 +87,7 @@ function buildCashFlowTrend(allIncome, allExpenses, months = 12) {
  *   allIncome   — pre-fetched income records (flat, tagged with property_id)
  *   allExpenses — pre-fetched expense records (flat, tagged with property_id)
  */
-export default function Analytics({ filtered, allIncome, allExpenses }) {
+export default function Analytics({ filtered, allIncome, allExpenses, allEvents = {} }) {
   const [avgWindow, setAvgWindow] = useState(3);
 
   // Chart data is derived from property records alone — no async needed.
@@ -96,7 +96,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
   const cashFlowTrend = useMemo(() => buildCashFlowTrend(allIncome, allExpenses, 12), [allIncome, allExpenses]);
 
   // Aggregated portfolio metrics via shared hook
-  const agg = usePortfolioAggregates(filtered, allIncome, allExpenses);
+  const agg = usePortfolioAggregates(filtered, allIncome, allExpenses, allEvents);
 
   // Monthly averages via the shared avgMonthly helper
   const avg = useMemo(
@@ -149,7 +149,7 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
       </div>
 
       {/* ── Income & Expenses ── */}
-      <FinancialSummaryPanel properties={filtered} allIncome={allIncome} allExpenses={allExpenses} scope="filtered" />
+      <FinancialSummaryPanel properties={filtered} allIncome={allIncome} allExpenses={allExpenses} allEvents={allEvents} scope="filtered" />
 
       {/* ── Monthly Averages & Key Ratios ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>
@@ -203,28 +203,48 @@ export default function Analytics({ filtered, allIncome, allExpenses }) {
         </div>
         <div className="chart-container" style={{ margin: 0 }}>
           <div className="chart-header"><h2 className="chart-title">Portfolio Status</h2></div>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={chartData.status} dataKey="value" nameKey="name"
-                cx="50%" cy="50%" innerRadius={52} outerRadius={80}
-                paddingAngle={3}
-                label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`}
-                labelLine={false}>
-                {chartData.status.map((entry, i) => (
-                  <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, name) => [v + ' properties', name]} />
-              <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
-                fill="#f3f4f6" fontSize={22} fontWeight={700}>
-                {filtered.length}
-              </text>
-              <text x="50%" y="50%" dy={18} textAnchor="middle" dominantBaseline="middle"
-                fill="#9ca3af" fontSize={10}>
-                total
-              </text>
-            </PieChart>
-          </ResponsiveContainer>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <ResponsiveContainer width={200} height={200}>
+              <PieChart>
+                <Pie data={chartData.status} dataKey="value" nameKey="name"
+                  cx="50%" cy="50%" innerRadius={52} outerRadius={80}
+                  paddingAngle={3}
+                  label={false}
+                  labelLine={false}>
+                  {chartData.status.map((entry, i) => (
+                    <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, name) => [v + ' properties', name]} />
+                <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
+                  fill="#f3f4f6" fontSize={22} fontWeight={700}>
+                  {filtered.length}
+                </text>
+                <text x="50%" y="50%" dy={18} textAnchor="middle" dominantBaseline="middle"
+                  fill="#9ca3af" fontSize={10}>
+                  total
+                </text>
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
+              {chartData.status.sort((a, b) => b.value - a.value).map((entry, i) => {
+                const total = chartData.status.reduce((s, x) => s + x.value, 0) || 1;
+                const color = STATUS_COLORS[entry.name] || COLORS[i % COLORS.length];
+                return (
+                  <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 2, flexShrink: 0, background: color }} />
+                    <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{entry.name}</span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)', minWidth: 32, textAlign: 'right' }}>
+                      {(entry.value / total * 100).toFixed(0)}%
+                    </span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontWeight: 600, minWidth: 20, textAlign: 'right' }}>
+                      {entry.value}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
 import { getExpenses, getIncome, deleteExpense, deleteIncome } from '../api.js';
 import { useSilentLoading } from './useSilentLoading.js';
-import { mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
+import { parseLocalDate, mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
 import { useColumnVisibility } from './useColumnVisibility.js';
 
 const API_FNS = {
@@ -69,16 +69,21 @@ export default function useTransactionView({
   const propertiesRef = useRef(properties);
   propertiesRef.current = properties;
 
+  // Build a lookup from property_id → property_name for tagging fetched records
+  const propNameMapRef = useRef({});
+  useEffect(() => {
+    propNameMapRef.current = Object.fromEntries(properties.map(p => [p.id, p.name]));
+  }, [properties]);
+
   const load = async () => {
     await wrapLoad(async () => {
-      const responses = await Promise.all(
-        propertiesRef.current.map(p =>
-          apiFetch(p.id)
-            .then(data => data.map(rec => ({ ...rec, property_name: p.name })))
-            .catch(() => [])
-        )
-      );
-      setRecords(responses.flat());
+      // Single request for all records (no property_id filter) — avoids N+1.
+      const all = await apiFetch(null).catch(() => []);
+      const propIds = new Set(propertiesRef.current.map(p => p.id));
+      const tagged  = all
+        .filter(r => propIds.has(r.property_id))
+        .map(r => ({ ...r, property_name: propNameMapRef.current[r.property_id] ?? '' }));
+      setRecords(tagged);
     });
   };
 
@@ -115,7 +120,7 @@ export default function useTransactionView({
         if (range && !isDateInRange(r[dateField], range.start, range.end)) return false;
       }
       if (dateFilter === 'custom' && customDateStart && customDateEnd) {
-        if (!isDateInRange(r[dateField], new Date(customDateStart), new Date(customDateEnd))) return false;
+        if (!isDateInRange(r[dateField], parseLocalDate(customDateStart), parseLocalDate(customDateEnd))) return false;
       }
       return true;
     });

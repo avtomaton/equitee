@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { getIncome, getExpenses, getEvents } from '../api.js';
 
 /**
- * usePropertyTransactions — fetch and cache income, expenses AND events
+ * usePropertyTransactions — fetch income, expenses, and optionally events
  * for a list of properties. Re-fetches when the property ID set changes.
  *
+ * @param {object[]} properties
+ * @param {{ includeEvents?: boolean }} opts
  * @returns {{ allIncome, allExpenses, allEvents }}
- *   allEvents is keyed by property_id: { [id]: event[] }
  */
-export default function usePropertyTransactions(properties) {
+export default function usePropertyTransactions(properties, { includeEvents = true } = {}) {
   const [allIncome,   setAllIncome]   = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
   const [allEvents,   setAllEvents]   = useState({});
@@ -18,35 +19,27 @@ export default function usePropertyTransactions(properties) {
   useEffect(() => {
     if (!properties.length) return;
 
-    Promise.all(
-      properties.map(p =>
-        getIncome(p.id)
-          .then(data => data.map(r => ({ ...r, property_id: p.id })))
-          .catch(() => [])
-      )
-    ).then(results => setAllIncome(results.flat()));
+    // Fetch income and expenses in parallel — both return all records;
+    // filter by property_id client-side so each is just one HTTP request.
+    const propIds = new Set(properties.map(p => p.id));
+    const nameMap = Object.fromEntries(properties.map(p => [p.id, p.name]));
+    const tag     = arr => arr
+      .filter(r => propIds.has(r.property_id))
+      .map(r => ({ ...r, property_name: nameMap[r.property_id] ?? '' }));
 
-    Promise.all(
-      properties.map(p =>
-        getExpenses(p.id)
-          .then(data => data.map(r => ({ ...r, property_id: p.id })))
-          .catch(() => [])
-      )
-    ).then(results => setAllExpenses(results.flat()));
+    getIncome().then(data => setAllIncome(tag(data))).catch(() => {});
+    getExpenses().then(data => setAllExpenses(tag(data))).catch(() => {});
 
-    Promise.all(
-      properties.map(p =>
-        getEvents(p.id)
-          .then(evs => [p.id, evs])
-          .catch(() => [p.id, []])
-      )
-    ).then(pairs => {
-      const map = {};
-      pairs.forEach(([id, evs]) => { map[id] = evs; });
-      setAllEvents(map);
-    });
-
-  }, [idKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (includeEvents) {
+      Promise.all(
+        properties.map(p => getEvents(p.id).then(evs => [p.id, evs]).catch(() => [p.id, []]))
+      ).then(pairs => {
+        const map = {};
+        pairs.forEach(([id, evs]) => { map[id] = evs; });
+        setAllEvents(map);
+      });
+    }
+  }, [idKey, includeEvents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { allIncome, allExpenses, allEvents };
 }

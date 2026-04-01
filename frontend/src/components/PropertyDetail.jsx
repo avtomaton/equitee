@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
 import { getIncome, getExpenses, getTenants, getEvents } from '../api.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
-import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected, extractRateHistory,
+import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected, extractRateHistory, computeMortgagePrincipal,
          monthsLeftInYear, yearFracRemaining,
          calcIRR, buildPropertyIRRCashFlows,
          calcPayback, calcBreakEven, analyzeProperty, calcEconVacancy } from '../metrics.js';
@@ -25,6 +25,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const [events,     setEvents]     = useState([]);
   const [income,     setIncome]     = useState([]);
   const [avgWindow,  setAvgWindow]  = useState(3);
+  const [amortOpen,  setAmortOpen]  = useState(false);
 
   useEffect(() => {
     if (!property) return;
@@ -64,6 +65,40 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
 
   // Rate history from mortgage_rate change events, used for accurate amortisation
   const rateHistory = useMemo(() => extractRateHistory(events), [events]);
+
+  // ── Amortization schedule from recorded mortgage payments ───────────────────
+  const amortSchedule = useMemo(() => {
+    if (!property.mortgage_rate || !property.loan_amount) return [];
+    const mortRecs = expenses.filter(r => r.expense_category === 'Mortgage');
+    return computeMortgagePrincipal(mortRecs, property.loan_amount, property.mortgage_rate, rateHistory);
+  }, [expenses, property.loan_amount, property.mortgage_rate, rateHistory]);
+
+  // Loan balance timeline — one point per mortgage payment
+  const loanTimeline = useMemo(() =>
+    amortSchedule
+      .filter(r => r.balance_after != null)
+      .map(r => ({ date: r.expense_date, Balance: Math.round(r.balance_after) })),
+  [amortSchedule]);
+
+  // Rent growth from events
+  const rentTimeline = useMemo(() => {
+    const rentEvts = events
+      .filter(e => e.column_name === 'monthly_rent')
+      .map(e => ({
+        date: (e.created_at ?? '').split('T')[0].split(' ')[0],
+        Rent: parseFloat(e.new_value) || 0,
+      }))
+      .filter(e => e.date && e.Rent > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    // Add current rent as the last point if not already there
+    if (property.monthly_rent > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      if (!rentEvts.length || rentEvts[rentEvts.length-1].Rent !== property.monthly_rent) {
+        rentEvts.push({ date: today, Rent: property.monthly_rent });
+      }
+    }
+    return rentEvts;
+  }, [events, property.monthly_rent]);
 
   // ── Financial fundamentals ────────────────────────────────────────────────
   const downPmt  = property.purchase_price - property.loan_amount;
@@ -432,6 +467,72 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Loan Balance Timeline */}
+      {loanTimeline.length >= 2 && (
+        <div className="chart-container">
+          <div className="chart-header"><h2 className="chart-title">Loan Balance Over Time</h2></div>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={loanTimeline} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+              <XAxis dataKey="date" stroke="#9ca3af" tick={{ fontSize: 10 }} tickFormatter={d => d.slice(0,7)} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip contentStyle={DETAIL_TOOLTIP_STYLE} formatter={v => [`$${Number(v).toLocaleString()}`, 'Balance']} />
+              <Line type="monotone" dataKey="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Rent Growth */}
+      {rentTimeline.length >= 2 && (
+        <div className="chart-container">
+          <div className="chart-header"><h2 className="chart-title">Rent History</h2></div>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={rentTimeline} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+              <XAxis dataKey="date" stroke="#9ca3af" tick={{ fontSize: 10 }} tickFormatter={d => d.slice(0,7)} />
+              <YAxis stroke="#9ca3af" tick={{ fontSize: 11 }} tickFormatter={v => `$${v.toLocaleString()}`} />
+              <Tooltip contentStyle={DETAIL_TOOLTIP_STYLE} formatter={v => [`$${Number(v).toLocaleString()}/mo`, 'Rent']} />
+              <Line type="stepAfter" dataKey="Rent" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Amortization Schedule */}
+      {amortSchedule.length > 0 && (
+        <div className="table-container" style={{ marginBottom: '1rem' }}>
+          <div className="table-header" onClick={() => setAmortOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+            <div className="table-title">🏦 Amortization Schedule</div>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem' }}>{amortOpen ? '▲ collapse' : '▼ expand'}</span>
+          </div>
+          {amortOpen && (
+            <div className="table-scroll-wrap">
+              <table>
+                <thead><tr>
+                  <th className="col-shrink">Date</th>
+                  <th className="col-shrink">Payment</th>
+                  <th className="col-shrink">Interest</th>
+                  <th className="col-shrink">Principal</th>
+                  <th className="col-shrink">Balance After</th>
+                </tr></thead>
+                <tbody>
+                  {[...amortSchedule].reverse().map(r => (
+                    <tr key={r.id}>
+                      <td className="col-shrink" style={{ fontSize: '0.82rem' }}>{r.expense_date}</td>
+                      <td className="col-shrink">${r.amount.toLocaleString()}</td>
+                      <td className="col-shrink text-danger">${Math.round(r.interest).toLocaleString()}</td>
+                      <td className="col-shrink text-success">${Math.round(r.principal).toLocaleString()}</td>
+                      <td className="col-shrink">${Math.round(r.balance_after).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
         {/* Current Tenants */}
