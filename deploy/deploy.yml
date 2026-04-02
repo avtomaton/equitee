@@ -1,0 +1,98 @@
+# .github/workflows/deploy.yml
+#
+# Automatic deployment pipeline:
+#   - Push to `main`  → deploy to production
+#   - Any PR          → build + lint check only (no deploy)
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   SSH_HOST          — server IP or hostname
+#   SSH_USER          — your admin user on the server
+#   SSH_PRIVATE_KEY   — private key whose public key is in ~/.ssh/authorized_keys on the server
+#   SSH_PORT          — (optional) defaults to 22
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Build check (runs on every PR and push) ─────────────────────────────────
+  build:
+    name: Build & lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt gunicorn
+
+      - name: Smoke-test backend import
+        working-directory: backend
+        run: python -c "import app; print('Backend imports OK')"
+
+  # ── Production deploy (only on push to main) ────────────────────────────────
+  deploy:
+    name: Deploy to production
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:        ${{ secrets.SSH_HOST }}
+          username:    ${{ secrets.SSH_USER }}
+          key:         ${{ secrets.SSH_PRIVATE_KEY }}
+          port:        ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            APP_DIR="/opt/equitee"
+            APP_USER="equitee"
+
+            echo "==> Pulling latest code…"
+            sudo -u $APP_USER git -C $APP_DIR fetch origin main
+            sudo -u $APP_USER git -C $APP_DIR reset --hard origin/main
+
+            echo "==> Installing backend dependencies…"
+            sudo -u $APP_USER $APP_DIR/venv/bin/pip install -q \
+              -r $APP_DIR/backend/requirements.txt
+
+            echo "==> Building frontend…"
+            sudo -u $APP_USER bash -c \
+              "cd $APP_DIR/frontend && npm ci --silent && npm run build"
+
+            echo "==> Restarting service…"
+            sudo systemctl reload-or-restart equitee
+
+            echo "==> Reloading nginx…"
+            sudo nginx -t && sudo systemctl reload nginx
+
+            echo "==> Deploy complete."
+            sudo systemctl is-active equitee
