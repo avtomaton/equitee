@@ -51,6 +51,7 @@ export function NumInput({ label, value, onChange, prefix = '', suffix = '', min
           value={value} min={min} max={max} step={step}
           style={compact ? { padding: '0.3rem 0.5rem', fontSize: '0.82rem' } : undefined}
           onChange={e => onChange(e.target.valueAsNumber || 0)}
+          onFocus={e => { const t = e.target; setTimeout(() => t.select(), 0); }}
         />
         {suffix && <span className="eval-affix eval-affix-right">{suffix}</span>}
       </div>

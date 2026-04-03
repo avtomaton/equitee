@@ -454,13 +454,21 @@ export const cardEvalRentToValue = (cardRentToValue) => card({
   tooltip: 'Annual Gross Rent ÷ Purchase Price.\nThe "1% rule": monthly rent ≥1% of price for cash-flow-positive property.',
 });
 
+export const cardEvalNoiToValue = (noiToValue) => card({
+  label: 'NOI-to-Value',
+  primary: fPct(noiToValue),
+  primaryCls: noiToValue > 0.06 ? 'text-success' : noiToValue > 0.04 ? '' : 'text-danger',
+  tertiary: noiToValue > 0.06 ? 'Strong yield' : noiToValue > 0.04 ? 'Moderate' : 'Weak yield',
+  tooltip: 'Annual NOI ÷ Purchase Price.\nSame as cap rate but uses full NOI (before mortgage). Especially useful for condos with high fees — shows true operating yield stripping out financing. Target: 4–6%+ residential.',
+});
+
 export const cardEvalAnnualNOI = (annualNOI) => card({
-  label: 'Annual NOI',
-  primary: fmt(annualNOI) + '/yr',
+  label: 'Monthly NOI',
+  primary: fmt(annualNOI / 12),
   primaryCls: annualNOI >= 0 ? 'text-success' : 'text-danger',
-  secondary: `${fmt(annualNOI / 12)}/mo`,
+  secondary: `${fmt(annualNOI)}/yr`,
   secondaryCls: 'text-secondary',
-  tooltip: 'Net Operating Income = Annual Gross Rent − (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic.',
+  tooltip: 'Net Operating Income = Gross Rent − (operating expenses + property tax).\nExcludes mortgage so it is financing-agnostic. Useful to compare against monthly mortgage and cash flow.',
 });
 
 export const cardEvalGRM = (grm) => card({
@@ -481,23 +489,24 @@ export const cardEvalIRR10 = (irr10) => card({
 
 export const cardEvalMonthlyMortgage = (monthlyMortgage, effectiveRate, amortization) => card({
   label: 'Monthly Mortgage',
-  primary: fmt(monthlyMortgage) + '/mo',
+  primary: fmt(monthlyMortgage),
   primaryCls: 'text-danger',
   tooltip: `Standard amortization payment at ${fp(effectiveRate)}% over ${amortization} years.`,
 });
 
 export const cardEvalTotalMonthlyCosts = (total, mortgage, opEx, tax, reserve) => card({
   label: 'Total Monthly Costs',
-  primary: fmt(total) + '/mo',
+  primary: fmt(total),
   primaryCls: 'text-danger',
-  secondary: `Mortgage ${fmt(mortgage)} + OpEx ${fmt(opEx)} + Tax ${fmt(tax)} + Reserve ${fmt(reserve)}`,
+  secondary: `Mtg ${fmt(mortgage)}  ·  OpEx ${fmt(opEx)}`,
   secondaryCls: 'text-secondary',
-  tooltip: 'Sum of mortgage payment, operating expenses, property tax, and repair reserve.',
+  tertiary: `Tax ${fmt(tax)}  ·  Reserve ${fmt(reserve)}`,
+  tooltip: 'Sum of all monthly costs.\nMortgage + Operating expenses + Property tax + Repair reserve.',
 });
 
 export const cardEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
   label: 'Avg Cash Flow',
-  primary: fmt(cashFlow) + '/mo',
+  primary: fmt(cashFlow),
   primaryCls: cashFlow >= 0 ? 'text-success' : 'text-danger',
   secondary: vacancyRate > 0 ? `After ${vacancyRate}% vacancy` : null,
   secondaryCls: 'text-secondary',
@@ -506,7 +515,7 @@ export const cardEvalAvgCashFlow = (cashFlow, vacancyRate) => card({
 
 export const cardEvalMonthlyGain = (cardMonthlyGain, cashFlow, monthlyAppr) => card({
   label: 'Monthly Gain',
-  primary: fmt(cardMonthlyGain) + '/mo',
+  primary: fmt(cardMonthlyGain),
   primaryCls: cardMonthlyGain >= 0 ? 'text-success' : 'text-danger',
   secondary: `CF ${fmt(cashFlow)} + Appr ${fmt(monthlyAppr)}`,
   secondaryCls: 'text-secondary',
@@ -523,4 +532,49 @@ export const cardEvalBreakEven = (breakEvenProps) => card({
   label: 'Break-even',
   ...breakEvenProps,
   tooltip: 'Time until net position reaches zero — cash invested recovered via monthly gain (cash flow + appreciation).\nAlways ≤ Payback Period since gain ≥ cash flow.',
+});
+
+export const cardEvalDSCR = (dscr) => card({
+  label: 'DSCR',
+  primary: dscr != null ? dscr.toFixed(2) + 'x' : '—',
+  primaryCls: dscr == null ? '' : dscr >= 1.25 ? 'text-success' : dscr >= 1.0 ? 'text-warning' : 'text-danger',
+  tertiary: dscr == null ? null : dscr >= 1.25 ? 'Lender-safe' : dscr >= 1.0 ? 'Marginal' : 'Cash flow negative',
+  tooltip: 'Debt Service Coverage Ratio = Monthly NOI ÷ Monthly Mortgage.\nLenders typically require ≥1.20–1.25x. Below 1.0 means rent cannot cover the mortgage.',
+});
+
+export const cardEvalDebtYield = (debtYield) => card({
+  label: 'Debt Yield',
+  primary: fPct(debtYield),
+  primaryCls: debtYield > 0.10 ? 'text-success' : debtYield > 0.07 ? '' : 'text-danger',
+  tertiary: debtYield > 0.10 ? 'Strong' : debtYield > 0.07 ? 'Acceptable' : 'Weak',
+  tooltip: 'Annual NOI ÷ Loan Amount.\nLender metric — independent of interest rate. Measures how well the asset income covers the debt. Institutional lenders typically require ≥8–10%.',
+});
+
+export const cardEvalMaxVacancy = (maxVacancyCF, maxVacancyGain, currentVacancy) => card({
+  label: 'Max Vacancy',
+  primary: maxVacancyCF != null && maxVacancyCF > 0 ? fPct(maxVacancyCF) : maxVacancyCF === 0 ? '0%' : '—',
+  primaryCls: maxVacancyCF == null ? ''
+    : currentVacancy / 100 < maxVacancyCF * 0.5 ? 'text-success'
+    : currentVacancy / 100 < maxVacancyCF * 0.85 ? 'text-warning'
+    : 'text-danger',
+  secondary: maxVacancyGain != null && maxVacancyGain > 0 ? `Gain≥0: ${fPct(maxVacancyGain)}` : null,
+  secondaryCls: 'text-secondary',
+  tooltip: 'Maximum vacancy before cash flow hits zero (primary) / before total monthly gain (CF + appreciation) hits zero (secondary).\nHigher = more resilience to empty periods.',
+});
+
+export const cardEvalEquityMultiple = (em, years) => card({
+  label: `${years}yr Total Return`,
+  primary: em != null ? em.toFixed(2) + 'x' : '—',
+  primaryCls: em == null ? '' : em >= 2.0 ? 'text-success' : em >= 1.5 ? '' : em < 1.0 ? 'text-danger' : 'text-warning',
+  tertiary: em == null ? null : em >= 2.0 ? 'Excellent' : em >= 1.5 ? 'Good' : em < 1.0 ? 'Capital loss' : 'Below target',
+  tooltip: `Total return multiple over ${years} years.\n= (Equity at exit + Cumulative Cash P&L) ÷ Initial Cash Invested.\n2x = doubled your money. Target: ≥1.5–2x for real estate.`,
+});
+
+export const cardEvalMinRent = (minRentCF, minRentGain, currentRent) => card({
+  label: 'Min Rent',
+  primary: minRentCF != null ? fmt(minRentCF) : '—',
+  primaryCls: minRentCF == null ? '' : currentRent >= minRentCF * 1.15 ? 'text-success' : currentRent >= minRentCF ? 'text-warning' : 'text-danger',
+  secondary: minRentGain != null ? `Gain≥0: ${fmt(minRentGain)}` : null,
+  secondaryCls: 'text-secondary',
+  tooltip: 'Minimum monthly rent to break even on cash flow (primary) / on total monthly gain including appreciation (secondary).\nShows how far rent can drop before you start losing money.',
 });

@@ -2,17 +2,14 @@ import { useState, useMemo } from 'react';
 import StarRating from './StarRating.jsx';
 import MetricCard from './MetricCard.jsx';
 import { fmt, fp, NumInput, SliderInput } from './uiHelpers.jsx';
-import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain, cardEvalPayback, cardEvalBreakEven } from '../metricDefs.jsx';
+import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain, cardEvalPayback, cardEvalBreakEven, cardEvalDSCR, cardEvalDebtYield, cardEvalMaxVacancy, cardEvalEquityMultiple, cardEvalMinRent, cardEvalNoiToValue } from '../metricDefs.jsx';
 import { calcInvestmentScore, calcMortgagePayment, calcIRR, calcPayback, calcBreakEven } from '../metrics.js';
 import { clamp } from '../utils.js';
 
-const PROPERTY_TYPES = ['Residential', 'Condo', 'Multi-Family', 'Commercial', 'Industrial', 'Land'];
-
 const DEFAULT_INPUTS = {
   name:               'Property',
-  propertyType:       'Residential',
   purchasePrice:      500000,
-  downPayment:        100000,
+  downPct:            20,
   cardMortgageRate:   5.0,
   amortization:       25,
   monthlyRent:        2500,
@@ -37,7 +34,7 @@ function computeEval(inputs, scenario = DEFAULT_SCENARIO) {
   const s = scenario;
 
   const effectiveRent        = p.monthlyRent * (1 + s.rentDelta / 100);
-  const effectiveDownPayment = clamp(p.downPayment * (1 + s.downPaymentDelta / 100), 0, p.purchasePrice * 0.99);
+  const effectiveDownPayment = clamp(p.purchasePrice * clamp((p.downPct + s.downPaymentDelta), 0.1, 99) / 100, 0, p.purchasePrice * 0.99);
   const effectiveRate        = Math.max(0.1, p.cardMortgageRate + s.rateDelta);
   const loanAmount           = p.purchasePrice - effectiveDownPayment;
 
@@ -81,9 +78,9 @@ function computeEval(inputs, scenario = DEFAULT_SCENARIO) {
     }
     const propertyValue = p.purchasePrice * Math.pow(1 + yearlyApprRatio, year);
     const yearEquity    = propertyValue - balance;
-    const cumulativeCF  = avgCashFlow * 12 * year - s.oneOffExpense;
-    const totalGain     = yearEquity - effectiveDownPayment + cumulativeCF;
-    projections.push({ year, propertyValue, balance, yearEquity, cumulativeCF, totalGain });
+    const cashPL        = avgCashFlow * 12 * year - s.oneOffExpense;
+    const totalGain     = (propertyValue - p.purchasePrice) + cashPL;
+    projections.push({ year, propertyValue, balance, yearEquity, cashPL, totalGain });
   }
 
   const score = calcInvestmentScore({ avgCashFlow, capRate, cashOnCash, expenseRatio, ltvRatio, yearlyApprRatio });
@@ -96,14 +93,46 @@ function computeEval(inputs, scenario = DEFAULT_SCENARIO) {
     return calcIRR([-cashInvested, ...monthlyCFs]);
   })();
 
+  // NOI-to-Value (same as cap rate but name emphasises operating yield, useful for condos)
+  const noiToValue = p.purchasePrice > 0 ? annualNetOpIncome / p.purchasePrice : null;
+
+  // DSCR: NOI / mortgage
+  const dscr = monthlyMortgage > 0 ? (annualNetOpIncome / 12) / monthlyMortgage : null;
+
+  // Debt Yield: NOI / Loan Amount
+  const debtYield = loanAmount > 0 ? annualNetOpIncome / loanAmount : null;
+
+  // Max vacancy before CF = 0
+  const maxVacancy = effectiveRent > 0
+    ? Math.max(0, 1 - totalMonthlyExpenses / effectiveRent)
+    : null;
+
+  // Max vacancy before Gain (CF + appreciation) = 0
+  const maxVacancyForGain = effectiveRent > 0
+    ? Math.max(0, 1 - (totalMonthlyExpenses - monthlyAppr) / effectiveRent)
+    : null;
+
+  // Min rent for CF >= 0
+  const minRent = totalMonthlyExpenses;
+
+  // Min rent for Gain >= 0 (CF + appreciation >= 0 → rent >= costs - appreciation)
+  const minRentForGain = Math.max(0, totalMonthlyExpenses - monthlyAppr);
+
+  // Equity Multiple at year 10
+  const lastProj = projections[projections.length - 1];
+  const equityMultiple = (lastProj && cashInvested > 0)
+    ? (lastProj.yearEquity + lastProj.cashPL) / cashInvested
+    : null;
+
   return {
-    effectiveRent, effectiveDownPayment, effectiveRate, loanAmount,
+    effectiveRent, effectiveMonthlyRent, effectiveDownPayment, effectiveRate, loanAmount,
     monthlyMortgage, monthlyTax, monthlyRepairReserve, totalMonthlyExpenses,
     avgCashFlow, annualGrossRent, annualNetOpIncome, capRate, cashOnCash,
     ltvRatio, equity, expenseRatio, rentToValue,
     yearlyAppr, yearlyApprRatio, monthlyAppr, monthlyGain,
     cashInvested, payback, breakEven, projections, score, analysis: [],
     grm, irr10,
+    dscr, debtYield, maxVacancy, maxVacancyForGain, minRent, minRentForGain, equityMultiple, noiToValue,
   };
 }
 
@@ -149,7 +178,7 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
       detail: 'Fill in expected monthly rent to compute cash flow and all derived metrics.' });
   } else if (avgCashFlow < 0 && yearlyApprRatio < 0.02) {
     items.push({ isPrimary: true, icon: '🚨', cls: 'text-danger', label: 'Negative cash flow, weak appreciation',
-      detail: `This property would cost ${fmt(Math.abs(avgCashFlow))}/mo to hold, with only ${fp(yearlyApprRatio * 100)}% annual appreciation. Both income and growth are insufficient.` });
+      detail: `This property would cost ${fmt(Math.abs(avgCashFlow))}/mo to hold, with only ${fp(yearlyApprRatio * 100)} annual appreciation. Both income and growth are insufficient.` });
   } else if (avgCashFlow < 0) {
     items.push({ isPrimary: true, icon: '⚖️', cls: monthlyGain >= 0 ? 'text-warning' : 'text-danger',
       label: monthlyGain >= 0 ? 'Appreciation-led — negative cash flow' : 'Cash flow insufficient, appreciation too weak',
@@ -202,6 +231,61 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
   return items;
 }
 
+// ── Monthly Cash Flow Panel ──────────────────────────────────────────────────
+
+function MonthlyCashFlowPanel({ m, vacancyRate }) {
+  const Row = ({ label, value, cls = '', indent = false, bold = false, borderTop = false, dim = false }) => (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: indent ? '0.2rem 0.5rem 0.2rem 1.5rem' : '0.2rem 0.5rem',
+      borderTop: borderTop ? '1px solid var(--border)' : 'none',
+      marginTop: borderTop ? '0.25rem' : 0,
+    }}>
+      <span style={{ fontSize: dim ? '0.75rem' : '0.82rem', color: dim ? 'var(--text-tertiary)' : 'var(--text-secondary)', fontWeight: bold ? 700 : 400 }}>{label}</span>
+      <span style={{ fontSize: bold ? '0.95rem' : '0.82rem', fontWeight: bold ? 700 : 600 }} className={cls}>{value}</span>
+    </div>
+  );
+
+  const cf = m.avgCashFlow;
+  const gain = m.monthlyGain;
+
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem',
+      marginBottom: '1.25rem',
+    }}>
+      {/* Left: income statement */}
+      <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '0.75rem 0.5rem', border: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0 0.5rem 0.4rem' }}>Income</div>
+        <Row label="Gross rent" value={fmt(m.effectiveRent)} />
+        {vacancyRate > 0 && <Row label={`Vacancy (${vacancyRate}%)`} value={`−${fmt(m.effectiveRent - m.effectiveMonthlyRent ?? 0)}`} cls="text-danger" indent />}
+        <Row label="Effective rent" value={fmt(m.effectiveRent * (1 - vacancyRate / 100))} bold borderTop />
+
+        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0.75rem 0.5rem 0.4rem' }}>Costs</div>
+        <Row label="Mortgage" value={`−${fmt(m.monthlyMortgage)}`} cls="text-danger" indent />
+        <Row label="Operating expenses" value={`−${fmt(m.totalMonthlyExpenses - m.monthlyMortgage - m.monthlyTax - m.monthlyRepairReserve)}`} cls="text-danger" indent />
+        <Row label="Property tax" value={`−${fmt(m.monthlyTax)}`} cls="text-danger" indent />
+        <Row label="Repair reserve" value={`−${fmt(m.monthlyRepairReserve)}`} cls="text-danger" indent />
+        <Row label="Total costs" value={`−${fmt(m.totalMonthlyExpenses)}`} cls="text-danger" bold borderTop />
+      </div>
+
+      {/* Right: result summary */}
+      <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '0.75rem 0.5rem', border: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0 0.5rem 0.4rem' }}>Result</div>
+        <Row label="Cash flow" value={fmt(cf)} cls={cf >= 0 ? 'text-success' : 'text-danger'} bold />
+        {m.monthlyAppr !== 0 && <Row label={`+ Appreciation (${m.yearlyApprRatio ? (m.yearlyApprRatio * 100).toFixed(1) : 0}%/yr)`} value={fmt(m.monthlyAppr)} cls={m.monthlyAppr >= 0 ? 'text-success' : 'text-danger'} indent />}
+        <Row label="Monthly gain" value={fmt(gain)} cls={gain >= 0 ? 'text-success' : 'text-danger'} bold borderTop />
+
+        <div style={{ height: '0.75rem' }} />
+        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0 0.5rem 0.4rem' }}>Mortgage breakdown</div>
+        <Row label="Monthly payment" value={fmt(m.monthlyMortgage)} cls="text-danger" />
+        <Row label="  ↳ Interest (est.)" value={`−${fmt(m.loanAmount * m.effectiveRate / 100 / 12)}`} dim indent />
+        <Row label="  ↳ Principal (est.)" value={fmt(Math.max(0, m.monthlyMortgage - m.loanAmount * m.effectiveRate / 100 / 12))} dim indent />
+      </div>
+    </div>
+  );
+}
+
 // ── Projection table ──────────────────────────────────────────────────────────
 
 function ProjectionTable({ projections, downPayment }) {
@@ -213,22 +297,22 @@ function ProjectionTable({ projections, downPayment }) {
           <th>Property Value</th>
           <th>Loan Balance</th>
           <th>Equity</th>
-          <th>Cumul. Cash Flow</th>
-          <th>Total Gain</th>
+          <th>Cash P&amp;L</th>
+          <th>Total Return</th>
           <th className="col-shrink">ROI on Down Pmt</th>
         </tr></thead>
         <tbody>
           {projections.map(p => {
             const roi     = downPayment > 0 ? (p.totalGain / downPayment) * 100 : null;
             const gainCls = p.totalGain   >= 0 ? 'text-success' : 'text-danger';
-            const cfCls   = p.cumulativeCF >= 0 ? 'text-success' : 'text-danger';
+            const cfCls   = p.cashPL >= 0 ? 'text-success' : 'text-danger';
             return (
               <tr key={p.year}>
                 <td className="col-shrink" style={{ fontWeight: 600 }}>Year {p.year}</td>
                 <td>{fmt(p.propertyValue)}</td>
                 <td className="text-danger">{fmt(p.balance)}</td>
                 <td className="text-success">{fmt(p.yearEquity)}</td>
-                <td className={cfCls}>{fmt(p.cumulativeCF)}</td>
+                <td className={cfCls}>{fmt(p.cashPL)}</td>
                 <td className={gainCls}>{fmt(p.totalGain)}</td>
                 <td className={`col-shrink ${gainCls}`}>{roi !== null ? fp(roi) : '—'}</td>
               </tr>
@@ -244,7 +328,7 @@ function ProjectionTable({ projections, downPayment }) {
 
 const ACCENT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
 
-function CompareInputColumn({ col, idx, onChange, onRemove, canRemove, m }) {
+function CompareInputColumn({ col, idx, onChange, onRemove, canRemove, m, onOpenSingle }) {
   const set = (key, val) => onChange({ ...col, [key]: val });
   const color = ACCENT_COLORS[idx % ACCENT_COLORS.length];
 
@@ -268,6 +352,7 @@ function CompareInputColumn({ col, idx, onChange, onRemove, canRemove, m }) {
           }}
           placeholder="Property name"
         />
+        <button onClick={onOpenSingle} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: '0.75rem', padding: '0 2px', opacity: 0.7 }} title="Open in single view">↗</button>
         {canRemove && (
           <button onClick={onRemove} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: '1rem', padding: '0 2px' }} title="Remove">×</button>
         )}
@@ -276,7 +361,7 @@ function CompareInputColumn({ col, idx, onChange, onRemove, canRemove, m }) {
       {/* Inputs */}
       <div style={{ padding: '0.75rem 0.9rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
         <NumInput label="Purchase Price"    value={col.purchasePrice}     onChange={v => set('purchasePrice', v)}     prefix="$" min={0} step={1000} compact />
-        <NumInput label="Down Payment"      value={col.downPayment}       onChange={v => set('downPayment', v)}       prefix="$" min={0} step={1000} compact />
+        <NumInput label="Down Payment"        value={col.downPct}           onChange={v => set('downPct', clamp(v, 0.1, 99))} suffix="%" min={0.1} max={99} step={0.5} compact />
         <NumInput label="Mortgage Rate"     value={col.cardMortgageRate}  onChange={v => set('cardMortgageRate', v)}  suffix="%" min={0} max={30} step={0.05} compact />
         <NumInput label="Amortization"      value={col.amortization}      onChange={v => set('amortization', v)}      suffix="yr" min={1} max={35} step={1} compact />
         <NumInput label="Monthly Rent"      value={col.monthlyRent}       onChange={v => set('monthlyRent', v)}       prefix="$" min={0} step={50} compact />
@@ -351,7 +436,7 @@ function CompareTable({ cols, metrics }) {
           <tbody>
             <CompareSectionHeader label="Purchase" colCount={n} />
             <CompareRow label="Purchase Price"    values={cols.map(c => c.purchasePrice)}       fmtFn={fmt}            highlight="none" />
-            <CompareRow label="Down Payment"      values={cols.map(c => c.downPayment)}         fmtFn={fmt}            highlight="none" />
+            <CompareRow label="Down Payment"      values={cols.map(c => c.purchasePrice * c.downPct / 100)} fmtFn={fmt} highlight="none" />
             <CompareRow label="Loan Amount"       values={v(m => m.loanAmount)}                 fmtFn={fmt}            highlight="low" />
             <CompareRow label="LTV"               values={v(m => m.ltvRatio * 100)}             fmtFn={v => `${v.toFixed(1)}%`} highlight="low" />
             <CompareRow label="Monthly Mortgage"  values={v(m => m.monthlyMortgage)}            fmtFn={fmt}            highlight="low" />
@@ -366,8 +451,15 @@ function CompareTable({ cols, metrics }) {
             <CompareSectionHeader label="Investment Ratios" colCount={n} />
             <CompareRow label="Cap Rate"          values={v(m => m.capRate * 100)}              fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
             <CompareRow label="Cash-on-Cash"      values={v(m => m.cashOnCash * 100)}           fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
+            <CompareRow label="DSCR"              values={v(m => m.dscr)}                       fmtFn={v => `${v.toFixed(2)}x`} highlight="high" />
+            <CompareRow label="Debt Yield"        values={v(m => m.debtYield != null ? m.debtYield * 100 : null)} fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
             <CompareRow label="Expense Ratio"     values={v(m => m.expenseRatio * 100)}         fmtFn={v => `${v.toFixed(1)}%`} highlight="low" />
             <CompareRow label="Rent-to-Value"     values={v(m => m.rentToValue * 100)}          fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
+            <CompareRow label="NOI-to-Value"      values={v(m => m.noiToValue != null ? m.noiToValue * 100 : null)} fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
+            <CompareRow label="Max Vacancy (CF≥0)"   values={v(m => m.maxVacancy != null ? m.maxVacancy * 100 : null)} fmtFn={v => `${v.toFixed(1)}%`} highlight="high" />
+            <CompareRow label="Max Vacancy (Gain≥0)" values={v(m => m.maxVacancyForGain != null ? m.maxVacancyForGain * 100 : null)} fmtFn={v => `${v.toFixed(1)}%`} highlight="high" />
+            <CompareRow label="Min Rent (CF≥0)"      values={v(m => m.minRent)}                    fmtFn={fmt}          highlight="low" />
+            <CompareRow label="Min Rent (Gain≥0)"    values={v(m => m.minRentForGain)}             fmtFn={fmt}          highlight="low" />
             <CompareRow label="GRM"               values={v(m => m.grm)}                        fmtFn={v => v.toFixed(1)}       highlight="low" />
             <CompareRow label="IRR (10yr)"        values={v(m => m.irr10 !== null ? m.irr10 * 100 : null)} fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
 
@@ -377,12 +469,13 @@ function CompareTable({ cols, metrics }) {
             <CompareSectionHeader label="10-Year Projection" colCount={n} />
             <CompareRow label="Value (yr 10)"     values={v(m => m.projections[9]?.propertyValue)}  fmtFn={fmt}  highlight="high" />
             <CompareRow label="Equity (yr 10)"    values={v(m => m.projections[9]?.yearEquity)}      fmtFn={fmt}  highlight="high" />
-            <CompareRow label="Cumul. Cash (yr 10)" values={v(m => m.projections[9]?.cumulativeCF)} fmtFn={fmt}  highlight="high" />
+            <CompareRow label="Cash P&L (yr 10)"    values={v(m => m.projections[9]?.cashPL)} fmtFn={fmt}  highlight="high" />
             <CompareRow label="Total Gain (yr 10)" values={v(m => m.projections[9]?.totalGain)}     fmtFn={fmt}  highlight="high" />
             <CompareRow label="ROI on Down (yr 10)" values={v(m => {
               const p = m.projections[9]; const dp = m.effectiveDownPayment;
               return (p && dp > 0) ? p.totalGain / dp * 100 : null;
             })} fmtFn={v => `${v.toFixed(1)}%`} highlight="high" />
+            <CompareRow label="10yr Total Return"      values={v(m => m.equityMultiple)} fmtFn={v => `${v.toFixed(2)}x`} highlight="high" />
           </tbody>
         </table>
       </div>
@@ -439,8 +532,8 @@ export default function EvaluatorView() {
 
   // ── Compare mode state ───────────────────────────────────────────────────
   const [compareCols, setCompareCols] = useState([
-    { ...DEFAULT_INPUTS, name: 'Option A', purchasePrice: 500000, monthlyRent: 2500 },
-    { ...DEFAULT_INPUTS, name: 'Option B', purchasePrice: 550000, monthlyRent: 2800 },
+    { ...DEFAULT_INPUTS, name: 'Option A', purchasePrice: 500000, downPct: 20, monthlyRent: 2500 },
+    { ...DEFAULT_INPUTS, name: 'Option B', purchasePrice: 550000, downPct: 20, monthlyRent: 2800 },
   ]);
 
   const compareMetrics = useMemo(
@@ -480,7 +573,13 @@ export default function EvaluatorView() {
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button style={tabStyle(mode === 'single')} onClick={() => setMode('single')}>🔍 Single</button>
-          <button style={tabStyle(mode === 'compare')} onClick={() => setMode('compare')}>⚖️ Compare</button>
+          <button style={tabStyle(mode === 'compare')} onClick={() => {
+          if (mode !== 'compare') {
+            // Pre-populate the first compare column from the current single-mode inputs
+            setCompareCols(prev => [{ ...prev[0], ...inputs, name: inputs.name || 'Option A' }, ...prev.slice(1)]);
+          }
+          setMode('compare');
+        }}>⚖️ Compare</button>
         </div>
       </div>
 
@@ -491,24 +590,18 @@ export default function EvaluatorView() {
         <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '1.5rem', alignItems: 'start', marginBottom: '1.5rem' }}>
           <div className="detail-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
             <h3 className="eval-section-title">Property Details</h3>
-            <div className="eval-field">
-              <label className="eval-label">Property Type</label>
-              <select className="eval-input" value={inputs.propertyType} onChange={e => set('propertyType', e.target.value)} style={{ padding: '0.45rem 0.6rem' }}>
-                {PROPERTY_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
             <NumInput label="Purchase Price"           value={inputs.purchasePrice}      onChange={v => set('purchasePrice', v)}      prefix="$" min={0} step={1000} />
-            <NumInput label="Down Payment"             value={inputs.downPayment}        onChange={v => set('downPayment', v)}        prefix="$" min={0} step={1000}
-              help={inputs.purchasePrice > 0 ? `${fp(inputs.downPayment / inputs.purchasePrice * 100)} of purchase price` : undefined} />
+            <NumInput label="Down Payment"             value={inputs.downPct}            onChange={v => set('downPct', clamp(v, 0.1, 99))}  suffix="%" min={0.1} max={99} step={0.5}
+              help={inputs.purchasePrice > 0 ? `${fmt(inputs.purchasePrice * inputs.downPct / 100)} (${fp(inputs.downPct)} of purchase price)` : undefined} />
             <NumInput label="Mortgage Rate"            value={inputs.cardMortgageRate}   onChange={v => set('cardMortgageRate', v)}   suffix="%" min={0} max={30} step={0.05} />
             <NumInput label="Amortization"             value={inputs.amortization}       onChange={v => set('amortization', v)}       suffix="yr" min={1} max={35} step={1} />
             <div className="eval-computed-row">
               <span>Loan Amount</span>
-              <span>{fmt(inputs.purchasePrice - inputs.downPayment)}</span>
+              <span>{fmt(inputs.purchasePrice * (1 - inputs.downPct / 100))}</span>
             </div>
             <div className="eval-computed-row">
               <span>Monthly Payment</span>
-              <span className="text-danger">{fmt(calcMortgagePayment(inputs.purchasePrice - inputs.downPayment, inputs.cardMortgageRate, inputs.amortization))}/mo</span>
+              <span className="text-danger">{fmt(calcMortgagePayment(inputs.purchasePrice * (1 - inputs.downPct / 100), inputs.cardMortgageRate, inputs.amortization))}/mo</span>
             </div>
             <h3 className="eval-section-title" style={{ marginTop: '1rem' }}>Income &amp; Expenses</h3>
             <NumInput label="Expected Monthly Rent"        value={inputs.monthlyRent}         onChange={v => set('monthlyRent', v)}         prefix="$" min={0} step={50} />
@@ -526,6 +619,7 @@ export default function EvaluatorView() {
               {cardEvalCashOnCash(m.cashOnCash)}
               {inputs.monthlyRent > 0 && cardEvalExpenseRatio(m.expenseRatio)}
               {inputs.monthlyRent > 0 && cardEvalRentToValue(m.rentToValue)}
+              {inputs.monthlyRent > 0 && m.noiToValue !== null && cardEvalNoiToValue(m.noiToValue)}
             </div>
             <p className="stat-section-label">NOI &amp; Return Projections</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
@@ -533,14 +627,19 @@ export default function EvaluatorView() {
               {m.grm !== null && inputs.monthlyRent > 0 && cardEvalGRM(m.grm)}
               {m.irr10 !== null && cardEvalIRR10(m.irr10)}
             </div>
-            <p className="stat-section-label">Cash Flow &amp; Monthly Gain</p>
+            <p className="stat-section-label">Monthly Cash Flow</p>
+            <MonthlyCashFlowPanel m={m} vacancyRate={scenario.vacancyRate} />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-              {cardEvalMonthlyMortgage(m.monthlyMortgage, m.effectiveRate, inputs.amortization)}
-              {cardEvalTotalMonthlyCosts(m.totalMonthlyExpenses, m.monthlyMortgage, inputs.monthlyOpEx, m.monthlyTax, m.monthlyRepairReserve)}
-              {cardEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
-              {cardEvalMonthlyGain(m.monthlyGain, m.avgCashFlow, m.monthlyAppr)}
               {cardEvalPayback(m.payback)}
               {cardEvalBreakEven(m.breakEven)}
+            </div>
+            <p className="stat-section-label">Risk &amp; Lender Metrics</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {m.dscr !== null && cardEvalDSCR(m.dscr)}
+              {m.debtYield !== null && cardEvalDebtYield(m.debtYield)}
+              {inputs.monthlyRent > 0 && cardEvalMaxVacancy(m.maxVacancy, m.maxVacancyForGain, scenario.vacancyRate)}
+              {inputs.monthlyRent > 0 && cardEvalMinRent(m.minRent, m.minRentForGain, m.effectiveRent)}
+              {m.equityMultiple !== null && cardEvalEquityMultiple(m.equityMultiple, 10)}
             </div>
             <ScorePanel score={m.score} />
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.9rem 1rem', marginBottom: secondary.length ? '0.5rem' : '1.25rem', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
@@ -621,7 +720,7 @@ export default function EvaluatorView() {
           <div className="detail-panel-title">
             <span>📅 10-Year Projection</span>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 400 }}>
-              Based on {fp(inputs.annualAppreciation)}% appreciation · {fmt(m.avgCashFlow)}/mo cash flow · {fp(m.effectiveRate)}% mortgage
+              Based on {fp(inputs.annualAppreciation)} appreciation · {fmt(m.avgCashFlow)}/mo cash flow · {fp(m.effectiveRate)} mortgage
             </span>
           </div>
           <ProjectionTable projections={m.projections} downPayment={m.effectiveDownPayment} />
@@ -641,6 +740,7 @@ export default function EvaluatorView() {
               onRemove={() => removeCompareCol(i)}
               canRemove={compareCols.length > 2}
               m={compareMetrics[i]}
+              onOpenSingle={() => { setInputs(prev => ({ ...prev, ...col })); setMode('single'); }}
             />
           ))}
           {compareCols.length < 4 && (
