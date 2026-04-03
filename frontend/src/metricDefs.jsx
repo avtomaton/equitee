@@ -454,13 +454,6 @@ export const cardEvalRentToValue = (cardRentToValue) => card({
   tooltip: 'Annual Gross Rent ÷ Purchase Price.\nThe "1% rule": monthly rent ≥1% of price for cash-flow-positive property.',
 });
 
-export const cardEvalNoiToValue = (noiToValue) => card({
-  label: 'NOI-to-Value',
-  primary: fPct(noiToValue),
-  primaryCls: noiToValue > 0.06 ? 'text-success' : noiToValue > 0.04 ? '' : 'text-danger',
-  tertiary: noiToValue > 0.06 ? 'Strong yield' : noiToValue > 0.04 ? 'Moderate' : 'Weak yield',
-  tooltip: 'Annual NOI ÷ Purchase Price.\nSame as cap rate but uses full NOI (before mortgage). Especially useful for condos with high fees — shows true operating yield stripping out financing. Target: 4–6%+ residential.',
-});
 
 export const cardEvalAnnualNOI = (annualNOI) => card({
   label: 'Monthly NOI',

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import StarRating from './StarRating.jsx';
 import MetricCard from './MetricCard.jsx';
 import { fmt, fp, NumInput, SliderInput } from './uiHelpers.jsx';
-import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain, cardEvalPayback, cardEvalBreakEven, cardEvalDSCR, cardEvalDebtYield, cardEvalMaxVacancy, cardEvalEquityMultiple, cardEvalMinRent, cardEvalNoiToValue } from '../metricDefs.jsx';
+import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain, cardEvalPayback, cardEvalBreakEven, cardEvalDSCR, cardEvalDebtYield, cardEvalMaxVacancy, cardEvalEquityMultiple, cardEvalMinRent } from '../metricDefs.jsx';
 import { calcInvestmentScore, calcMortgagePayment, calcIRR, calcPayback, calcBreakEven } from '../metrics.js';
 import { clamp } from '../utils.js';
 
@@ -94,8 +94,6 @@ function computeEval(inputs, scenario = DEFAULT_SCENARIO) {
   })();
 
   // NOI-to-Value (same as cap rate but name emphasises operating yield, useful for condos)
-  const noiToValue = p.purchasePrice > 0 ? annualNetOpIncome / p.purchasePrice : null;
-
   // DSCR: NOI / mortgage
   const dscr = monthlyMortgage > 0 ? (annualNetOpIncome / 12) / monthlyMortgage : null;
 
@@ -132,7 +130,7 @@ function computeEval(inputs, scenario = DEFAULT_SCENARIO) {
     yearlyAppr, yearlyApprRatio, monthlyAppr, monthlyGain,
     cashInvested, payback, breakEven, projections, score, analysis: [],
     grm, irr10,
-    dscr, debtYield, maxVacancy, maxVacancyForGain, minRent, minRentForGain, equityMultiple, noiToValue,
+    dscr, debtYield, maxVacancy, maxVacancyForGain, minRent, minRentForGain, equityMultiple,
   };
 }
 
@@ -234,53 +232,95 @@ function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
 // ── Monthly Cash Flow Panel ──────────────────────────────────────────────────
 
 function MonthlyCashFlowPanel({ m, vacancyRate }) {
-  const Row = ({ label, value, cls = '', indent = false, bold = false, borderTop = false, dim = false }) => (
+  const [showYearly, setShowYearly] = useState(false);
+  const mul  = showYearly ? 12 : 1;
+  const unit = showYearly ? '/yr' : '/mo';
+
+  const interest  = m.loanAmount * m.effectiveRate / 100 / 12;
+  const principal = Math.max(0, m.monthlyMortgage - interest);
+  const rent      = m.effectiveRent * (1 - vacancyRate / 100);
+  const cf        = m.avgCashFlow;
+  const gain      = m.monthlyGain;
+  const opEx      = m.totalMonthlyExpenses - m.monthlyMortgage - m.monthlyTax - m.monthlyRepairReserve;
+
+  const fv = (n) => fmt(Math.abs(n) * mul);
+  const sgn = (n) => n < 0 ? '−' : '+';
+
+  const Row = ({ label, value, cls = '', indent = 0, bold = false, dim = false, borderTop = false }) => (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: indent ? '0.2rem 0.5rem 0.2rem 1.5rem' : '0.2rem 0.5rem',
+      padding: `0.22rem 1.1rem 0.22rem ${indent * 1.1 + 1.1}rem`,
       borderTop: borderTop ? '1px solid var(--border)' : 'none',
-      marginTop: borderTop ? '0.25rem' : 0,
+      marginTop: borderTop ? '0.2rem' : 0,
     }}>
       <span style={{ fontSize: dim ? '0.75rem' : '0.82rem', color: dim ? 'var(--text-tertiary)' : 'var(--text-secondary)', fontWeight: bold ? 700 : 400 }}>{label}</span>
-      <span style={{ fontSize: bold ? '0.95rem' : '0.82rem', fontWeight: bold ? 700 : 600 }} className={cls}>{value}</span>
+      <span style={{ fontSize: bold ? '0.92rem' : '0.82rem', fontWeight: bold ? 700 : 600 }} className={cls}>{value}</span>
     </div>
   );
 
-  const cf = m.avgCashFlow;
-  const gain = m.monthlyGain;
+  const ResultBlock = ({ title, sub, value, cls, bg }) => (
+    <div style={{ flex: 1, padding: '0.65rem 1rem', background: bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: '0.85rem' }} className={cls}>{title}</div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 1 }}>{sub}</div>
+      </div>
+      <div style={{ fontSize: '1.15rem', fontWeight: 800 }} className={cls}>{value}</div>
+    </div>
+  );
 
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem',
-      marginBottom: '1.25rem',
-    }}>
-      {/* Left: income statement */}
-      <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '0.75rem 0.5rem', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0 0.5rem 0.4rem' }}>Income</div>
-        <Row label="Gross rent" value={fmt(m.effectiveRent)} />
-        {vacancyRate > 0 && <Row label={`Vacancy (${vacancyRate}%)`} value={`−${fmt(m.effectiveRent - m.effectiveMonthlyRent ?? 0)}`} cls="text-danger" indent />}
-        <Row label="Effective rent" value={fmt(m.effectiveRent * (1 - vacancyRate / 100))} bold borderTop />
-
-        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0.75rem 0.5rem 0.4rem' }}>Costs</div>
-        <Row label="Mortgage" value={`−${fmt(m.monthlyMortgage)}`} cls="text-danger" indent />
-        <Row label="Operating expenses" value={`−${fmt(m.totalMonthlyExpenses - m.monthlyMortgage - m.monthlyTax - m.monthlyRepairReserve)}`} cls="text-danger" indent />
-        <Row label="Property tax" value={`−${fmt(m.monthlyTax)}`} cls="text-danger" indent />
-        <Row label="Repair reserve" value={`−${fmt(m.monthlyRepairReserve)}`} cls="text-danger" indent />
-        <Row label="Total costs" value={`−${fmt(m.totalMonthlyExpenses)}`} cls="text-danger" bold borderTop />
+    <div style={{ marginBottom: '1.25rem' }}>
+      {/* Monthly / Yearly toggle */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', marginBottom: '0.6rem' }}>
+        {['Monthly', 'Yearly'].map(lbl => (
+          <button key={lbl} onClick={() => setShowYearly(lbl === 'Yearly')}
+            style={{ padding: '0.25rem 0.7rem', borderRadius: 6, fontSize: '0.75rem', cursor: 'pointer', border: '1px solid',
+              borderColor: (lbl === 'Yearly') === showYearly ? 'var(--accent-primary)' : 'var(--border)',
+              background: (lbl === 'Yearly') === showYearly ? 'rgba(59,130,246,0.12)' : 'var(--bg-secondary)',
+              color: (lbl === 'Yearly') === showYearly ? 'var(--accent-secondary, #93c5fd)' : 'var(--text-secondary)',
+            }}>{lbl}</button>
+        ))}
       </div>
 
-      {/* Right: result summary */}
-      <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '0.75rem 0.5rem', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0 0.5rem 0.4rem' }}>Result</div>
-        <Row label="Cash flow" value={fmt(cf)} cls={cf >= 0 ? 'text-success' : 'text-danger'} bold />
-        {m.monthlyAppr !== 0 && <Row label={`+ Appreciation (${m.yearlyApprRatio ? (m.yearlyApprRatio * 100).toFixed(1) : 0}%/yr)`} value={fmt(m.monthlyAppr)} cls={m.monthlyAppr >= 0 ? 'text-success' : 'text-danger'} indent />}
-        <Row label="Monthly gain" value={fmt(gain)} cls={gain >= 0 ? 'text-success' : 'text-danger'} bold borderTop />
+      {/* Summary: Cash Flow + Appreciation = Monthly Gain */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: '0.75rem', background: 'var(--bg-tertiary)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <ResultBlock
+          title="Cash Flow" sub="Rent − all costs"
+          value={`${sgn(cf)}${fv(cf)}`}
+          cls={cf >= 0 ? 'text-success' : 'text-danger'}
+          bg={cf >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.05)'}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 0.6rem', color: 'var(--text-tertiary)', fontSize: '1.2rem', background: 'var(--bg-secondary)', flexShrink: 0 }}>+</div>
+        <ResultBlock
+          title="Appreciation" sub={`${fp(m.yearlyApprRatio * 100)}/yr`}
+          value={`${sgn(m.monthlyAppr)}${fv(m.monthlyAppr)}`}
+          cls="text-primary"
+          bg="rgba(59,130,246,0.06)"
+        />
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 0.6rem', color: 'var(--text-tertiary)', fontSize: '1.2rem', background: 'var(--bg-secondary)', flexShrink: 0 }}>=</div>
+        <ResultBlock
+          title="Monthly Gain" sub="Total inc. growth"
+          value={`${sgn(gain)}${fv(gain)}`}
+          cls={gain >= 0 ? 'text-success' : 'text-danger'}
+          bg={gain >= 0 ? 'rgba(139,92,246,0.09)' : 'rgba(239,68,68,0.06)'}
+        />
+      </div>
 
-        <div style={{ height: '0.75rem' }} />
-        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', padding: '0 0.5rem 0.4rem' }}>Mortgage breakdown</div>
-        <Row label="Monthly payment" value={fmt(m.monthlyMortgage)} cls="text-danger" />
-        <Row label="  ↳ Interest (est.)" value={`−${fmt(m.loanAmount * m.effectiveRate / 100 / 12)}`} dim indent />
-        <Row label="  ↳ Principal (est.)" value={fmt(Math.max(0, m.monthlyMortgage - m.loanAmount * m.effectiveRate / 100 / 12))} dim indent />
+      {/* Detailed breakdown */}
+      <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-tertiary)', padding: '0.5rem 1.1rem 0.3rem', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border)' }}>
+          Cash Flow Breakdown
+        </div>
+        <Row label="Rental income" value={`+${fv(rent)}`} cls="text-success" bold />
+        {vacancyRate > 0 && <Row label={`Vacancy loss (${vacancyRate}%)`} value={`−${fv(m.effectiveRent * vacancyRate / 100)}`} cls="text-danger" indent={1} />}
+        <Row label="Total costs" value={`−${fv(m.totalMonthlyExpenses)}`} cls="text-danger" bold borderTop />
+        <Row label="Mortgage" value={`−${fv(m.monthlyMortgage)}`} cls="text-danger" indent={1} />
+        <Row label="↳ Interest" value={`−${fv(interest)}`} indent={2} dim />
+        <Row label="↳ Principal" value={`+${fv(principal)}`} indent={2} dim />
+        <Row label="Operating expenses" value={`−${fv(opEx)}`} cls="text-danger" indent={1} />
+        <Row label="Property tax" value={`−${fv(m.monthlyTax)}`} indent={2} dim />
+        <Row label="Repair reserve" value={`−${fv(m.monthlyRepairReserve)}`} indent={2} dim />
+        <Row label={`Net Cash Flow${unit}`} value={`${sgn(cf)}${fv(cf)}`} cls={cf >= 0 ? 'text-success' : 'text-danger'} bold borderTop />
       </div>
     </div>
   );
@@ -455,7 +495,6 @@ function CompareTable({ cols, metrics }) {
             <CompareRow label="Debt Yield"        values={v(m => m.debtYield != null ? m.debtYield * 100 : null)} fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
             <CompareRow label="Expense Ratio"     values={v(m => m.expenseRatio * 100)}         fmtFn={v => `${v.toFixed(1)}%`} highlight="low" />
             <CompareRow label="Rent-to-Value"     values={v(m => m.rentToValue * 100)}          fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
-            <CompareRow label="NOI-to-Value"      values={v(m => m.noiToValue != null ? m.noiToValue * 100 : null)} fmtFn={v => `${v.toFixed(2)}%`} highlight="high" />
             <CompareRow label="Max Vacancy (CF≥0)"   values={v(m => m.maxVacancy != null ? m.maxVacancy * 100 : null)} fmtFn={v => `${v.toFixed(1)}%`} highlight="high" />
             <CompareRow label="Max Vacancy (Gain≥0)" values={v(m => m.maxVacancyForGain != null ? m.maxVacancyForGain * 100 : null)} fmtFn={v => `${v.toFixed(1)}%`} highlight="high" />
             <CompareRow label="Min Rent (CF≥0)"      values={v(m => m.minRent)}                    fmtFn={fmt}          highlight="low" />
@@ -612,34 +651,30 @@ export default function EvaluatorView() {
           </div>
 
           <div>
-            <p className="stat-section-label">Investment Ratios</p>
+            <p className="stat-section-label">Performance</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-              {cardEvalLTV(m.ltvRatio)}
+              {cardEvalAvgCashFlow(m.avgCashFlow, scenario.vacancyRate)}
+              {inputs.monthlyRent > 0 && cardEvalRentToValue(m.rentToValue)}
               {cardEvalCapRate(m.capRate)}
               {cardEvalCashOnCash(m.cashOnCash)}
               {inputs.monthlyRent > 0 && cardEvalExpenseRatio(m.expenseRatio)}
-              {inputs.monthlyRent > 0 && cardEvalRentToValue(m.rentToValue)}
-              {inputs.monthlyRent > 0 && m.noiToValue !== null && cardEvalNoiToValue(m.noiToValue)}
+              {m.equityMultiple !== null && cardEvalEquityMultiple(m.equityMultiple, 10)}
             </div>
-            <p className="stat-section-label">NOI &amp; Return Projections</p>
+            <p className="stat-section-label">Returns &amp; Recovery</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
               {cardEvalAnnualNOI(m.annualNetOpIncome)}
-              {m.grm !== null && inputs.monthlyRent > 0 && cardEvalGRM(m.grm)}
-              {m.irr10 !== null && cardEvalIRR10(m.irr10)}
-            </div>
-            <p className="stat-section-label">Monthly Cash Flow</p>
-            <MonthlyCashFlowPanel m={m} vacancyRate={scenario.vacancyRate} />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
               {cardEvalPayback(m.payback)}
               {cardEvalBreakEven(m.breakEven)}
+              {m.irr10 !== null && cardEvalIRR10(m.irr10)}
+              {m.grm !== null && inputs.monthlyRent > 0 && cardEvalGRM(m.grm)}
             </div>
-            <p className="stat-section-label">Risk &amp; Lender Metrics</p>
+            <p className="stat-section-label">Risk &amp; Lender</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {cardEvalLTV(m.ltvRatio)}
               {m.dscr !== null && cardEvalDSCR(m.dscr)}
               {m.debtYield !== null && cardEvalDebtYield(m.debtYield)}
               {inputs.monthlyRent > 0 && cardEvalMaxVacancy(m.maxVacancy, m.maxVacancyForGain, scenario.vacancyRate)}
               {inputs.monthlyRent > 0 && cardEvalMinRent(m.minRent, m.minRentForGain, m.effectiveRent)}
-              {m.equityMultiple !== null && cardEvalEquityMultiple(m.equityMultiple, 10)}
             </div>
             <ScorePanel score={m.score} />
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.9rem 1rem', marginBottom: secondary.length ? '0.5rem' : '1.25rem', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
@@ -663,6 +698,12 @@ export default function EvaluatorView() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Monthly Cash Flow — full width */}
+        <div style={{ marginBottom: '0.5rem' }}>
+          <p className="stat-section-label" style={{ margin: '0 0 0.6rem' }}>Cash Flow and Gain</p>
+          <MonthlyCashFlowPanel m={m} vacancyRate={scenario.vacancyRate} />
         </div>
 
         {/* Scenario Panel */}
