@@ -73,6 +73,14 @@ export const getStatistics         = ()                 => get('/statistics');
 export const exportData            = ()                 => get('/export');
 export const importData            = (data)             => post('/import', data);
 
+// ── Documents ─────────────────────────────────────────────────────────────────
+
+export const getDocuments          = (propertyId)       => get(`/documents${propertyId ? `?property_id=${propertyId}` : ''}`);
+export const getDocumentTypes      = ()                 => get('/documents/types');
+export const uploadDocument        = (formData)         => req('/documents', { method: 'POST', body: formData });
+export const deleteDocument        = (id)               => del(`/documents/${id}`);
+export const getDocumentUrl        = (id)               => `${API_URL}/documents/${id}`;
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function buildQuery(params) {

@@ -28,7 +28,7 @@ const freqToDays = (freq) => {
   return 30; // monthly default
 };
 
-export default function ExpenseModal({ expense, properties, property, onClose, onSave }) {
+export default function ExpenseModal({ expense, properties, property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Expense(expense, property ?? properties[0]));
 
   // loanAmountAfter: the estimated loan balance after this payment.
@@ -121,7 +121,7 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
         }
       }
       onSave();
-    } catch (err) { console.error(err); alert('Failed to save expense'); }
+    } catch (err) { console.error(err); (onError || alert)('Failed to save expense'); }
   };
 
   return (

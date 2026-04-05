@@ -23,6 +23,24 @@ def register_routes(app):
                 ''')
             return jsonify([dict(r) for r in cursor.fetchall()]), 200
 
+    @app.route('/api/events/bulk', methods=['POST'])
+    @handle_errors
+    def get_events_bulk():
+        """Fetch events for multiple property IDs in a single request."""
+        data = request.get_json()
+        property_ids = data.get('property_ids', [])
+        if not property_ids:
+            return jsonify([]), 200
+        with db_cursor() as (_, cursor):
+            placeholders = ','.join('?' for _ in property_ids)
+            cursor.execute(f'''
+                SELECT e.*, p.name as property_name
+                FROM events e LEFT JOIN properties p ON e.property_id = p.id
+                WHERE e.property_id IN ({placeholders})
+                ORDER BY e.created_at DESC
+            ''', property_ids)
+            return jsonify([dict(r) for r in cursor.fetchall()]), 200
+
     @app.route('/api/events/<int:event_id>', methods=['PUT'])
     @handle_errors
     def update_event(event_id):

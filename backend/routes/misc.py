@@ -3,7 +3,7 @@ from datetime import datetime
 from utils.database import db_cursor, row_to_dict
 from utils.errors import handle_errors
 from models.property import select_from_properties
-from validation import validate_table_name
+from validation import validate_table_name, validate_column_name, validate_column_name
 
 
 def register_routes(app):
@@ -50,7 +50,13 @@ def register_routes(app):
                     validate_table_name(table_name)
                     cursor.execute(f"PRAGMA table_info({table_name})")
                     columns = [col["name"] for col in cursor.fetchall()]
-                    filtered = {k: row_data[k] for k in row_data if k in columns}
+                    filtered = {}
+                    for k in row_data:
+                        if k in columns:
+                            validate_column_name(table_name, k)
+                            filtered[k] = row_data[k]
+                    if not filtered:
+                        return
                     cursor.execute(
                         f"INSERT INTO {table_name} ({', '.join(filtered)}) VALUES ({', '.join('?' for _ in filtered)})",
                         tuple(filtered.values()))
@@ -79,13 +85,24 @@ def register_routes(app):
         with db_cursor() as (_, cursor):
             cursor.execute("SELECT * FROM properties")
             properties = cursor.fetchall()
+
+            cursor.execute("SELECT * FROM expenses")
+            all_expenses = [dict(r) for r in cursor.fetchall()]
+            expenses_by_prop = {}
+            for e in all_expenses:
+                expenses_by_prop.setdefault(e['property_id'], []).append(e)
+
+            cursor.execute("SELECT * FROM income")
+            all_income = [dict(r) for r in cursor.fetchall()]
+            income_by_prop = {}
+            for i in all_income:
+                income_by_prop.setdefault(i['property_id'], []).append(i)
+
             result = []
             for p in properties:
                 prop_dict = dict(p)
-                cursor.execute("SELECT * FROM expenses WHERE property_id = ?", (p["id"],))
-                prop_dict["expenses"] = [dict(r) for r in cursor.fetchall()]
-                cursor.execute("SELECT * FROM income WHERE property_id = ?", (p["id"],))
-                prop_dict["income"] = [dict(r) for r in cursor.fetchall()]
+                prop_dict["expenses"] = expenses_by_prop.get(p["id"], [])
+                prop_dict["income"] = income_by_prop.get(p["id"], [])
                 result.append(prop_dict)
             return jsonify(result), 200
 

@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from utils.database import db_cursor, require_exists, row_to_dict
 from utils.errors import handle_errors
-from validation import validate_required
+from validation import validate_required, validate_currency, validate_date, validate_string_length, sanitize_html, validate_currency, validate_date, validate_string_length, sanitize_html
 
 
 def register_routes(app):
@@ -21,11 +21,14 @@ def register_routes(app):
     def create_expense():
         data = request.get_json()
         validate_required(data, ['propertyId', 'expenseDate', 'amount', 'expenseType', 'expenseCategory'])
+        amount = validate_currency(data['amount'], 'amount')
+        expense_date = validate_date(data['expenseDate'], 'expenseDate').isoformat()
+        notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
         with db_cursor() as (_, cursor):
             cursor.execute(
                 'INSERT INTO expenses (property_id, expense_date, amount, expense_type, expense_category, notes, tax_deductible) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (data['propertyId'], data['expenseDate'], data['amount'],
-                 data['expenseType'], data['expenseCategory'], data.get('notes', ''),
+                (data['propertyId'], expense_date, amount,
+                 data['expenseType'], data['expenseCategory'], notes,
                  1 if data.get('taxDeductible', True) else 0))
             new_id = cursor.lastrowid
             cursor.execute('SELECT * FROM expenses WHERE id = ?', (new_id,))
@@ -35,6 +38,10 @@ def register_routes(app):
     @handle_errors
     def update_expense(expense_id):
         data = request.get_json()
+        validate_required(data, ['propertyId', 'expenseDate', 'amount', 'expenseType', 'expenseCategory'])
+        amount = validate_currency(data['amount'], 'amount')
+        expense_date = validate_date(data['expenseDate'], 'expenseDate').isoformat()
+        notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
         with db_cursor() as (_, cursor):
             require_exists(cursor, 'expenses', expense_id, 'Expense')
             cursor.execute('''
@@ -42,9 +49,9 @@ def register_routes(app):
                 SET property_id=?, expense_date=?, amount=?, expense_type=?,
                     expense_category=?, notes=?, tax_deductible=?, updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
-            ''', (data['propertyId'], data['expenseDate'], data['amount'],
-                  data['expenseType'], data['expenseCategory'],
-                  data.get('notes', ''), 1 if data.get('taxDeductible', True) else 0,
+            ''', (data['propertyId'], expense_date, amount,
+                  data['expenseType'], data['expenseCategory'], notes,
+                  1 if data.get('taxDeductible', True) else 0,
                   expense_id))
             cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
             return jsonify(dict(cursor.fetchone())), 200

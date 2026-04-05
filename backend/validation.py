@@ -80,3 +80,42 @@ def validate_table_name(table_name):
     if table_name not in allowed_tables:
         raise ValueError(f"Invalid table: {table_name}")
     return table_name
+
+
+ALLOWED_COLUMNS = {
+    'properties': {
+        'id', 'name', 'type', 'province', 'city', 'address', 'postal_code',
+        'parking', 'purchase_price', 'market_price', 'loan_amount',
+        'monthly_rent', 'poss_date', 'status', 'expected_condo_fees',
+        'expected_insurance', 'expected_utilities', 'expected_misc_expenses',
+        'expected_appreciation_pct', 'annual_property_tax', 'mortgage_rate',
+        'mortgage_payment', 'mortgage_frequency', 'notes', 'created_at',
+        'updated_at', 'is_archived',
+    },
+    'expenses': {
+        'id', 'property_id', 'expense_date', 'amount', 'expense_type',
+        'expense_category', 'notes', 'tax_deductible', 'created_at', 'updated_at',
+    },
+    'income': {
+        'id', 'property_id', 'income_date', 'amount', 'income_type',
+        'notes', 'created_at', 'updated_at',
+    },
+    'events': {
+        'id', 'property_id', 'column_name', 'old_value', 'new_value',
+        'description', 'created_at',
+    },
+    'tenants': {
+        'id', 'property_id', 'name', 'phone', 'email', 'notes',
+        'lease_start', 'lease_end', 'deposit', 'rent_amount',
+        'is_archived', 'created_at', 'updated_at',
+    },
+}
+
+
+def validate_column_name(table_name, column_name):
+    """Whitelist allowed column names to prevent SQL injection via crafted JSON keys."""
+    if table_name not in ALLOWED_COLUMNS:
+        raise ValueError(f"Invalid table for column validation: {table_name}")
+    if column_name not in ALLOWED_COLUMNS[table_name]:
+        raise ValueError(f"Invalid column '{column_name}' for table '{table_name}'")
+    return column_name

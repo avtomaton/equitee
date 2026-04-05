@@ -67,7 +67,7 @@ function ArchivedPropertiesSection({ archivedProps, onRestore }) {
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 
-export default function PropertiesView({ properties, onPropertyClick, onAddProperty, onEditProperty, onReloadProperties }) {
+export default function PropertiesView({ properties, onPropertyClick, onAddProperty, onEditProperty, onReloadProperties, onError }) {
   const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('properties');
   const allColKeys   = COLUMN_DEFS.properties.map(d => d.key);
   const allColLabels = Object.fromEntries(COLUMN_DEFS.properties.map(d => [d.key, d.label]));
@@ -133,7 +133,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       await archiveProperty(id);
       onReloadProperties();
       loadArchived();
-    } catch { alert('Failed to archive property'); }
+    } catch { (onError || alert)('Failed to archive property'); }
   };
 
   const handleRestore = async (id) => {
@@ -141,7 +141,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       await restoreProperty(id);
       onReloadProperties();
       loadArchived();
-    } catch { alert('Failed to restore property'); }
+    } catch { (onError || alert)('Failed to restore property'); }
   };
 
   const filtered = useMemo(() => {

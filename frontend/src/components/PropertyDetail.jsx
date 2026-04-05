@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
-import { getIncome, getExpenses, getTenants, getEvents } from '../api.js';
+import { getIncome, getExpenses, getTenants, getEvents, getDocuments, getDocumentUrl } from '../api.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected, extractRateHistory, computeMortgagePrincipal,
          monthsLeftInYear, yearFracRemaining,
@@ -24,6 +24,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const [expenses,   setExpenses]   = useState([]);
   const [events,     setEvents]     = useState([]);
   const [income,     setIncome]     = useState([]);
+  const [documents,  setDocuments]  = useState([]);
   const [avgWindow,  setAvgWindow]  = useState(3);
   const [amortOpen,  setAmortOpen]  = useState(false);
 
@@ -43,6 +44,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     // Tenants and events don't affect financial metrics — load independently.
     getTenants({ property_id: property.id }).then(setTenants).catch(() => {});
     getEvents(property.id).then(setEvents).catch(() => {});
+    getDocuments(property.id).then(setDocuments).catch(() => {});
   }, [property?.id, property?.total_income, property?.total_expenses]);
 
   if (!property) return null;
@@ -304,6 +306,7 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
           { label: '💰 Income',   view: 'income'   },
           { label: '👤 Tenants',  view: 'tenants'  },
           { label: '📝 Events',   view: 'events'   },
+          { label: '📎 Documents', view: 'documents' },
         ].map(({ label, view }) => (
           <button key={view} className="btn btn-secondary" onClick={() => onJump(view, property.id)}>
             {label} →
@@ -587,6 +590,27 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
             ))
           )}
         </div>
+      </div>
+      {/* Documents */}
+      <div className="detail-panel" style={{ marginTop: '1.5rem' }}>
+        <div className="detail-panel-title">
+          <span>📎 Documents</span>
+          <button className="btn btn-secondary" onClick={() => onJump('documents', property.id)}>View All</button>
+        </div>
+        {documents.length === 0 ? (
+          <div className="tenant-vacant">No documents attached</div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {documents.slice(0, 8).map(d => (
+              <a key={d.id} href={getDocumentUrl(d.id)} download={d.original_filename}
+                 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', background: 'var(--bg-tertiary)', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-primary)', textDecoration: 'none', fontSize: '0.8rem', maxWidth: '200px' }}>
+                <span style={{ color: 'var(--accent-secondary)', flexShrink: 0 }}>📄</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_filename}</span>
+                <span style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem', flexShrink: 0 }}>{d.size_bytes < 1024 ? d.size_bytes + ' B' : d.size_bytes < 1048576 ? (d.size_bytes/1024).toFixed(1) + ' KB' : (d.size_bytes/1048576).toFixed(1) + ' MB'}</span>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

@@ -15,7 +15,7 @@ const toFormState_Income = (income, property) => income ? {
   amount: 0, income_type: '', notes: '',
 };
 
-export default function IncomeModal({ income, properties, property, onClose, onSave }) {
+export default function IncomeModal({ income, properties, property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Income(income, property ?? properties[0]));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
@@ -45,7 +45,7 @@ export default function IncomeModal({ income, properties, property, onClose, onS
         await createIncome(payload);
       }
       onSave();
-    } catch (err) { console.error(err); alert('Failed to save income'); }
+    } catch (err) { console.error(err); (onError || alert)('Failed to save income'); }
   };
 
   return (

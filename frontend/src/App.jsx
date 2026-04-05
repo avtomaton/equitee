@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { getProperties, getProperty } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
@@ -14,15 +14,18 @@ import PropertyDetail from './components/PropertyDetail.jsx';
 import EvaluatorView  from './components/EvaluatorView.jsx';
 import RenovationView  from './components/RenovationView.jsx';
 import ComparisonView  from './components/ComparisonView.jsx';
+import DocumentsView   from './components/DocumentsView.jsx';
 
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
 import IncomeModal    from './modals/IncomeModal.jsx';
 import TenantModal    from './modals/TenantModal.jsx';
 
+import { ToastProvider, ToastContainer, useToast } from './components/Toast.jsx';
+
 // ── URL routing helpers ───────────────────────────────────────────────────────
 
-const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator', 'renovation', 'comparison'];
+const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator', 'renovation', 'comparison', 'documents'];
 
 const getViewFromHash = () => {
   const hash = window.location.hash.replace('#', '');
@@ -35,13 +38,13 @@ const setHash = (view) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function AppInner() {
+  const { success, error: toastError } = useToast();
   const [currentView, setCurrentView]   = useState(getViewFromHash);
   const [properties, setProperties]     = useState([]);
   const [loading,        setLoading]        = useState(true);
   // refreshing is true during background reloads (after save) — views stay mounted
   const [refreshing,     setRefreshing]     = useState(false);
-  const [alert, setAlert]               = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
 
   // modal state: { type: 'property'|'expense'|'income'|'tenant', data: obj|null, context: obj|null }
@@ -58,12 +61,13 @@ export default function App() {
   // Global search data — loaded once for in-memory search across all records
   const [searchIncome,   setSearchIncome]   = useState([]);
   const [searchExpenses, setSearchExpenses] = useState([]);
+  const propertyIdsKey = properties.map(p => p.id).join(',');
   useEffect(() => {
     import('./api.js').then(({ getIncome, getExpenses }) => {
       getIncome().then(setSearchIncome).catch(() => {});
       getExpenses().then(setSearchExpenses).catch(() => {});
     });
-  }, [properties.map(p=>p.id).join(',')]);
+  }, [propertyIdsKey]);
 
   // filter pre-selection when jumping from property detail
   const [jumpPropertyId, setJumpPropertyId] = useState(null);
@@ -84,10 +88,11 @@ export default function App() {
 
   useEffect(() => { loadData(); }, []);
 
-  const showAlert = (message, type = 'info') => {
-    setAlert({ message, type });
-    setTimeout(() => setAlert(null), 4000);
-  };
+  const showAlert = useCallback((message, type = 'info') => {
+    if (type === 'success') success(message);
+    else if (type === 'error') toastError(message);
+    else success(message);
+  }, [success, toastError]);
 
   const loadData = async ({ silent = false } = {}) => {
     try {
@@ -155,6 +160,7 @@ export default function App() {
           onAddProperty={() => openModal('property')}
           onEditProperty={(p) => openModal('property', p)}
           onReloadProperties={() => loadData({ silent: true })}
+          onError={(msg) => showAlert(msg, 'error')}
         />;
 
       case 'expenses':
@@ -195,6 +201,9 @@ export default function App() {
 
       case 'renovation':
         return <RenovationView />;
+
+      case 'documents':
+        return <DocumentsView properties={properties} initialPropertyId={jumpPropertyId} />;
 
       case 'property-detail':
         return <PropertyDetail
@@ -243,19 +252,14 @@ export default function App() {
             onPropertyDetail={handlePropertyClick}
           />
         </div>
-        {alert && (
-          <div className={`alert alert-${alert.type}`}>
-            <span>{alert.type === 'success' ? '✓' : alert.type === 'error' ? '✗' : 'ℹ'}</span>
-            <span>{alert.message}</span>
-          </div>
-        )}
+        <ToastContainer />
         <ErrorBoundary>
           {renderView()}
         </ErrorBoundary>
       </main>
 
       {modal?.type === 'property' && (
-        <PropertyModal property={modal.data} onClose={closeModal} onSave={handleSave} />
+        <PropertyModal property={modal.data} onClose={closeModal} onSave={handleSave} onError={(msg) => showAlert(msg, 'error')} />
       )}
       {modal?.type === 'expense' && (
         <ExpenseModal
@@ -264,6 +268,7 @@ export default function App() {
           property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
           onClose={closeModal}
           onSave={handleSave}
+          onError={(msg) => showAlert(msg, 'error')}
         />
       )}
       {modal?.type === 'income' && (
@@ -273,6 +278,7 @@ export default function App() {
           property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
           onClose={closeModal}
           onSave={handleSave}
+          onError={(msg) => showAlert(msg, 'error')}
         />
       )}
       {modal?.type === 'tenant' && (
@@ -282,9 +288,48 @@ export default function App() {
           property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
           onClose={closeModal}
           onSave={handleSave}
+          onError={(msg) => showAlert(msg, 'error')}
+        />
+      )}
+      {modal?.type === 'expense' && (
+        <ExpenseModal
+          expense={modal.data}
+          properties={properties}
+          property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
+          onClose={closeModal}
+          onSave={handleSave}
+          onError={(msg) => showAlert(msg, 'error')}
+        />
+      )}
+      {modal?.type === 'income' && (
+        <IncomeModal
+          income={modal.data}
+          properties={properties}
+          property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
+          onClose={closeModal}
+          onSave={handleSave}
+          onError={(msg) => showAlert(msg, 'error')}
+        />
+      )}
+      {modal?.type === 'tenant' && (
+        <TenantModal
+          tenant={modal.data}
+          properties={properties}
+          property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
+          onClose={closeModal}
+          onSave={handleSave}
+          onError={(msg) => showAlert(msg, 'error')}
         />
       )}
     </div>
     </ErrorBoundary>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
   );
 }

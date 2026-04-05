@@ -100,6 +100,38 @@ def init_db(conn):
         )
     ''')
 
+    # Documents
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            doc_type TEXT NOT NULL,
+            notes TEXT,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Documents
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            doc_type TEXT NOT NULL,
+            notes TEXT,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
+        )
+    ''')
+
     # Create indexes (better performance)
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_expenses_property ON expenses(property_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_income_property ON income(property_id)')

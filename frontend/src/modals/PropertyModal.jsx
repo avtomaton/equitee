@@ -37,7 +37,7 @@ const toFormState_Property = (p) => p ? {
   mortgagePayment: 0, mortgageFrequency: 'monthly',
 };
 
-export default function PropertyModal({ property, onClose, onSave }) {
+export default function PropertyModal({ property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Property(property));
   const [errors,   setErrors]   = useState({});
 
@@ -95,7 +95,7 @@ export default function PropertyModal({ property, onClose, onSave }) {
       onSave();
     } catch (err) {
       console.error(err);
-      alert('Failed to save property');
+      (onError || alert)('Failed to save property');
     }
   };
 

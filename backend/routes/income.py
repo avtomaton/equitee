@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from utils.database import db_cursor, require_exists
 from utils.errors import handle_errors
-from validation import validate_required
+from validation import validate_required, validate_currency, validate_date, validate_string_length, sanitize_html, validate_currency, validate_date, validate_string_length, sanitize_html
 
 
 def register_routes(app):
@@ -21,11 +21,14 @@ def register_routes(app):
     def create_income():
         data = request.get_json()
         validate_required(data, ['propertyId', 'incomeDate', 'amount', 'incomeType'])
+        amount = validate_currency(data['amount'], 'amount')
+        income_date = validate_date(data['incomeDate'], 'incomeDate').isoformat()
+        notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
         with db_cursor() as (_, cursor):
             cursor.execute(
                 'INSERT INTO income (property_id, income_date, amount, income_type, notes) VALUES (?, ?, ?, ?, ?)',
-                (data['propertyId'], data['incomeDate'], data['amount'],
-                 data['incomeType'], data.get('notes', '')))
+                (data['propertyId'], income_date, amount,
+                 data['incomeType'], notes))
             new_id = cursor.lastrowid
             cursor.execute('SELECT * FROM income WHERE id = ?', (new_id,))
             return jsonify(dict(cursor.fetchone())), 201
@@ -34,6 +37,10 @@ def register_routes(app):
     @handle_errors
     def update_income(income_id):
         data = request.get_json()
+        validate_required(data, ['propertyId', 'incomeDate', 'amount', 'incomeType'])
+        amount = validate_currency(data['amount'], 'amount')
+        income_date = validate_date(data['incomeDate'], 'incomeDate').isoformat()
+        notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
         with db_cursor() as (_, cursor):
             require_exists(cursor, 'income', income_id, 'Income')
             cursor.execute('''
@@ -41,8 +48,8 @@ def register_routes(app):
                 SET property_id=?, income_date=?, amount=?, income_type=?,
                     notes=?, updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
-            ''', (data['propertyId'], data['incomeDate'], data['amount'],
-                  data['incomeType'], data.get('notes', ''), income_id))
+            ''', (data['propertyId'], income_date, amount,
+                  data['incomeType'], notes, income_id))
             cursor.execute('SELECT * FROM income WHERE id = ?', (income_id,))
             return jsonify(dict(cursor.fetchone())), 200
 

@@ -39,6 +39,7 @@ export default function Sidebar({ currentView, onNavigate }) {
         <div className="nav-section-title">Management</div>
         {navItem('tenants', '👤', 'Tenants')}
         {navItem('events',  '📝', 'Events Log')}
+        {navItem('documents', '📎', 'Documents')}
       </div>
     </div>
   );

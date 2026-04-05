@@ -81,12 +81,13 @@ export const avgMonthly = (incomeRecs, expenseRecs, windowMonths = 3) => {
 
 /**
  * Monthly mortgage payment using the standard amortization formula.
- * Returns 0 if any required param is missing or rate is zero.
+ * Handles 0% interest rate case (simple division).
  */
 export const calcMortgagePayment = (principal, annualRatePct, amortYears) => {
-  if (!principal || !annualRatePct || !amortYears) return 0;
-  const r = annualRatePct / 100 / 12;
+  if (!principal || !amortYears) return 0;
   const n = amortYears * 12;
+  if (!annualRatePct || annualRatePct === 0) return principal / n;
+  const r = annualRatePct / 100 / 12;
   return principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
 };
 

@@ -19,7 +19,7 @@ const toFormState_Tenant = (tenant, property) => tenant ? {
   lease_end: '', deposit: 0, rent_amount: 0,
 };
 
-export default function TenantModal({ tenant, properties, property, onClose, onSave }) {
+export default function TenantModal({ tenant, properties, property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Tenant(tenant, property ?? properties[0]));
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
@@ -39,7 +39,7 @@ export default function TenantModal({ tenant, properties, property, onClose, onS
         await createTenant(payload);
       }
       onSave();
-    } catch (err) { console.error(err); alert('Failed to save tenant'); }
+    } catch (err) { console.error(err); (onError || alert)('Failed to save tenant'); }
   };
 
   return (
