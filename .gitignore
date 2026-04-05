@@ -2,7 +2,7 @@ node_modules/
 /frontend/dist-single/
 **/package-lock.json
 /.idea/
-backend/__pycache__
+__pycache__
 backend/*.db
 backup/*
 data/*

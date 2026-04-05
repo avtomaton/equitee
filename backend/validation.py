@@ -66,6 +66,14 @@ def validate_phone(phone):
         raise ValidationError("Invalid phone format")
     return phone
 
+def sanitize_html(value):
+    """Basic HTML sanitization to prevent XSS attacks."""
+    if not value:
+        return value
+    value = str(value)
+    return value.replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#x27;')
+
+
 def validate_table_name(table_name):
     """Whitelist allowed table names to prevent SQL injection."""
     allowed_tables = {'properties', 'expenses', 'income', 'events', 'tenants'}
