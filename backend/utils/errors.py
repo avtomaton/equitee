@@ -1,7 +1,7 @@
 from functools import wraps
 from flask import jsonify
 from validation import ValidationError
-from utils.database import NotFoundError
+from utils.db import NotFoundError
 
 
 def handle_errors(f):

@@ -2,8 +2,7 @@ from flask import Flask
 from flask_cors import CORS
 import os
 
-from utils.database import get_db
-from models.database import init_db
+from utils.db import init_db, db_session
 from routes import properties, expenses, income, tenants, events, misc, documents
 
 
@@ -13,9 +12,7 @@ CORS(app)
 
 # Initialize database
 with app.app_context():
-    conn = get_db()
-    init_db(conn)
-    conn.close()
+    init_db()
 
 
 # Register all routes
@@ -26,6 +23,12 @@ tenants.register_routes(app)
 events.register_routes(app)
 misc.register_routes(app)
 documents.register_routes(app)
+
+
+# Close database session after each request
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    db_session.remove()
 
 
 if __name__ == '__main__':

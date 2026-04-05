@@ -53,44 +53,4 @@ def property_params(data):
     )
 
 
-def select_from_properties():
-    return '''SELECT
-                  p.id,
-                  p.name,
-                  p.province,
-                  p.city,
-                  p.address,
-                  p.postal_code,
-                  p.parking,
-                  p.purchase_price,
-                  p.market_price,
-                  p.loan_amount,
-                  p.mortgage_rate,
-                  p.poss_date,
-                  p.status,
-                  p.type,
-                  p.monthly_rent,
-                  p.notes,
-                  p.is_archived,
-                  p.expected_condo_fees,
-                  p.expected_insurance,
-                  p.expected_utilities,
-                  p.expected_misc_expenses,
-                  p.expected_appreciation_pct,
-                  p.annual_property_tax,
-                  p.mortgage_payment,
-                  p.mortgage_frequency,
-                  IFNULL(exp_agg.total_expenses, 0) AS total_expenses,
-                  IFNULL(inc_agg.total_income,   0) AS total_income
-               FROM properties p
-               LEFT JOIN (
-                   SELECT property_id, SUM(amount) AS total_expenses
-                   FROM expenses
-                   GROUP BY property_id
-               ) exp_agg ON exp_agg.property_id = p.id
-               LEFT JOIN (
-                   SELECT property_id, SUM(amount) AS total_income
-                   FROM income
-                   GROUP BY property_id
-               ) inc_agg ON inc_agg.property_id = p.id
-            '''
+

@@ -1,27 +1,29 @@
 from flask import request, jsonify
-from utils.database import db_cursor, require_exists
+from utils.db import db_session_scope, require_exists
 from utils.errors import handle_errors
+from models.schema import Event
+from sqlalchemy import func
 
 
 def register_routes(app):
     @app.route('/api/events', methods=['GET'])
     @handle_errors
     def get_events():
-        with db_cursor() as (_, cursor):
+        with db_session_scope() as session:
             property_id = request.args.get('property_id')
+            query = session.query(Event)
             if property_id:
-                cursor.execute('''
-                    SELECT e.*, p.name as property_name
-                    FROM events e LEFT JOIN properties p ON e.property_id = p.id
-                    WHERE e.property_id = ? ORDER BY e.created_at DESC
-                ''', (property_id,))
-            else:
-                cursor.execute('''
-                    SELECT e.*, p.name as property_name
-                    FROM events e LEFT JOIN properties p ON e.property_id = p.id
-                    ORDER BY e.created_at DESC
-                ''')
-            return jsonify([dict(r) for r in cursor.fetchall()]), 200
+                query = query.filter(Event.property_id == property_id)
+            events = query.order_by(Event.created_at.desc()).all()
+
+            # Add property_name for backward compatibility
+            result = []
+            for e in events:
+                event_dict = e.to_dict()
+                event_dict['property_name'] = e.property.name if e.property else None
+                result.append(event_dict)
+
+            return jsonify(result), 200
 
     @app.route('/api/events/bulk', methods=['POST'])
     @handle_errors
@@ -31,33 +33,42 @@ def register_routes(app):
         property_ids = data.get('property_ids', [])
         if not property_ids:
             return jsonify([]), 200
-        with db_cursor() as (_, cursor):
-            placeholders = ','.join('?' for _ in property_ids)
-            cursor.execute(f'''
-                SELECT e.*, p.name as property_name
-                FROM events e LEFT JOIN properties p ON e.property_id = p.id
-                WHERE e.property_id IN ({placeholders})
-                ORDER BY e.created_at DESC
-            ''', property_ids)
-            return jsonify([dict(r) for r in cursor.fetchall()]), 200
+
+        with db_session_scope() as session:
+            events = session.query(Event)\
+                .filter(Event.property_id.in_(property_ids))\
+                .order_by(Event.created_at.desc())\
+                .all()
+
+            # Add property_name for backward compatibility
+            result = []
+            for e in events:
+                event_dict = e.to_dict()
+                event_dict['property_name'] = e.property.name if e.property else None
+                result.append(event_dict)
+
+            return jsonify(result), 200
 
     @app.route('/api/events/<int:event_id>', methods=['PUT'])
     @handle_errors
     def update_event(event_id):
         data = request.get_json()
-        with db_cursor() as (_, cursor):
-            require_exists(cursor, 'events', event_id, 'Event')
-            cursor.execute(
-                'UPDATE events SET description=?, created_at=? WHERE id=?',
-                (data.get('description', ''), data.get('eventDate'), event_id)
-            )
-            cursor.execute('SELECT * FROM events WHERE id = ?', (event_id,))
-            return jsonify(dict(cursor.fetchone())), 200
+        with db_session_scope() as session:
+            event = require_exists(session, Event, event_id, 'Event')
+
+            if 'description' in data:
+                event.description = data['description']
+            if 'eventDate' in data:
+                # Handle date string input
+                from datetime import datetime
+                event.created_at = datetime.fromisoformat(data['eventDate'])
+
+            return jsonify(event.to_dict()), 200
 
     @app.route('/api/events/<int:event_id>', methods=['DELETE'])
     @handle_errors
     def delete_event(event_id):
-        with db_cursor() as (_, cursor):
-            require_exists(cursor, 'events', event_id, 'Event')
-            cursor.execute('DELETE FROM events WHERE id = ?', (event_id,))
+        with db_session_scope() as session:
+            event = require_exists(session, Event, event_id, 'Event')
+            session.delete(event)
             return jsonify({'message': 'Event deleted successfully'}), 200

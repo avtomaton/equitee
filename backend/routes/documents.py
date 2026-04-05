@@ -1,6 +1,7 @@
 from flask import request, jsonify, send_file
-from utils.database import db_cursor, require_exists
+from utils.db import db_session_scope, require_exists
 from utils.errors import handle_errors
+from models.schema import Document, Property
 from validation import validate_required, validate_string_length, sanitize_html
 import os
 import uuid
@@ -23,21 +24,21 @@ def register_routes(app):
     @app.route('/api/documents', methods=['GET'])
     @handle_errors
     def get_documents():
-        with db_cursor() as (_, cursor):
+        with db_session_scope() as session:
             property_id = request.args.get('property_id')
+            query = session.query(Document)
             if property_id:
-                cursor.execute('''
-                    SELECT d.*, p.name as property_name
-                    FROM documents d LEFT JOIN properties p ON d.property_id = p.id
-                    WHERE d.property_id = ? ORDER BY d.uploaded_at DESC
-                ''', (property_id,))
-            else:
-                cursor.execute('''
-                    SELECT d.*, p.name as property_name
-                    FROM documents d LEFT JOIN properties p ON d.property_id = p.id
-                    ORDER BY d.uploaded_at DESC
-                ''')
-            return jsonify([dict(r) for r in cursor.fetchall()]), 200
+                query = query.filter(Document.property_id == property_id)
+            documents = query.order_by(Document.uploaded_at.desc()).all()
+
+            # Add property_name for backward compatibility
+            result = []
+            for d in documents:
+                doc_dict = d.to_dict()
+                doc_dict['property_name'] = d.property.name if d.property else None
+                result.append(doc_dict)
+
+            return jsonify(result), 200
 
     @app.route('/api/documents', methods=['POST'])
     @handle_errors
@@ -67,26 +68,32 @@ def register_routes(app):
         file_size = os.path.getsize(file_path)
         mime_type = file.content_type or 'application/octet-stream'
 
-        with db_cursor() as (_, cursor):
-            require_exists(cursor, 'properties', property_id, 'Property')
-            cursor.execute(
-                'INSERT INTO documents (property_id, filename, original_filename, mime_type, size_bytes, doc_type, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (property_id, safe_filename, file.filename, mime_type, file_size, doc_type, notes))
-            new_id = cursor.lastrowid
-            cursor.execute('''
-                SELECT d.*, p.name as property_name
-                FROM documents d LEFT JOIN properties p ON d.property_id = p.id
-                WHERE d.id = ?
-            ''', (new_id,))
-            return jsonify(dict(cursor.fetchone())), 201
+        with db_session_scope() as session:
+            # Verify property exists
+            require_exists(session, Property, property_id, 'Property')
+
+            document = Document(
+                property_id=property_id,
+                filename=safe_filename,
+                original_filename=file.filename,
+                mime_type=mime_type,
+                size_bytes=file_size,
+                doc_type=doc_type,
+                notes=notes
+            )
+            session.add(document)
+            session.flush()
+
+            doc_dict = document.to_dict()
+            doc_dict['property_name'] = document.property.name
+            return jsonify(doc_dict), 201
 
     @app.route('/api/documents/<int:doc_id>', methods=['GET'])
     @handle_errors
     def download_document(doc_id):
-        with db_cursor() as (_, cursor):
-            require_exists(cursor, 'documents', doc_id, 'Document')
-            cursor.execute('SELECT * FROM documents WHERE id = ?', (doc_id,))
-            doc = dict(cursor.fetchone())
+        with db_session_scope() as session:
+            document = require_exists(session, Document, doc_id, 'Document')
+            doc = document.to_dict()
 
         file_path = os.path.join(UPLOAD_DIR, doc['filename'])
         if not os.path.exists(file_path):
@@ -97,14 +104,14 @@ def register_routes(app):
     @app.route('/api/documents/<int:doc_id>', methods=['DELETE'])
     @handle_errors
     def delete_document(doc_id):
-        with db_cursor() as (_, cursor):
-            require_exists(cursor, 'documents', doc_id, 'Document')
-            cursor.execute('SELECT filename FROM documents WHERE id = ?', (doc_id,))
-            doc = dict(cursor.fetchone())
-            file_path = os.path.join(UPLOAD_DIR, doc['filename'])
+        with db_session_scope() as session:
+            document = require_exists(session, Document, doc_id, 'Document')
+            file_path = os.path.join(UPLOAD_DIR, document.filename)
+
             if os.path.exists(file_path):
                 os.remove(file_path)
-            cursor.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
+
+            session.delete(document)
             return jsonify({'message': 'Document deleted successfully'}), 200
 
     @app.route('/api/documents/types', methods=['GET'])
