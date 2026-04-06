@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { getProperties, getProperty } from './api.js';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { getProperties, getProperty, getIncome, getExpenses } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
 import Sidebar        from './components/Sidebar.jsx';
@@ -11,10 +11,12 @@ import IncomeView     from './components/IncomeView.jsx';
 import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
-import EvaluatorView  from './components/EvaluatorView.jsx';
-import RenovationView  from './components/RenovationView.jsx';
-import ComparisonView  from './components/ComparisonView.jsx';
 import DocumentsView   from './components/DocumentsView.jsx';
+
+// Lazy loaded views - loaded only when needed
+const EvaluatorView  = lazy(() => import('./components/EvaluatorView.jsx'));
+const RenovationView = lazy(() => import('./components/RenovationView.jsx'));
+const ComparisonView = lazy(() => import('./components/ComparisonView.jsx'));
 
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
@@ -63,10 +65,8 @@ function AppInner() {
   const [searchExpenses, setSearchExpenses] = useState([]);
   const propertyIdsKey = properties.map(p => p.id).join(',');
   useEffect(() => {
-    import('./api.js').then(({ getIncome, getExpenses }) => {
-      getIncome().then(setSearchIncome).catch(() => {});
-      getExpenses().then(setSearchExpenses).catch(() => {});
-    });
+    getIncome().then(setSearchIncome).catch(() => {});
+    getExpenses().then(setSearchExpenses).catch(() => {});
   }, [propertyIdsKey]);
 
   // filter pre-selection when jumping from property detail
@@ -194,13 +194,25 @@ function AppInner() {
         return <EventsView properties={properties} initialPropertyId={jumpPropertyId} />;
 
       case 'evaluator':
-        return <EvaluatorView />;
+        return (
+          <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+            <EvaluatorView />
+          </Suspense>
+        );
 
       case 'comparison':
-        return <ComparisonView properties={properties} onBack={() => navigate('dashboard')} />;
+        return (
+          <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+            <ComparisonView properties={properties} onBack={() => navigate('dashboard')} />
+          </Suspense>
+        );
 
       case 'renovation':
-        return <RenovationView />;
+        return (
+          <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+            <RenovationView />
+          </Suspense>
+        );
 
       case 'documents':
         return <DocumentsView properties={properties} initialPropertyId={jumpPropertyId} />;
@@ -260,36 +272,6 @@ function AppInner() {
 
       {modal?.type === 'property' && (
         <PropertyModal property={modal.data} onClose={closeModal} onSave={handleSave} onError={(msg) => showAlert(msg, 'error')} />
-      )}
-      {modal?.type === 'expense' && (
-        <ExpenseModal
-          expense={modal.data}
-          properties={properties}
-          property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
-          onClose={closeModal}
-          onSave={handleSave}
-          onError={(msg) => showAlert(msg, 'error')}
-        />
-      )}
-      {modal?.type === 'income' && (
-        <IncomeModal
-          income={modal.data}
-          properties={properties}
-          property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
-          onClose={closeModal}
-          onSave={handleSave}
-          onError={(msg) => showAlert(msg, 'error')}
-        />
-      )}
-      {modal?.type === 'tenant' && (
-        <TenantModal
-          tenant={modal.data}
-          properties={properties}
-          property={contextProperty ?? (modal.data ? properties.find(p => p.id === modal.data.property_id) : null)}
-          onClose={closeModal}
-          onSave={handleSave}
-          onError={(msg) => showAlert(msg, 'error')}
-        />
       )}
       {modal?.type === 'expense' && (
         <ExpenseModal
