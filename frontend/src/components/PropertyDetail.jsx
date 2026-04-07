@@ -150,19 +150,18 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     [property, events, ytdStart, ytdEnd]
   );
 
-  const maintCapexRatio = (() => {
+  const maintCapexRatio = useMemo(() => {
     if (!monthlyRent) return null;
     const maintExp = expenses
       .filter(r => inYTD(r.expense_date) && ['Maintenance', 'Capital'].includes(r.expense_category))
       .reduce((s, r) => s + r.amount, 0);
     return annualRent > 0 ? maintExp / annualRent : null;
-  })();
+  }, [expenses, monthlyRent, annualRent]);
 
-  const irr = (() => {
+  const irr = useMemo(() => {
     const cfs = buildPropertyIRRCashFlows(property, income, expenses);
-    if (!cfs) return null;
-    return calcIRR(cfs);
-  })();
+    return cfs ? calcIRR(cfs) : null;
+  }, [property, income, expenses]);
 
   // ── Expected / budgeted values ────────────────────────────────────────────
   const expected       = calcExpected(property, avg.mortgage);
@@ -183,18 +182,18 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   // ── Payback & Break-even via shared pure functions ──────────────────────
   const pbOutstanding = property.total_expenses - property.total_income;
   const paybackPeriod = calcPayback(pbOutstanding, avg.cashflow);
-  const expPayback    = (() => {
+  const expPayback = useMemo(() => {
     if (expMonthlyCF == null || expMonthlyCF <= 0) return null;
     if (pbOutstanding <= 0) return 'Exp: Recovered';
     return 'Exp: ' + fmtPeriod(pbOutstanding / expMonthlyCF);
-  })();
+  }, [expMonthlyCF, pbOutstanding]);
 
   const breakEven    = calcBreakEven(sellingProfit, monthlyGain);
-  const expBreakEven = (() => {
+  const expBreakEven = useMemo(() => {
     if (expMonthlyGain == null || expMonthlyGain <= 0) return null;
     if (sellingProfit >= 0) return 'Exp: Reached';
     return 'Exp: ' + fmtPeriod(-sellingProfit / expMonthlyGain);
-  })();
+  }, [expMonthlyGain, sellingProfit]);
 
   // ── Investment score & analysis ───────────────────────────────────────────
   const investmentScore = calcSimpleHealth(property);

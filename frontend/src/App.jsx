@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { getProperties, getProperty, getIncome, getExpenses } from './api.js';
+import { getProperty } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
 import Sidebar        from './components/Sidebar.jsx';
@@ -11,7 +11,7 @@ import IncomeView     from './components/IncomeView.jsx';
 import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
-import DocumentsView   from './components/DocumentsView.jsx';
+import DocumentsView  from './components/DocumentsView.jsx';
 
 // Lazy loaded views - loaded only when needed
 const EvaluatorView  = lazy(() => import('./components/EvaluatorView.jsx'));
@@ -24,6 +24,7 @@ import IncomeModal    from './modals/IncomeModal.jsx';
 import TenantModal    from './modals/TenantModal.jsx';
 
 import { ToastProvider, ToastContainer, useToast } from './components/Toast.jsx';
+import { PortfolioDataProvider, usePortfolioData } from './context/PortfolioDataContext.jsx';
 
 // ── URL routing helpers ───────────────────────────────────────────────────────
 
@@ -42,9 +43,12 @@ const setHash = (view) => {
 
 function AppInner() {
   const { success, error: toastError } = useToast();
+  const {
+    properties, allIncome, allExpenses, allEvents,
+    loading, refresh: loadData
+  } = usePortfolioData();
+
   const [currentView, setCurrentView]   = useState(getViewFromHash);
-  const [properties, setProperties]     = useState([]);
-  const [loading,        setLoading]        = useState(true);
   const [selectedProperty, setSelectedProperty] = useState(null);
 
   // modal state: { type: 'property'|'expense'|'income'|'tenant', data: obj|null, context: obj|null }
@@ -57,15 +61,6 @@ function AppInner() {
   // so handleSave can await it before restoring scroll (fully event-based, no timeouts)
   const viewReloadRef = useRef(null);
   const registerViewReload = (fn) => { viewReloadRef.current = fn; };
-
-  // Global search data — loaded once for in-memory search across all records
-  const [searchIncome,   setSearchIncome]   = useState([]);
-  const [searchExpenses, setSearchExpenses] = useState([]);
-  const propertyIdsKey = properties.map(p => p.id).join(',');
-  useEffect(() => {
-    getIncome().then(setSearchIncome).catch(() => {});
-    getExpenses().then(setSearchExpenses).catch(() => {});
-  }, [propertyIdsKey]);
 
   // filter pre-selection when jumping from property detail
   const [jumpPropertyId, setJumpPropertyId] = useState(null);
@@ -90,23 +85,6 @@ function AppInner() {
     else success(message);
   }, [success, toastError]);
 
-  const loadData = useCallback(async ({ silent = false } = {}) => {
-    try {
-      if (!silent) setLoading(true);
-      const fresh = await getProperties();
-      setProperties(fresh);
-      // Keep selectedProperty in sync so PropertyDetail shows updated values
-      setSelectedProperty(prev => prev ? (fresh.find(p => p.id === prev.id) ?? prev) : null);
-    } catch (err) {
-      console.error(err);
-      showAlert('Failed to load data', 'error');
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [showAlert]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
   const openModal  = (type, data = null, context = null) => {
     savedScroll.current = window.scrollY;
     setModal({ type, data, context });
@@ -116,13 +94,16 @@ function AppInner() {
     const scrollPos = savedScroll.current;
     closeModal();
     showAlert('Saved successfully', 'success');
-    // Reload the current view's data and App's properties concurrently, then
-    // scroll. The view registers its own reload fn via onRegisterReload so we
-    // can await it directly — no timeouts, no polling.
     await Promise.all([
       viewReloadRef.current?.() ?? Promise.resolve(),
       loadData({ silent: true }),
     ]);
+    // Keep selectedProperty in sync so PropertyDetail shows updated values
+    setSelectedProperty(prev => {
+      if (!prev) return null;
+      const fresh = properties.find(p => p.id === prev.id);
+      return fresh ?? prev;
+    });
     window.scrollTo({ top: scrollPos, behavior: 'instant' });
   };
 
@@ -254,8 +235,8 @@ function AppInner() {
         <div style={{ position: 'fixed', top: '1rem', right: '1.5rem', zIndex: 500 }}>
           <GlobalSearch
             properties={properties}
-            allIncome={searchIncome}
-            allExpenses={searchExpenses}
+            allIncome={allIncome}
+            allExpenses={allExpenses}
             onNavigate={(view, propertyId) => { setJumpPropertyId(propertyId ?? null); navigate(view); }}
             onPropertyDetail={handlePropertyClick}
           />
@@ -307,7 +288,9 @@ function AppInner() {
 export default function App() {
   return (
     <ToastProvider>
-      <AppInner />
+      <PortfolioDataProvider>
+        <AppInner />
+      </PortfolioDataProvider>
     </ToastProvider>
   );
 }

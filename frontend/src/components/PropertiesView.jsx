@@ -143,6 +143,13 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
     } catch { (onError || alert)('Failed to restore property'); }
   };
 
+  // Pre-compute health scores once — avoids O(n log n) recalculations in sort
+  const healthScores = useMemo(() => {
+    const map = {};
+    properties.forEach(p => { map[p.id] = calcSimpleHealth(p).score; });
+    return map;
+  }, [properties]);
+
   const filtered = useMemo(() => {
     let list = properties.filter(p => {
       const q = searchTerm.toLowerCase();
@@ -159,11 +166,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       const dir = sortOrder === 'asc' ? 1 : -1;
       switch (sortBy) {
         case 'name':         return dir * a.name.localeCompare(b.name);
-        case 'score': {
-          const sA = calcSimpleHealth(a).score;
-          const sB = calcSimpleHealth(b).score;
-          return dir * (sA - sB);
-        }
+        case 'score':        return dir * ((healthScores[a.id] ?? 0) - (healthScores[b.id] ?? 0));
         case 'market_price':   return dir * (a.market_price   - b.market_price);
         case 'monthly_rent':   return dir * (a.monthly_rent   - b.monthly_rent);
         case 'total_income':   return dir * (a.total_income   - b.total_income);
@@ -178,7 +181,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       }
     });
     return list;
-  }, [properties, searchTerm, filterStatuses, filterTypes, filterProvinces, filterCities, sortBy, sortOrder, allCities.length]);
+  }, [properties, searchTerm, filterStatuses, filterTypes, filterProvinces, filterCities, sortBy, sortOrder, allCities.length, healthScores]);
 
   // Per-property all-time principal for table rows
   const perPropPrincipal = useMemo(() => {
@@ -189,7 +192,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       map[p.id] = principalInRange(pe, p.loan_amount, p.mortgage_rate || 0, new Date(0), new Date(), rateHist);
     }
     return map;
-  }, [filtered, allExpenses, allEvents]);
+  }, [properties, allExpenses, allEvents]);
 
   // ── Summary stats ─────────────────────────────────────────────────────────
   const totalValue    = filtered.reduce((s, p) => s + p.market_price,   0);

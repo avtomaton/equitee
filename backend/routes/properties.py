@@ -1,8 +1,10 @@
 from flask import request, jsonify
+from sqlalchemy import func
 from utils.db import db_session_scope, require_exists, NotFoundError
 from utils.errors import handle_errors
-from models.schema import Property, Event
-from models.property import check_property_params, property_params
+from utils.transform import transform_property_create, transform_property_update
+from models.schema import Property, Expense, Income, Event
+from models.property import check_property_params
 
 
 def register_routes(app):
@@ -10,20 +12,46 @@ def register_routes(app):
     @handle_errors
     def get_properties():
         with db_session_scope() as session:
-            # Query with aggregated totals for backward compatibility
-            from sqlalchemy import func
-            query = session.query(Property)
+            base = session.query(Property)
             if request.args.get('archived') != '1':
-                query = query.filter(Property.is_archived == False)
-            properties = query.order_by(Property.created_at.desc()).all()
-            return jsonify([p.to_dict() for p in properties]), 200
+                base = base.filter(Property.is_archived == False)
+
+            # Single query with JOIN aggregates — avoids N+1 from to_dict()
+            rows = (
+                base.outerjoin(Income, Income.property_id == Property.id)
+                    .outerjoin(Expense, Expense.property_id == Property.id)
+                    .group_by(Property.id)
+                    .order_by(Property.created_at.desc())
+                    .with_entities(
+                        Property,
+                        func.coalesce(func.sum(Income.amount), 0).label('total_income'),
+                        func.coalesce(func.sum(Expense.amount), 0).label('total_expenses'),
+                    )
+                    .all()
+            )
+
+            result = []
+            for prop, total_income, total_expenses in rows:
+                d = prop.to_dict()
+                d['total_income'] = total_income
+                d['total_expenses'] = total_expenses
+                result.append(d)
+            return jsonify(result), 200
 
     @app.route('/api/properties/<int:property_id>', methods=['GET'])
     @handle_errors
     def get_property(property_id):
         with db_session_scope() as session:
-            property = require_exists(session, Property, property_id, 'Property')
-            return jsonify(property.to_dict()), 200
+            prop = require_exists(session, Property, property_id, 'Property')
+            # Single aggregate query instead of iterating relationships
+            total_income = session.query(func.coalesce(func.sum(Income.amount), 0)).filter(
+                Income.property_id == property_id).scalar()
+            total_expenses = session.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
+                Expense.property_id == property_id).scalar()
+            d = prop.to_dict()
+            d['total_income'] = total_income
+            d['total_expenses'] = total_expenses
+            return jsonify(d), 200
 
     @app.route('/api/properties', methods=['POST'])
     @handle_errors
@@ -32,34 +60,14 @@ def register_routes(app):
         check_property_params(data)
 
         with db_session_scope() as session:
-            property = Property(
-                name=data['name'],
-                province=data['province'],
-                city=data['city'],
-                address=data['address'],
-                postal_code=data['postalCode'],
-                parking=data.get('parking', ''),
-                purchase_price=data['purchasePrice'],
-                market_price=data['marketPrice'],
-                loan_amount=data['loanAmount'],
-                mortgage_rate=data.get('mortgageRate', 0),
-                poss_date=data['possDate'],
-                monthly_rent=data['monthlyRent'],
-                status=data['status'],
-                type=data.get('type', 'Condo'),
-                notes=data.get('notes', ''),
-                expected_condo_fees=data.get('expectedCondoFees', 0),
-                expected_insurance=data.get('expectedInsurance', 0),
-                expected_utilities=data.get('expectedUtilities', 0),
-                expected_misc_expenses=data.get('expectedMiscExpenses', 0),
-                expected_appreciation_pct=data.get('expectedAppreciationPct', 0),
-                annual_property_tax=data.get('annualPropertyTax', 0),
-                mortgage_payment=data.get('mortgagePayment', 0),
-                mortgage_frequency=data.get('mortgageFrequency', 'monthly')
-            )
-            session.add(property)
+            kwargs = transform_property_create(data)
+            prop = Property(**kwargs)
+            session.add(prop)
             session.flush()
-            return jsonify(property.to_dict()), 201
+            d = prop.to_dict()
+            d['total_income'] = 0
+            d['total_expenses'] = 0
+            return jsonify(d), 201
 
     @app.route('/api/properties/<int:property_id>', methods=['PUT'])
     @handle_errors
@@ -68,36 +76,12 @@ def register_routes(app):
         check_property_params(data)
 
         with db_session_scope() as session:
-            property = require_exists(session, Property, property_id, 'Property')
-
-            field_mapping = {
-                'name':                      data['name'],
-                'province':                  data['province'],
-                'city':                      data['city'],
-                'address':                   data['address'],
-                'postal_code':               data['postalCode'],
-                'parking':                   data.get('parking', ''),
-                'purchase_price':            data['purchasePrice'],
-                'market_price':              data['marketPrice'],
-                'loan_amount':               data['loanAmount'],
-                'mortgage_rate':             data.get('mortgageRate', 0),
-                'poss_date':                 data['possDate'],
-                'monthly_rent':              data['monthlyRent'],
-                'status':                    data['status'],
-                'type':                      data.get('type', 'Condo'),
-                'expected_condo_fees':       data.get('expectedCondoFees', 0),
-                'expected_insurance':        data.get('expectedInsurance', 0),
-                'expected_utilities':        data.get('expectedUtilities', 0),
-                'expected_misc_expenses':    data.get('expectedMiscExpenses', 0),
-                'expected_appreciation_pct': data.get('expectedAppreciationPct', 0),
-                'annual_property_tax':       data.get('annualPropertyTax', 0),
-                'mortgage_payment':          data.get('mortgagePayment', 0),
-                'mortgage_frequency':        data.get('mortgageFrequency', 'monthly'),
-            }
+            prop = require_exists(session, Property, property_id, 'Property')
+            changes = transform_property_update(data)
 
             # Track changes and create events
-            for column, new_value in field_mapping.items():
-                old_value = getattr(property, column)
+            for column, new_value in changes.items():
+                old_value = getattr(prop, column)
 
                 # Normalize values for comparison
                 if isinstance(new_value, (int, float)):
@@ -116,25 +100,33 @@ def register_routes(app):
                         description=''
                     )
                     session.add(event)
-                    setattr(property, column, new_value)
+                    setattr(prop, column, new_value)
 
-            return jsonify(property.to_dict()), 200
+            session.flush()
+            d = prop.to_dict()
+            total_income = session.query(func.coalesce(func.sum(Income.amount), 0)).filter(
+                Income.property_id == property_id).scalar()
+            total_expenses = session.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
+                Expense.property_id == property_id).scalar()
+            d['total_income'] = total_income
+            d['total_expenses'] = total_expenses
+            return jsonify(d), 200
 
     @app.route('/api/properties/<int:property_id>', methods=['DELETE'])
     @handle_errors
     def archive_property(property_id):
         """Soft-delete (archive) a property."""
         with db_session_scope() as session:
-            property = require_exists(session, Property, property_id, 'Property')
-            property.is_archived = True
+            prop = require_exists(session, Property, property_id, 'Property')
+            prop.is_archived = True
             return jsonify({'message': 'Property archived'}), 200
 
     @app.route('/api/properties/<int:property_id>/restore', methods=['POST'])
     @handle_errors
     def restore_property(property_id):
         with db_session_scope() as session:
-            property = require_exists(session, Property, property_id, 'Property')
-            property.is_archived = False
+            prop = require_exists(session, Property, property_id, 'Property')
+            prop.is_archived = False
             return jsonify({'message': 'Property restored'}), 200
 
     @app.route('/api/properties/<int:property_id>/loan', methods=['POST'])
@@ -146,8 +138,8 @@ def register_routes(app):
         description = data.get('description', 'Loan balance updated after payment')
 
         with db_session_scope() as session:
-            property = require_exists(session, Property, property_id, 'Property')
-            old_amount = float(property.loan_amount or 0)
+            prop = require_exists(session, Property, property_id, 'Property')
+            old_amount = float(prop.loan_amount or 0)
 
             event = Event(
                 property_id=property_id,
@@ -158,5 +150,5 @@ def register_routes(app):
             )
             session.add(event)
 
-            property.loan_amount = new_amount
-            return jsonify(property.to_dict()), 200
+            prop.loan_amount = new_amount
+            return jsonify(prop.to_dict()), 200

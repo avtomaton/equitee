@@ -2,7 +2,9 @@ from flask import request, jsonify
 from datetime import datetime
 from utils.db import db_session_scope
 from utils.errors import handle_errors
+from utils.transform import transform_property_create
 from models.schema import Property, Expense, Income
+from models.property import check_property_params
 from sqlalchemy import func
 
 
@@ -11,14 +13,21 @@ def register_routes(app):
     @handle_errors
     def get_statistics():
         with db_session_scope() as session:
-            properties = session.query(Property).filter(Property.is_archived == False).all()
-            total_income = sum(p.total_income for p in properties)
-            total_expenses = sum(p.total_expenses for p in properties)
+            result = session.query(
+                func.count(Property.id),
+                func.coalesce(func.sum(Income.amount), 0),
+                func.coalesce(func.sum(Expense.amount), 0),
+                func.coalesce(func.sum(Property.market_price), 0),
+            ).filter(Property.is_archived == False)\
+             .outerjoin(Income, Income.property_id == Property.id)\
+             .outerjoin(Expense, Expense.property_id == Property.id)\
+             .first()
+
+            prop_count, total_income, total_expenses, total_value = result
             net_profit = total_income - total_expenses
-            total_value = sum(p.market_price for p in properties)
 
             return jsonify({
-                'propertyCount':  len(properties),
+                'propertyCount':  prop_count,
                 'totalRevenue':   total_income,
                 'totalExpenses':  total_expenses,
                 'netProfit':      net_profit,
@@ -29,40 +38,36 @@ def register_routes(app):
     @app.route('/api/import', methods=['POST'])
     @handle_errors
     def import_data():
-        """Bulk import with transaction rollback protection."""
+        """Bulk import with validation and transaction rollback protection."""
         data = request.get_json()
         if not isinstance(data, list):
             return jsonify({'error': 'Data must be an array of properties'}), 400
 
         with db_session_scope() as session:
             try:
-                # Clear existing data
                 session.query(Expense).delete()
                 session.query(Income).delete()
                 session.query(Property).delete()
 
                 imported_count = 0
                 for prop_data in data:
-                    # Extract nested records
-                    expenses_data = prop_data.pop("expenses", [])
-                    income_data = prop_data.pop("income", [])
+                    expenses_data = prop_data.pop('expenses', [])
+                    income_data = prop_data.pop('income', [])
 
-                    # Create property
-                    property = Property(**prop_data)
-                    session.add(property)
-                    session.flush()  # Get property ID
+                    check_property_params(prop_data)
+                    kwargs = transform_property_create(prop_data)
 
-                    # Create expenses
+                    prop = Property(**kwargs)
+                    session.add(prop)
+                    session.flush()
+
                     for e_data in expenses_data:
-                        e_data['property_id'] = property.id
-                        expense = Expense(**e_data)
-                        session.add(expense)
+                        e_data['property_id'] = prop.id
+                        session.add(Expense(**e_data))
 
-                    # Create income
                     for i_data in income_data:
-                        i_data['property_id'] = property.id
-                        income = Income(**i_data)
-                        session.add(income)
+                        i_data['property_id'] = prop.id
+                        session.add(Income(**i_data))
 
                     imported_count += 1
 
@@ -81,8 +86,8 @@ def register_routes(app):
 
             for prop in properties:
                 prop_dict = prop.to_dict()
-                prop_dict["expenses"] = [e.to_dict() for e in prop.expenses]
-                prop_dict["income"] = [i.to_dict() for i in prop.income_records]
+                prop_dict['expenses'] = [e.to_dict() for e in prop.expenses]
+                prop_dict['income'] = [i.to_dict() for i in prop.income_records]
                 result.append(prop_dict)
 
             return jsonify(result), 200
