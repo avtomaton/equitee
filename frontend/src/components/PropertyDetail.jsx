@@ -1,13 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import { getIncome, getExpenses, getTenants, getEvents, getDocuments, getDocumentUrl } from '../api.js';
 import { isCurrentTenant, trailingYear, makeInTrailingYear } from '../utils.js';
 import { yearsHeld, avgMonthly, principalInRange, calcSimpleHealth, calcExpected, extractRateHistory, computeMortgagePrincipal,
          monthsLeftInYear, yearFracRemaining,
          calcIRR, buildPropertyIRRCashFlows,
          calcPayback, calcBreakEven, analyzeProperty, calcEconVacancy } from '../metrics.js';
-import StatCard from './StatCard.jsx';
-import MetricCard from './MetricCard.jsx';
 import StarRating from './StarRating.jsx';
 import FinancialSummaryPanel from './FinancialSummaryPanel.jsx';
 import { fmtDate, WindowPicker, ltvColor, fmtPeriod } from './uiHelpers.jsx';
@@ -46,8 +44,6 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     getEvents(property.id).then(setEvents).catch(() => {});
     getDocuments(property.id).then(setDocuments).catch(() => {});
   }, [property?.id, property?.total_income, property?.total_expenses]);
-
-  if (!property) return null;
 
   // ── Derived view helpers ──────────────────────────────────────────────────
   const currTenants = tenants.filter(isCurrentTenant);
@@ -103,7 +99,6 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   }, [events, property.monthly_rent]);
 
   // ── Financial fundamentals ────────────────────────────────────────────────
-  const downPmt  = property.purchase_price - property.loan_amount;
   const equity   = property.market_price   - property.loan_amount;
   const equityPct = property.market_price > 0 ? equity / property.market_price * 100 : null;
   const loanPct   = property.market_price > 0 ? property.loan_amount / property.market_price * 100 : null;
@@ -122,14 +117,12 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
   const inYTD = makeInTrailingYear();
   const ytdInc        = income.filter(r   => inYTD(r.income_date)).reduce((s, r) => s + r.amount, 0);
   const ytdExp        = expenses.filter(r => inYTD(r.expense_date)).reduce((s, r) => s + r.amount, 0);
-  const ytdBal        = ytdInc - ytdExp;
   const ytdPrin       = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, ytdStart, ytdEnd, rateHistory);
   const allTimePrin   = principalInRange(expenses, property.loan_amount, property.mortgage_rate || 0, new Date(0), new Date(), rateHistory);
 
   // Net Expenses = Total Expenses − allTimePrin (down payment + all mortgage principal repayments)
   const totalNetExp     = property.total_expenses - allTimePrin;
   const totalNetBalance = property.total_income   - totalNetExp;
-  const roi             = property.market_price > 0 ? totalNetBalance / property.market_price * 100 : null;
   const ytdNetExp     = ytdExp     - ytdPrin;
   const ytdNetBalance = ytdInc     - ytdNetExp;
 
@@ -231,6 +224,8 @@ export default function PropertyDetail({ property, properties = [], onSelectProp
     { name: 'Operating Profit', value: totalNetBalance,         fill: totalNetBalance >= 0 ? '#3b82f6' : '#f59e0b' },
     { name: 'Net Position',     value: sellingProfit,           fill: sellingProfit >= 0 ? '#8b5cf6' : '#ef4444' },
   ];
+
+  if (!property) return null;
 
   return (
     <>

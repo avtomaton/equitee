@@ -15,7 +15,7 @@ export class ErrorBoundary extends React.Component {
     };
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(_error) {
     return { hasError: true };
   }
 
@@ -39,57 +39,26 @@ export class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          padding: '3rem 2rem',
-          backgroundColor: 'var(--bg-secondary)',
-          borderRadius: '12px',
-          margin: '2rem',
-          border: '1px solid var(--danger)',
-        }}>
-          <div style={{
-            fontSize: '2rem',
-            color: 'var(--danger)',
-            marginBottom: '1rem',
-            fontWeight: 'bold',
-          }}>
-            ⚠️ Something went wrong
-          </div>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+        <div className="error-boundary">
+          <div className="error-boundary-title">⚠️ Something went wrong</div>
+          <p className="error-boundary-message">
             An error occurred in this component. The app is still working — try the action below.
           </p>
           {this.state.errorCount > 3 && (
-            <p style={{ color: 'var(--warning)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+            <p className="error-boundary-warning">
               ⚡ Multiple errors detected. Try refreshing the page if this persists.
             </p>
           )}
           <button
+            className="btn error-boundary-retry"
             onClick={this.resetError}
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: 'var(--accent-primary)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '0.875rem',
-            }}
           >
             Try Again
           </button>
-          {process.env.NODE_ENV === 'development' && (
-            <details style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
-              <summary style={{ cursor: 'pointer', color: 'var(--text-tertiary)' }}>
-                Error details (dev only)
-              </summary>
-              <pre style={{
-                backgroundColor: 'var(--bg-primary)',
-                padding: '1rem',
-                borderRadius: '6px',
-                overflow: 'auto',
-                marginTop: '0.5rem',
-                color: 'var(--danger)',
-              }}>
+          {import.meta.env.DEV && (
+            <details className="error-boundary-details">
+              <summary>Error details (dev only)</summary>
+              <pre>
                 {this.state.error && this.state.error.toString()}
                 {'\n\n'}
                 {this.state.errorInfo && this.state.errorInfo.componentStack}

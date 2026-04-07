@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { COLUMN_DEFS } from '../config.js';
 import { getTenants, archiveTenant, restoreTenant } from '../api.js';
 import { useSilentLoading } from '../hooks/useSilentLoading.js';
@@ -63,7 +63,7 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
     if (initialPropertyId) setFilterProperty(String(initialPropertyId));
   }, [initialPropertyId]);
 
-  const loadTenants = async () => {
+  const loadTenants = useCallback(async () => {
     await wrapLoad(async () => {
       const [active, all] = await Promise.all([
         getTenants(),
@@ -72,7 +72,7 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
       setTenants(active);
       setArchivedTenants(all.filter(t => t.is_archived));
     });
-  };
+  }, [wrapLoad]);
 
   // Stable ref so App's viewReloadRef always calls the latest closure
   const loadRef = useRef(loadTenants);
@@ -84,15 +84,15 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
     return () => onRegisterReload?.(null);
   }, [onRegisterReload]);
 
-  useEffect(() => { loadTenants(); }, []);
+  useEffect(() => { loadTenants(); }, [loadTenants]);
 
   const handleArchive = async (id) => {
     if (!confirm('Archive this tenant? They can be restored later.')) return;
-    try { await archiveTenant(id); loadTenants(); } catch (e) { console.error(e); }
+    try { await archiveTenant(id); await loadTenants(); } catch (e) { console.error(e); }
   };
 
   const handleRestore = async (id) => {
-    try { await restoreTenant(id); loadTenants(); } catch (e) { console.error(e); }
+    try { await restoreTenant(id); await loadTenants(); } catch (e) { console.error(e); }
   };
 
   const filtered = useMemo(() => tenants.filter(t => {

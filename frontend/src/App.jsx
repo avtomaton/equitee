@@ -45,8 +45,6 @@ function AppInner() {
   const [currentView, setCurrentView]   = useState(getViewFromHash);
   const [properties, setProperties]     = useState([]);
   const [loading,        setLoading]        = useState(true);
-  // refreshing is true during background reloads (after save) — views stay mounted
-  const [refreshing,     setRefreshing]     = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
 
   // modal state: { type: 'property'|'expense'|'income'|'tenant', data: obj|null, context: obj|null }
@@ -86,18 +84,15 @@ function AppInner() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  useEffect(() => { loadData(); }, []);
-
   const showAlert = useCallback((message, type = 'info') => {
     if (type === 'success') success(message);
     else if (type === 'error') toastError(message);
     else success(message);
   }, [success, toastError]);
 
-  const loadData = async ({ silent = false } = {}) => {
+  const loadData = useCallback(async ({ silent = false } = {}) => {
     try {
-      if (silent) setRefreshing(true);
-      else        setLoading(true);
+      if (!silent) setLoading(true);
       const fresh = await getProperties();
       setProperties(fresh);
       // Keep selectedProperty in sync so PropertyDetail shows updated values
@@ -106,10 +101,11 @@ function AppInner() {
       console.error(err);
       showAlert('Failed to load data', 'error');
     } finally {
-      if (silent) setRefreshing(false);
-      else        setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [showAlert]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const openModal  = (type, data = null, context = null) => {
     savedScroll.current = window.scrollY;

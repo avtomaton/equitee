@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { INITIAL_OPTIONS, COLUMN_DEFS } from '../config.js';
+import { COLUMN_DEFS } from '../config.js';
 import { getExpenses, getIncome, deleteExpense, deleteIncome } from '../api.js';
 import { useSilentLoading } from './useSilentLoading.js';
 import { parseLocalDate, mergeOptions, getDateRanges, isDateInRange } from '../utils.js';
@@ -42,11 +42,11 @@ export default function useTransactionView({
   }, [initialPropertyId]);
 
   const allTypes = useMemo(() =>
-    mergeOptions(seedTypeOptions, records.map(r => r[typeField])), [records]);
+    mergeOptions(seedTypeOptions, records.map(r => r[typeField])), [records, seedTypeOptions, typeField]);
 
   const allCategories = useMemo(() =>
     categoryField ? mergeOptions(seedCategoryOptions, records.map(r => r[categoryField])) : [],
-  [records]);
+  [records, categoryField, seedCategoryOptions]);
 
   useEffect(() => {
     const newOnes = allTypes.filter(v => v && !seenTypesRef.current.has(v));
@@ -63,7 +63,7 @@ export default function useTransactionView({
       newOnes.forEach(v => seenCategoriesRef.current.add(v));
       setFilterCategories(prev => [...prev, ...newOnes]);
     }
-  }, [allCategories]);
+  }, [allCategories, categoryField]);
 
   // propertiesRef: always current, lets load() be stable (no useCallback deps)
   const propertiesRef = useRef(properties);
@@ -131,7 +131,7 @@ export default function useTransactionView({
       return 0;
     });
     return list;
-  }, [baseRecords, filterTypes, filterCategories, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder]);
+  }, [baseRecords, filterTypes, filterCategories, dateFilter, customDateStart, customDateEnd, sortBy, sortOrder, categoryField, dateField, typeField]);
 
   const baseTotal     = baseRecords.reduce((s, r) => s + r.amount, 0);
   const filteredTotal = filtered.reduce((s, r) => s + r.amount, 0);

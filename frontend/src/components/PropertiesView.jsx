@@ -3,7 +3,6 @@ import MultiSelect from './MultiSelect.jsx';
 import TruncatedCell from './Tooltip.jsx';
 import Collapsible from './Collapsible.jsx';
 import Analytics from './Analytics.jsx';
-import StatCard from './StatCard.jsx';
 import KPICard from './KPICard.jsx';
 import ResetColumnsButton from './ResetColumnsButton.jsx';
 import { INITIAL_OPTIONS, PROVINCES, COLUMN_DEFS } from '../config.js';
@@ -179,7 +178,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       }
     });
     return list;
-  }, [properties, searchTerm, filterStatuses, filterTypes, filterProvinces, filterCities, sortBy, sortOrder]);
+  }, [properties, searchTerm, filterStatuses, filterTypes, filterProvinces, filterCities, sortBy, sortOrder, allCities.length]);
 
   // Per-property all-time principal for table rows
   const perPropPrincipal = useMemo(() => {
@@ -251,7 +250,7 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
       ? expNOIAnnual / totalAnnualInterest : null;
 
     return { ytdOpProfit, avgCF, oer, icr, expICR };
-  }, [filtered, allIncome, allExpenses]);
+  }, [filtered, allIncome, allExpenses, allEvents]);
 
   // ── Smart tips ────────────────────────────────────────────────────────────
   const smartTips = useMemo(() => {

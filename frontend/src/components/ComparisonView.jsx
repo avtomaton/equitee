@@ -4,8 +4,6 @@ import { getExpenses, getIncome, getEvents } from '../api.js';
 import { useEffect } from 'react';
 
 const fmt  = n => `$${Math.round(n).toLocaleString()}`;
-const fmtp = n => `${n.toFixed(2)}%`;
-const na   = v => (v == null || isNaN(v)) ? '—' : v;
 
 function MetricRow({ label, values, fmt: fmtFn = String, highlight = 'high' }) {
   const nums = values.map(v => (v == null || isNaN(v)) ? null : v);

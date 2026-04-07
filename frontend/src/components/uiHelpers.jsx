@@ -1,6 +1,5 @@
 export { fmt, fmtPeriod } from '../utils.js';
 import { fmt } from '../utils.js';
-import MetricCard from './MetricCard.jsx';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 export const fmtM   = n => n === 0 ? '—' : fmt(n) + '/mo';

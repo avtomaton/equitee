@@ -5,6 +5,7 @@ node_modules/
 *.pyo
 /.idea/
 __pycache__
+.pytest_cache
 backend/*.db
 backup/*
 data/*

@@ -11,14 +11,18 @@ class ValidationError(Exception):
 def validate_number_range(value, field_name, min_val=None, max_val=None):
     """Validate numeric field is within acceptable range."""
     try:
-        num = float(value) if value is not None else 0
-        if min_val is not None and num < min_val:
-            raise ValueError(f"{field_name} cannot be less than {min_val}")
-        if max_val is not None and num > max_val:
-            raise ValueError(f"{field_name} cannot exceed {max_val}")
-        return num
+        if value is None:
+            return 0
+        num = float(value)
     except (TypeError, ValueError):
         raise ValueError(f"{field_name} must be numeric")
+
+    if min_val is not None and num < min_val:
+        raise ValueError(f"{field_name} cannot be less than {min_val}")
+    if max_val is not None and num > max_val:
+        raise ValueError(f"{field_name} cannot exceed {max_val}")
+
+    return num
 
 def validate_currency(value, field_name):
     """Validate currency field (0 to 999,999,999)."""

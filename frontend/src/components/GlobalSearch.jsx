@@ -125,7 +125,7 @@ export default function GlobalSearch({ properties, allIncome, allExpenses, onNav
         </div>
 
         {results.length === 0 && query.trim() && (
-          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>No results for "{query}"</div>
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>No results for &quot;{query}&quot;</div>
         )}
 
         {results.length === 0 && !query.trim() && (

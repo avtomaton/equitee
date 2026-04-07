@@ -28,7 +28,9 @@ export function useColumnVisibility(viewName) {
         const allValid      = Array.isArray(cols) && cols.every(k => validKeys.has(k));
         const sameDefaults  = defaults === defaultFingerprint;
         if (allValid && sameDefaults && cols.length > 0) return cols;
-      } catch {}
+      } catch {
+        // Ignore malformed saved data
+      }
     }
     return defaultKeys;
   });

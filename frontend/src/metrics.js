@@ -91,23 +91,6 @@ export const calcMortgagePayment = (principal, annualRatePct, amortYears) => {
   return principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
 };
 
-const groupPaymentsByMonth = (expenses) => {
-  const map = new Map();
-
-  for (const e of expenses) {
-    const d = new Date(e.expense_date);
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
-
-    if (!map.has(key)) {
-      map.set(key, []);
-    }
-    map.get(key).push(e);
-  }
-
-  return map;
-};
-
-
 /**
  * Extract mortgage rate change history from events, returning a sorted array of
  * { date: 'YYYY-MM-DD', rate: number } objects for use in rate-aware calculations.

@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
 import StarRating from './StarRating.jsx';
-import MetricCard from './MetricCard.jsx';
 import { fmt, fp, NumInput, SliderInput } from './uiHelpers.jsx';
-import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalMonthlyMortgage, cardEvalTotalMonthlyCosts, cardEvalAvgCashFlow, cardEvalMonthlyGain, cardEvalPayback, cardEvalBreakEven, cardEvalDSCR, cardEvalDebtYield, cardEvalMaxVacancy, cardEvalEquityMultiple, cardEvalMinRent } from '../metricDefs.jsx';
+import { cardEvalLTV, cardEvalCapRate, cardEvalCashOnCash, cardEvalExpenseRatio, cardEvalRentToValue, cardEvalAnnualNOI, cardEvalGRM, cardEvalIRR10, cardEvalAvgCashFlow, cardEvalPayback, cardEvalBreakEven, cardEvalDSCR, cardEvalDebtYield, cardEvalMaxVacancy, cardEvalEquityMultiple, cardEvalMinRent } from '../metricDefs.jsx';
 import { calcInvestmentScore, calcMortgagePayment, calcIRR, calcPayback, calcBreakEven } from '../metrics.js';
 import { clamp } from '../utils.js';
 
@@ -166,7 +165,7 @@ function ScorePanel({ score }) {
 
 function buildAnalysis({ avgCashFlow, monthlyGain, yearlyAppr, yearlyApprRatio,
   cardMarketValue, monthlyRent, capRate, cashOnCash,
-  expenseRatio, ltvRatio, equity, monthlyMortgage, vacancyRate,
+  expenseRatio, ltvRatio, equity, vacancyRate,
   oneOffExpense, repairReserve }) {
 
   const items = [];
@@ -557,7 +556,7 @@ export default function EvaluatorView() {
       cardMarketValue: inputs.purchasePrice, monthlyRent: result.effectiveRent,
       capRate: result.capRate, cashOnCash: result.cashOnCash,
       expenseRatio: result.expenseRatio, ltvRatio: result.ltvRatio,
-      equity: result.equity, monthlyMortgage: result.monthlyMortgage,
+      equity: result.equity,
       vacancyRate: scenario.vacancyRate, oneOffExpense: scenario.oneOffExpense,
       repairReserve: scenario.repairReserve,
     });

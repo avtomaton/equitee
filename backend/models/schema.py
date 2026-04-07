@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, Index
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy import func
 
@@ -235,7 +235,7 @@ class Document(Base):
         }
 
 
-# Database indexes - matches original SQLite schema
+# Database indexes - original indexes only (performance indexes managed by migration: add_missing_indexes)
 Index('idx_expenses_property', Expense.property_id)
 Index('idx_income_property', Income.property_id)
 Index('idx_events_property', Event.property_id)
@@ -243,3 +243,7 @@ Index('idx_tenants_property', Tenant.property_id)
 Index('idx_expenses_date', Expense.expense_date)
 Index('idx_income_date', Income.income_date)
 Index('idx_properties_archived', Property.is_archived)
+# NOTE: The following performance indexes are managed by the Alembic migration
+# 'add_missing_indexes' and are NOT declared here to avoid duplication:
+#   idx_tenants_lease_end, idx_tenants_archived, idx_events_column,
+#   idx_expenses_prop_date, idx_income_prop_date, idx_documents_property

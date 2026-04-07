@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { COLUMN_DEFS } from '../config.js';
 import { getEvents, updateEvent, deleteEvent } from '../api.js';
 import { useSilentLoading } from '../hooks/useSilentLoading.js';
@@ -26,12 +26,12 @@ export default function EventsView({ properties, initialPropertyId }) {
 
   const loadRef = useRef(null);
 
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
     await wrapLoad(async () => setEvents(await getEvents()));
-  };
+  }, [wrapLoad]);
   loadRef.current = loadEvents;
 
-  useEffect(() => { loadEvents(); }, []);
+  useEffect(() => { loadEvents(); }, [loadEvents]);
 
   useEffect(() => {
     if (initialPropertyId) setFilterProperty(String(initialPropertyId));

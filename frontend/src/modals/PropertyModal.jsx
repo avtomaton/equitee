@@ -41,8 +41,6 @@ export default function PropertyModal({ property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Property(property));
   const [errors,   setErrors]   = useState({});
 
-  const prevStatus = property?.status ?? null;
-
   const isVacant  = formData.status === 'Vacant';
   const isRented  = formData.status === 'Rented';
   // Warn when switching TO Rented and rent is still 0

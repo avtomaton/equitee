@@ -16,6 +16,24 @@
     --sidebar-width: 280px;
 }
 
+/* Light mode theme */
+[data-theme="light"] {
+    --bg-primary: #f8f9fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f1f3f5;
+    --accent-primary: #2563eb;
+    --accent-secondary: #3b82f6;
+    --accent-tertiary: #60a5fa;
+    --success: #059669;
+    --danger: #dc2626;
+    --warning: #d97706;
+    --sidenote: #2563eb;
+    --text-primary: #111827;
+    --text-secondary: #4b5563;
+    --text-tertiary: #9ca3af;
+    --border: #e5e7eb;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -40,10 +58,13 @@ body {
     background: var(--bg-secondary);
     border-right: 1px solid var(--border);
     padding: 2rem 0;
+    padding-bottom: 5rem; /* Space for theme toggle on short screens */
     position: fixed;
     height: 100vh;
     overflow-y: auto;
     z-index: 100;
+    display: flex;
+    flex-direction: column;
 }
 
 .sidebar-header {
@@ -1250,4 +1271,338 @@ select.eval-input:focus {
         opacity: 0;
         transform: translateX(100%);
     }
+}
+
+/* ── Theme Toggle (global, top-right corner) ──────────────────────────────── */
+
+.theme-toggle-global {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 200;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.theme-toggle-global:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+/* Desktop: shift GlobalSearch left to avoid theme toggle overlap */
+@media (min-width: 769px) {
+    .main-content > div[style*="position: fixed"] {
+        right: 4.5rem !important;
+    }
+}
+
+/* ── Hamburger Menu ───────────────────────────────────────────────────────── */
+
+.hamburger {
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 200;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    padding: 0.6rem;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.hamburger:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+.hamburger-line {
+    display: block;
+    width: 100%;
+    height: 2px;
+    background: var(--text-primary);
+    border-radius: 2px;
+    transition: all 0.3s;
+}
+
+.hamburger[aria-expanded="true"] .hamburger-line:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+
+.hamburger[aria-expanded="true"] .hamburger-line:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger[aria-expanded="true"] .hamburger-line:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+/* ── Sidebar Overlay (mobile) ─────────────────────────────────────────────── */
+
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 90;
+}
+
+/* ── Responsive: Tablet (≤1024px) ─────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+    .main-content {
+        padding: 2rem 1.5rem;
+    }
+
+    .property-grid {
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    }
+
+    .page-title {
+        font-size: 2rem;
+    }
+}
+
+/* ── Responsive: Mobile (≤768px) ──────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    /* Show hamburger */
+    .hamburger {
+        display: flex;
+    }
+
+    /* Sidebar hidden by default, slides in when open */
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        z-index: 100;
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    /* Show overlay when sidebar is open */
+    .sidebar-overlay {
+        display: block;
+    }
+
+    /* Main content takes full width */
+    .main-content {
+        margin-left: 0;
+        padding: 1rem;
+        padding-top: 4rem; /* Space for hamburger button */
+        max-width: 100vw;
+    }
+
+    /* Move GlobalSearch down to avoid overlapping with theme toggle */
+    .main-content > div[style*="position: fixed"] {
+        top: 4rem !important;
+        right: 4rem !important;
+    }
+
+    /* Stack page header vertically */
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .page-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    /* Single column property grid */
+    .property-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Smaller page title */
+    .page-title {
+        font-size: 1.75rem;
+    }
+
+    /* Stack KPI cards */
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Table scroll */
+    .table-scroll-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Chart containers */
+    .chart-container {
+        margin-bottom: 1rem;
+    }
+
+    /* Modal adjustments */
+    .modal-content {
+        width: 95vw;
+        max-width: none;
+        margin: 1rem;
+    }
+
+    /* Filter controls stack */
+    .table-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-group,
+    .sort-group {
+        flex-wrap: wrap;
+    }
+
+    /* Jump buttons wrap */
+    .jump-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .jump-buttons .btn {
+        flex: 1 1 auto;
+        text-align: center;
+        min-width: 0;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.82rem;
+    }
+}
+
+/* ── Responsive: Small Mobile (≤480px) ────────────────────────────────────── */
+
+@media (max-width: 480px) {
+    .main-content {
+        padding: 0.75rem;
+        padding-top: 4rem;
+    }
+
+    .page-title {
+        font-size: 1.5rem;
+    }
+
+    .page-subtitle {
+        font-size: 0.875rem;
+    }
+
+    /* Smaller stat cards */
+    .stat-card {
+        padding: 1rem;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+    }
+
+    /* Compact property cards */
+    .property-card {
+        padding: 1rem;
+    }
+
+    .property-name {
+        font-size: 1.1rem;
+    }
+
+    /* Sidebar narrower on small screens */
+    .sidebar {
+        width: 260px;
+    }
+
+    /* Smaller hamburger */
+    .hamburger {
+        width: 40px;
+        height: 40px;
+        top: 0.75rem;
+        left: 0.75rem;
+    }
+
+    /* Smaller theme toggle */
+    .theme-toggle-global {
+        width: 40px;
+        height: 40px;
+        top: 0.75rem;
+        right: 0.75rem;
+    }
+}
+
+/* ── Error Boundary ─────────────────────────────────────────────────────────── */
+
+.error-boundary {
+    padding: 3rem 2rem;
+    background-color: var(--bg-secondary);
+    border-radius: 12px;
+    margin: 2rem;
+    border: 1px solid var(--danger);
+}
+
+.error-boundary-title {
+    font-size: 2rem;
+    color: var(--danger);
+    margin-bottom: 1rem;
+    font-weight: bold;
+}
+
+.error-boundary-message {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.error-boundary-warning {
+    color: var(--warning);
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.error-boundary-retry {
+    padding: 0.75rem 1.5rem;
+    background-color: var(--accent-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.error-boundary-retry:hover {
+    opacity: 0.9;
+}
+
+.error-boundary-details {
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+}
+
+.error-boundary-details summary {
+    cursor: pointer;
+    color: var(--text-tertiary);
+}
+
+.error-boundary-details pre {
+    background-color: var(--bg-primary);
+    padding: 1rem;
+    border-radius: 6px;
+    overflow: auto;
+    margin-top: 0.5rem;
+    color: var(--danger);
 }
