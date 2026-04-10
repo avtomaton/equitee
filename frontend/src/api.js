@@ -1,8 +1,8 @@
 /**
  * api.js — All HTTP calls to the backend in one place.
  *
- * Every function returns a parsed JSON value (or throws on non-OK responses),
- * so callers never deal with raw fetch() or status checks.
+ * Supports both self-hosted (no auth) and SaaS (JWT auth) modes.
+ * In SaaS mode, the access token is automatically attached to every request.
  *
  * Adding auth headers, a base-URL swap, or global error toasts only
  * needs to happen here.
@@ -13,13 +13,37 @@ import { API_URL } from './config.js';
 // ── Core helper ───────────────────────────────────────────────────────────────
 
 async function req(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+
+  // Attach JWT token if available
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   });
+
   if (!res.ok) {
+    // Handle 401 (token expired) — redirect to login in SaaS mode
+    if (res.status === 401 && token && window.location.hash !== '#/login') {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      window.location.hash = '#/login';
+      throw new Error('Session expired. Please log in again.');
+    }
+
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(text || `Request failed: ${res.status}`);
+    let errorMessage = text;
+    try {
+      const json = JSON.parse(text);
+      errorMessage = json.error || text;
+    } catch {
+      // text is not valid JSON — use it as-is
+    }
+    throw new Error(errorMessage || `Request failed: ${res.status}`);
   }
   return res.json();
 }
@@ -28,6 +52,25 @@ const get  = (path)        => req(path);
 const post = (path, body)  => req(path, { method: 'POST',   body: JSON.stringify(body) });
 const put  = (path, body)  => req(path, { method: 'PUT',    body: JSON.stringify(body) });
 const del  = (path)        => req(path, { method: 'DELETE' });
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export const auth = {
+  register: (email, password, tenantName) =>
+    post('/auth/register', { email, password, tenantName }),
+
+  login: (email, password) =>
+    post('/auth/login', { email, password }),
+
+  refresh: (refreshToken) =>
+    post('/auth/refresh', { refresh_token: refreshToken }),
+
+  logout: () =>
+    post('/auth/logout', {}).catch(() => {}), // Best-effort
+
+  me: () =>
+    get('/auth/me'),
+};
 
 // ── Properties ────────────────────────────────────────────────────────────────
 

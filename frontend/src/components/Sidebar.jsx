@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../context/AuthContext.jsx';
+import { isSaasMode } from './AuthGuard.jsx';
 
 export default function Sidebar({ currentView, onNavigate }) {
+  const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     // Check localStorage first, then system preference
@@ -77,6 +80,19 @@ export default function Sidebar({ currentView, onNavigate }) {
         {navItem('events',  '📝', 'Events Log')}
         {navItem('documents', '📎', 'Documents')}
       </div>
+
+      {isSaasMode && user && (
+        <div className="nav-section sidebar-user">
+          <div className="sidebar-user-email">{user.email}</div>
+          <div
+            className="nav-item logout-item"
+            onClick={() => { logout(); onNavigate('login'); }}
+          >
+            <span className="nav-icon">🚪</span>
+            <span>Sign Out</span>
+          </div>
+        </div>
+      )}
     </>
   );
 

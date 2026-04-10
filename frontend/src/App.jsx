@@ -12,11 +12,14 @@ import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 import DocumentsView  from './components/DocumentsView.jsx';
+import { isAuthenticated, isSaasMode } from './components/AuthGuard.jsx';
 
 // Lazy loaded views - loaded only when needed
 const EvaluatorView  = lazy(() => import('./components/EvaluatorView.jsx'));
 const RenovationView = lazy(() => import('./components/RenovationView.jsx'));
 const ComparisonView = lazy(() => import('./components/ComparisonView.jsx'));
+const LoginPage      = lazy(() => import('./pages/Login.jsx'));
+const RegisterPage   = lazy(() => import('./pages/Register.jsx'));
 
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
@@ -25,18 +28,23 @@ import TenantModal    from './modals/TenantModal.jsx';
 
 import { ToastProvider, ToastContainer, useToast } from './components/Toast.jsx';
 import { PortfolioDataProvider, usePortfolioData } from './context/PortfolioDataContext.jsx';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 
 // ── URL routing helpers ───────────────────────────────────────────────────────
 
-const VALID_VIEWS = ['dashboard', 'properties', 'expenses', 'income', 'tenants', 'events', 'property-detail', 'evaluator', 'renovation', 'comparison', 'documents'];
+const VALID_VIEWS = [
+  'dashboard', 'properties', 'expenses', 'income', 'tenants', 'events',
+  'property-detail', 'evaluator', 'renovation', 'comparison', 'documents',
+  'login', 'register',
+];
 
 const getViewFromHash = () => {
-  const hash = window.location.hash.replace('#', '');
+  const hash = window.location.hash.replace('#', '').replace('/', '');
   return VALID_VIEWS.includes(hash) ? hash : 'dashboard';
 };
 
 const setHash = (view) => {
-  window.history.replaceState(null, '', `#${view}`);
+  window.history.replaceState(null, '', `#/${view}`);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,9 +52,11 @@ const setHash = (view) => {
 function AppInner() {
   const { success, error: toastError } = useToast();
   const {
-    properties, allIncome, allExpenses, allEvents,
+    properties, allIncome, allExpenses,
     loading, refresh: loadData
   } = usePortfolioData();
+
+  const { user } = useAuth();
 
   const [currentView, setCurrentView]   = useState(getViewFromHash);
   const [selectedProperty, setSelectedProperty] = useState(null);
@@ -78,6 +88,28 @@ function AppInner() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // Auth guard: redirect to login if not authenticated in SaaS mode
+  useEffect(() => {
+    if (!isSaasMode) return;
+
+    const view = getViewFromHash();
+    const authViews = ['login', 'register'];
+
+    if (!isAuthenticated(user) && !authViews.includes(view)) {
+      window.location.hash = '/login';
+    }
+
+    // If logged in and on auth page, go to dashboard
+    if (user && authViews.includes(view)) {
+      navigate('dashboard');
+    }
+  }, [user]);
+
+  // Handle login/register navigation from auth pages
+  const handleAuthNavigate = (view) => {
+    navigate(view);
+  };
 
   const showAlert = useCallback((message, type = 'info') => {
     if (type === 'success') success(message);
@@ -126,6 +158,22 @@ function AppInner() {
   };
 
   const renderView = () => {
+    // Auth pages (only shown in SaaS mode)
+    if (currentView === 'login') {
+      return (
+        <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+          <LoginPage onNavigate={handleAuthNavigate} />
+        </Suspense>
+      );
+    }
+    if (currentView === 'register') {
+      return (
+        <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+          <RegisterPage onNavigate={handleAuthNavigate} />
+        </Suspense>
+      );
+    }
+
     switch (currentView) {
       case 'dashboard':
         return <Dashboard properties={properties} onPropertyClick={handlePropertyClick} />;
@@ -288,9 +336,11 @@ function AppInner() {
 export default function App() {
   return (
     <ToastProvider>
-      <PortfolioDataProvider>
-        <AppInner />
-      </PortfolioDataProvider>
+      <AuthProvider>
+        <PortfolioDataProvider>
+          <AppInner />
+        </PortfolioDataProvider>
+      </AuthProvider>
     </ToastProvider>
   );
 }

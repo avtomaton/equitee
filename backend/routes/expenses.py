@@ -1,15 +1,17 @@
 from flask import request, jsonify
-from utils.db import db_session_scope, require_exists, NotFoundError
+from utils.db import tenant_session, require_exists, NotFoundError
 from utils.errors import handle_errors
+from middleware.tenant_router import tenant_required
 from models.schema import Expense, Property
 from validation import validate_required, validate_currency, validate_date, validate_string_length, sanitize_html
 
 
 def register_routes(app):
     @app.route('/api/expenses', methods=['GET'])
+    @tenant_required
     @handle_errors
     def get_expenses():
-        with db_session_scope() as session:
+        with tenant_session() as session:
             query = session.query(Expense)
             property_id = request.args.get('property_id')
             if property_id:
@@ -18,6 +20,7 @@ def register_routes(app):
             return jsonify([e.to_dict() for e in expenses]), 200
 
     @app.route('/api/expenses', methods=['POST'])
+    @tenant_required
     @handle_errors
     def create_expense():
         data = request.get_json()
@@ -26,7 +29,7 @@ def register_routes(app):
         expense_date = validate_date(data['expenseDate'], 'expenseDate').isoformat()
         notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
 
-        with db_session_scope() as session:
+        with tenant_session() as session:
             # Verify property exists
             require_exists(session, Property, data['propertyId'], 'Property')
 
@@ -44,6 +47,7 @@ def register_routes(app):
             return jsonify(expense.to_dict()), 201
 
     @app.route('/api/expenses/<int:expense_id>', methods=['PUT'])
+    @tenant_required
     @handle_errors
     def update_expense(expense_id):
         data = request.get_json()
@@ -52,7 +56,7 @@ def register_routes(app):
         expense_date = validate_date(data['expenseDate'], 'expenseDate').isoformat()
         notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
 
-        with db_session_scope() as session:
+        with tenant_session() as session:
             expense = require_exists(session, Expense, expense_id, 'Expense')
 
             expense.property_id = data['propertyId']
@@ -66,9 +70,10 @@ def register_routes(app):
             return jsonify(expense.to_dict()), 200
 
     @app.route('/api/expenses/<int:expense_id>', methods=['DELETE'])
+    @tenant_required
     @handle_errors
     def delete_expense(expense_id):
-        with db_session_scope() as session:
+        with tenant_session() as session:
             expense = require_exists(session, Expense, expense_id, 'Expense')
             session.delete(expense)
             return jsonify({'message': 'Expense deleted successfully'}), 200

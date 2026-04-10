@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+import os
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -25,6 +26,14 @@ target_metadata = Base.metadata
 # ... etc.
 
 
+def _is_single_mode():
+    """Check if we're running in single/self-hosted mode."""
+    tenancy_mode = os.environ.get('TENANCY_MODE', 'single')
+    db_url = config.get_main_option("sqlalchemy.url")
+    # Skip if SQLite or explicitly set to single mode
+    return tenancy_mode == 'single' or (db_url and db_url.startswith('sqlite'))
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -37,6 +46,10 @@ def run_migrations_offline() -> None:
     script output.
 
     """
+    if _is_single_mode():
+        print("Skipping public schema migrations in single mode.")
+        return
+
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -56,6 +69,10 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    if _is_single_mode():
+        print("Skipping public schema migrations in single mode.")
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

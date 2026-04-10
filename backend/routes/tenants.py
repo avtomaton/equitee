@@ -1,19 +1,21 @@
 from flask import request, jsonify
-from utils.db import db_session_scope, require_exists
+from utils.db import tenant_session, require_exists
 from utils.errors import handle_errors
+from middleware.tenant_router import tenant_required
 from models.schema import Tenant, Property
 from validation import validate_required, validate_email, validate_phone, validate_currency, validate_string_length, validate_date, sanitize_html
 
 
 def register_routes(app):
     @app.route('/api/tenants', methods=['GET'])
+    @tenant_required
     @handle_errors
     def get_tenants():
         """Get tenants with property names."""
-        with db_session_scope() as session:
-            property_id = request.args.get('property_id')
-            is_archived = request.args.get('archived') == '1'
+        property_id = request.args.get('property_id')
+        is_archived = request.args.get('archived') == '1'
 
+        with tenant_session() as session:
             query = session.query(Tenant)
             if property_id:
                 query = query.filter(Tenant.property_id == property_id)
@@ -30,6 +32,7 @@ def register_routes(app):
             return jsonify(result), 200
 
     @app.route('/api/tenants', methods=['POST'])
+    @tenant_required
     @handle_errors
     def create_tenant():
         data = request.get_json()
@@ -43,7 +46,7 @@ def register_routes(app):
         phone = validate_phone(data.get('phone', '')) if data.get('phone') else ''
         notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
 
-        with db_session_scope() as session:
+        with tenant_session() as session:
             # Verify property exists
             require_exists(session, Property, data['propertyId'], 'Property')
 
@@ -66,6 +69,7 @@ def register_routes(app):
             return jsonify(tenant_dict), 201
 
     @app.route('/api/tenants/<int:tenant_id>', methods=['PUT'])
+    @tenant_required
     @handle_errors
     def update_tenant(tenant_id):
         data = request.get_json()
@@ -79,7 +83,7 @@ def register_routes(app):
         phone = validate_phone(data.get('phone', '')) if data.get('phone') else ''
         notes = sanitize_html(validate_string_length(data.get('notes', ''), 'notes', 1000))
 
-        with db_session_scope() as session:
+        with tenant_session() as session:
             tenant = require_exists(session, Tenant, tenant_id, 'Tenant')
 
             tenant.property_id = data['propertyId']
@@ -97,18 +101,20 @@ def register_routes(app):
             return jsonify(tenant_dict), 200
 
     @app.route('/api/tenants/<int:tenant_id>', methods=['DELETE'])
+    @tenant_required
     @handle_errors
     def archive_tenant(tenant_id):
         """Soft-delete (archive) a tenant."""
-        with db_session_scope() as session:
+        with tenant_session() as session:
             tenant = require_exists(session, Tenant, tenant_id, 'Tenant')
             tenant.is_archived = True
             return jsonify({'message': 'Tenant archived'}), 200
 
     @app.route('/api/tenants/<int:tenant_id>/restore', methods=['POST'])
+    @tenant_required
     @handle_errors
     def restore_tenant(tenant_id):
-        with db_session_scope() as session:
+        with tenant_session() as session:
             tenant = require_exists(session, Tenant, tenant_id, 'Tenant')
             tenant.is_archived = False
             return jsonify({'message': 'Tenant restored'}), 200
