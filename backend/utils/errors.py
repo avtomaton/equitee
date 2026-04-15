@@ -1,7 +1,11 @@
+import logging
+
 from functools import wraps
 from flask import jsonify
 from validation import ValidationError
 from utils.db import NotFoundError
+
+logger = logging.getLogger(__name__)
 
 
 def handle_errors(f):
@@ -19,5 +23,6 @@ def handle_errors(f):
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            logger.exception("Unhandled error in %s", f.__name__)
+            return jsonify({'error': 'Internal server error'}), 500
     return wrapper

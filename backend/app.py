@@ -19,6 +19,21 @@ Config.validate()
 app = Flask(__name__)
 CORS(app)
 
+# ── Rate limiter (SaaS mode) ───────────────────────────────────
+limiter = None
+if Config.TENANCY_MODE == 'saas':
+    try:
+        from flask_limiter import Limiter
+        from flask_limiter.util import get_remote_address
+        limiter = Limiter(
+            app=app,
+            key_func=get_remote_address,
+            default_limits=["200 per day", "50 per hour"],
+            storage_uri="memory://",
+        )
+    except ImportError:
+        print("⚠️  flask-limiter not installed — auth endpoints will run without rate limiting")
+
 # ── Database initialization ─────────────────────────────────────
 with app.app_context():
     if Config.TENANCY_MODE == 'saas':
@@ -42,7 +57,7 @@ documents.register_routes(app)
 # Auth routes — only in SaaS mode
 if Config.TENANCY_MODE == 'saas':
     from routes.auth import register_auth_routes
-    register_auth_routes(app)
+    register_auth_routes(app, limiter=limiter)
     print("✅ Auth routes registered (SaaS mode)")
 else:
     print("✅ Running in self-hosted mode (no auth)")
@@ -55,8 +70,8 @@ def shutdown_session(exception=None):
 
     # In SaaS mode, also clean up tenant-scoped sessions
     from flask import g
-    if hasattr(g, 'scoped_session'):
-        g.scoped_session.remove()
+    if hasattr(g, 'tenant_session'):
+        g.tenant_session.close()
 
 
 if __name__ == '__main__':

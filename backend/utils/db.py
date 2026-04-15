@@ -12,11 +12,15 @@ SaaS mode (TENANCY_MODE=saas):
   - The tenant's schema name must be set on Flask's g object by @tenant_required middleware
 """
 
+import logging
 import os
+import re
 import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, scoped_session
@@ -95,7 +99,7 @@ def get_tenant_session():
             session.rollback()
             raise
         finally:
-            session.remove()
+            session.close()
     """
     if TENANCY_MODE == 'single':
         return db_session
@@ -116,14 +120,11 @@ def get_tenant_session():
         schema_translate_map={None: schema_name}
     )
 
-    tenant_session_factory = sessionmaker(
-        bind=conn,
-        autocommit=False,
-        autoflush=False,
-    )
-
-    session = scoped_session(tenant_session_factory)
-    g.scoped_session = session  # So teardown can clean it up
+    # Use a plain Session (not scoped_session) for per-request use.
+    # scoped_session is a module-level singleton for thread-local management;
+    # a plain Session is more appropriate here since we create/close per request.
+    session = SessionLocal(bind=conn)
+    g.tenant_session = session  # So teardown can clean it up
     return session
 
 
@@ -149,10 +150,21 @@ def tenant_session():
         session.rollback()
         raise
     finally:
-        session.remove()
+        # scoped_session has .remove(); plain Session has .close()
+        if hasattr(session, 'remove'):
+            session.remove()
+        else:
+            session.close()
 
 
 # ── Tenant schema management (SaaS mode) ──────────────────────
+
+def _validate_schema_name(schema_name):
+    """Ensure schema name is safe for SQL interpolation (defense-in-depth)."""
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', schema_name):
+        raise ValueError(f"Invalid schema name: {schema_name!r}")
+
+
 def create_tenant_schema(tenant_id):
     """
     Create a new PostgreSQL schema for a tenant and run all tenant migrations.
@@ -163,6 +175,7 @@ def create_tenant_schema(tenant_id):
         raise RuntimeError("create_tenant_schema is only available in SaaS mode.")
 
     schema_name = f"tenant_{tenant_id}"
+    _validate_schema_name(schema_name)
 
     # Create the schema
     with engine.begin() as conn:
@@ -182,6 +195,7 @@ def drop_tenant_schema(tenant_id):
         raise RuntimeError("drop_tenant_schema is only available in SaaS mode.")
 
     schema_name = f"tenant_{tenant_id}"
+    _validate_schema_name(schema_name)
 
     with engine.begin() as conn:
         conn.execute(text(f"DROP SCHEMA IF EXISTS {schema_name} CASCADE"))
@@ -199,12 +213,13 @@ def _run_tenant_alembic(schema_name):
             "Run 'alembic init migrations_tenant' to create it."
         )
 
-    env = os.environ.copy()
-    env['TENANT_SCHEMA'] = schema_name
-    # Inherit DATABASE_URL and other env vars
+    # Load .env BEFORE copying environment so subprocess inherits values
     if Path('.env').exists():
         from dotenv import load_dotenv
         load_dotenv('.env', override=False)
+
+    env = os.environ.copy()
+    env['TENANT_SCHEMA'] = schema_name
 
     result = subprocess.run(
         [sys.executable, '-m', 'alembic', 'upgrade', 'head'],

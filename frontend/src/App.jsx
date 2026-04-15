@@ -89,12 +89,18 @@ function AppInner() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  // Auth guard: redirect to login if not authenticated in SaaS mode
+  // Auth guard: redirect based on mode and authentication state
   useEffect(() => {
-    if (!isSaasMode) return;
-
     const view = getViewFromHash();
     const authViews = ['login', 'register'];
+
+    // In single mode, auth pages don't exist — redirect to dashboard
+    if (!isSaasMode && authViews.includes(view)) {
+      navigate('dashboard');
+      return;
+    }
+
+    if (!isSaasMode) return;
 
     if (!isAuthenticated(user) && !authViews.includes(view)) {
       window.location.hash = '/login';

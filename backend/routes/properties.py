@@ -84,20 +84,20 @@ def register_routes(app):
 
         with tenant_session() as session:
             # SaaS mode: check property limit
-            if Config.TENANCY_MODE == 'saas' and hasattr(request, 'g'):
+            if Config.TENANCY_MODE == 'saas':
                 from flask import g
-                plan = g.current_user.get('plan', 'free') if g.current_user else 'free'
-                max_props = Config.MAX_PROPERTIES_PER_PLAN.get(plan)
-                if max_props is not None:
-                    current_count = session.query(Property).filter_by(is_archived=False).count()
-                    if current_count >= max_props:
-                        return jsonify({'error': f'Property limit reached for {plan} plan'}), 403
+                if g.current_user:
+                    plan = g.current_user.get('plan', 'free')
+                    max_props = Config.MAX_PROPERTIES_PER_PLAN.get(plan)
+                    if max_props is not None:
+                        current_count = session.query(Property).filter_by(is_archived=False).count()
+                        if current_count >= max_props:
+                            return jsonify({'error': f'Property limit reached for {plan} plan'}), 403
 
             kwargs = transform_property_create(data)
             prop = Property(**kwargs)
             session.add(prop)
             session.flush()
-            session.commit()
             d = prop.to_dict()
             d['total_income'] = 0
             d['total_expenses'] = 0

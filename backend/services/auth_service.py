@@ -5,6 +5,7 @@ Only used in SaaS mode. In single mode, auth routes are not registered.
 """
 
 import datetime
+import logging
 import uuid
 
 import jwt
@@ -14,8 +15,58 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 from utils.db import engine, create_tenant_schema
 
+logger = logging.getLogger(__name__)
+
+# ── In-memory token blacklist ────────────────────────────────────────────────
+# For single-process deployments. For multi-process/multi-server deployments,
+# replace with Redis or a database-backed store.
+_blacklist: dict[str, float] = {}
+
+# How long to keep expired entries before pruning (seconds)
+_BLACKLIST_TTL = 7 * 24 * 3600  # 7 days (matches max refresh token lifetime)
+
+
+def _utcnow():
+    """Return the current UTC time (timezone-aware)."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _prune_blacklist():
+    """Remove expired entries from the blacklist to prevent unbounded growth."""
+    cutoff = _utcnow().timestamp()
+    expired = [k for k, v in _blacklist.items() if v < cutoff]
+    for k in expired:
+        del _blacklist[k]
+
 
 class AuthService:
+
+    @staticmethod
+    def blacklist_token(token_str):
+        """
+        Add a token to the blacklist so it can no longer be used.
+
+        The token is stored until its natural expiry (plus a safety margin),
+        after which it is pruned automatically.
+        """
+        try:
+            payload = jwt.decode(
+                token_str,
+                Config.JWT_SECRET,
+                algorithms=[Config.JWT_ALGORITHM],
+            )
+            # Store with the token's expiry timestamp
+            exp = payload.get('exp', _utcnow().timestamp() + _BLACKLIST_TTL)
+            _blacklist[token_str] = exp
+            _prune_blacklist()
+        except jwt.InvalidTokenError:
+            # If the token is already invalid, nothing to blacklist
+            pass
+
+    @staticmethod
+    def is_token_blacklisted(token_str):
+        """Check whether a token has been blacklisted."""
+        return token_str in _blacklist
 
     @staticmethod
     def register(email, password, tenant_name=None):
@@ -28,6 +79,7 @@ class AuthService:
         tenant_id = str(uuid.uuid4())
         schema_name = f"tenant_{tenant_id}"
         tenant_name = tenant_name or f"{email}'s Portfolio"
+        now = _utcnow()
 
         with engine.begin() as conn:
             # Create tenant record
@@ -43,7 +95,7 @@ class AuthService:
                     'name': tenant_name,
                     'schema_name': schema_name,
                     'plan': Config.DEFAULT_PLAN,
-                    'now': datetime.datetime.utcnow(),
+                    'now': now,
                 },
             )
 
@@ -59,7 +111,7 @@ class AuthService:
                     'tenant_id': tenant_id,
                     'email': email.lower().strip(),
                     'password_hash': generate_password_hash(password),
-                    'now': datetime.datetime.utcnow(),
+                    'now': now,
                 },
             )
 
@@ -134,6 +186,10 @@ class AuthService:
             dict with access_token (and optionally new refresh_token)
             or None if refresh token is invalid
         """
+        # Reject blacklisted refresh tokens (e.g. after logout)
+        if AuthService.is_token_blacklisted(refresh_token_str):
+            return None
+
         try:
             payload = jwt.decode(
                 refresh_token_str,
@@ -246,7 +302,7 @@ class AuthService:
     @staticmethod
     def _create_access_token(tenant_id, email, user_id):
         """Create a short-lived access token."""
-        now = datetime.datetime.utcnow()
+        now = _utcnow()
         payload = {
             'tenant_id': tenant_id,
             'email': email,
@@ -260,7 +316,7 @@ class AuthService:
     @staticmethod
     def _create_refresh_token(tenant_id, email, user_id):
         """Create a long-lived refresh token."""
-        now = datetime.datetime.utcnow()
+        now = _utcnow()
         payload = {
             'tenant_id': tenant_id,
             'email': email,

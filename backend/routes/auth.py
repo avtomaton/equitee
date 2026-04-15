@@ -5,17 +5,38 @@ These routes are ONLY registered when TENANCY_MODE=saas.
 In single mode, this module's register_routes() is never called.
 """
 
-from flask import request, jsonify
+import logging
+
+from flask import request, jsonify, g
 
 from config import Config
 from services.auth_service import AuthService
 from utils.errors import handle_errors
+from validation import validate_email as validate_email_format, ValidationError
+
+logger = logging.getLogger(__name__)
 
 
-def register_auth_routes(app):
-    """Register auth routes on the Flask app. Call only in SaaS mode."""
+def register_auth_routes(app, limiter=None):
+    """Register auth routes on the Flask app. Call only in SaaS mode.
+
+    Args:
+        app: Flask application instance.
+        limiter: Optional Flask-Limiter instance for rate limiting.
+                 If None, auth endpoints run without rate limiting.
+    """
+
+    def _limit(limit_string):
+        """Apply rate limit decorator only if limiter is available."""
+        if limiter is not None:
+            return limiter.limit(limit_string)
+        # No-op decorator when limiter is not configured
+        def _noop(f):
+            return f
+        return _noop
 
     @app.route('/api/auth/register', methods=['POST'])
+    @_limit("3/minute")
     @handle_errors
     def register():
         """
@@ -43,6 +64,13 @@ def register_auth_routes(app):
 
         if not email:
             return jsonify({'error': 'Email is required'}), 400
+
+        # Validate email format
+        try:
+            email = validate_email_format(email)
+        except ValidationError as e:
+            return jsonify({'error': str(e)}), 400
+
         if not password or len(password) < 8:
             return jsonify({'error': 'Password must be at least 8 characters'}), 400
 
@@ -50,11 +78,14 @@ def register_auth_routes(app):
             result = AuthService.register(email, password, tenant_name)
             return jsonify(result), 201
         except RuntimeError as e:
-            return jsonify({'error': str(e)}), 500
+            logger.error("Registration failed: %s", e)
+            return jsonify({'error': 'Registration failed. Please try again.'}), 500
         except Exception as e:
+            logger.exception("Unexpected registration error")
             return jsonify({'error': 'Registration failed'}), 500
 
     @app.route('/api/auth/login', methods=['POST'])
+    @_limit("5/minute")
     @handle_errors
     def login():
         """
@@ -88,6 +119,7 @@ def register_auth_routes(app):
         return jsonify(result), 200
 
     @app.route('/api/auth/refresh', methods=['POST'])
+    @_limit("20/minute")
     @handle_errors
     def refresh():
         """
@@ -116,17 +148,29 @@ def register_auth_routes(app):
         return jsonify(result), 200
 
     @app.route('/api/auth/logout', methods=['POST'])
+    @_limit("20/minute")
     @handle_errors
     def logout():
         """
-        Logout endpoint.
+        Logout endpoint — blacklists the current access token.
 
-        In the current implementation, tokens are stateless (JWT).
-        Logout is a client-side operation (delete tokens).
-        This endpoint exists for API consistency and future token blacklisting.
+        Request body (optional):
+            {
+                "refresh_token": "..."  // also blacklisted if provided
+            }
 
         Response: 200 OK
         """
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ', 1)[1]
+            AuthService.blacklist_token(token)
+
+        data = request.get_json(silent=True) or {}
+        refresh_token_str = data.get('refresh_token', '')
+        if refresh_token_str:
+            AuthService.blacklist_token(refresh_token_str)
+
         return jsonify({'message': 'Logged out successfully'}), 200
 
     @app.route('/api/auth/me', methods=['GET'])
@@ -143,33 +187,16 @@ def register_auth_routes(app):
                 "tenant": { "id": "...", "name": "...", "plan": "free" }
             }
         """
+        # Manually invoke tenant_required logic — decorators work fine
+        # inside register_routes when applied as a regular function call.
         from middleware.tenant_router import tenant_required
-        from flask import g
 
-        # tenant_required will set g.current_user
-        # We can't use it as a decorator inside register_routes,
-        # so we call its inner logic manually
-        if Config.TENANCY_MODE == 'single':
-            return jsonify({'error': 'Not available in single mode'}), 404
+        # Call the decorator's inner logic by wrapping temporarily
+        @tenant_required
+        def _inner():
+            user_info = AuthService.get_user_info(g.current_user['id'])
+            if user_info is None:
+                return jsonify({'error': 'User not found'}), 404
+            return jsonify(user_info), 200
 
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Missing authorization'}), 401
-
-        # g.current_user is set by the tenant_required middleware
-        # But since /me needs auth too, we re-validate the token here
-        import jwt
-        from sqlalchemy import text
-        from utils.db import engine
-
-        token = auth_header.split(' ', 1)[1]
-        try:
-            payload = jwt.decode(token, Config.JWT_SECRET, algorithms=[Config.JWT_ALGORITHM])
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-            return jsonify({'error': 'Invalid token'}), 401
-
-        user_info = AuthService.get_user_info(payload['user_id'])
-        if user_info is None:
-            return jsonify({'error': 'User not found'}), 404
-
-        return jsonify(user_info), 200
+        return _inner()

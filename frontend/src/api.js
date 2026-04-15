@@ -10,6 +10,38 @@
 
 import { API_URL } from './config.js';
 
+// ── Silent token refresh ────────────────────────────────────────────────────
+
+let _refreshPromise = null;
+
+async function tryRefresh() {
+  // Coalesce concurrent refresh attempts into a single call
+  if (_refreshPromise) return _refreshPromise;
+
+  const refreshToken = localStorage.getItem('refresh_token');
+  if (!refreshToken) return false;
+
+  _refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      localStorage.setItem('access_token', data.access_token);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+
+  return _refreshPromise;
+}
+
 // ── Core helper ───────────────────────────────────────────────────────────────
 
 async function req(path, options = {}) {
@@ -21,20 +53,28 @@ async function req(path, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  let res = await fetch(`${API_URL}${path}`, {
     headers,
     ...options,
   });
 
-  if (!res.ok) {
-    // Handle 401 (token expired) — redirect to login in SaaS mode
-    if (res.status === 401 && token && window.location.hash !== '#/login') {
+  // Handle 401 — try silent refresh once before kicking the user out
+  if (res.status === 401 && token) {
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${localStorage.getItem('access_token')}`;
+      res = await fetch(`${API_URL}${path}`, { headers, ...options });
+    } else {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      window.location.hash = '#/login';
+      if (window.location.hash !== '#/login') {
+        window.location.hash = '#/login';
+      }
       throw new Error('Session expired. Please log in again.');
     }
+  }
 
+  if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     let errorMessage = text;
     try {
@@ -65,8 +105,11 @@ export const auth = {
   refresh: (refreshToken) =>
     post('/auth/refresh', { refresh_token: refreshToken }),
 
-  logout: () =>
-    post('/auth/logout', {}).catch(() => {}), // Best-effort
+  logout: () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    return post('/auth/logout', { refresh_token: refreshToken || undefined })
+      .catch(() => {}); // Best-effort
+  },
 
   me: () =>
     get('/auth/me'),

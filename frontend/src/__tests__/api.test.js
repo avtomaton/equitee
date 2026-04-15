@@ -185,22 +185,28 @@ describe('401 handling', () => {
     localStorage.setItem('refresh_token', 'expired-refresh');
     mockHash = '#/login';
 
+    // First call: the actual request returns 401
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
       text: () => Promise.resolve(JSON.stringify({ error: 'Token expired' })),
     });
+    // Second call: tryRefresh() hits /auth/refresh and also fails
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: 'Invalid refresh token' })),
+    });
 
     const { auth } = await import('../api.js');
 
-    // When already on #/login, the 401 handler skips the redirect branch
-    // (window.location.hash !== '#/login' is false), so it falls through
-    // to the generic error path
-    await expect(auth.me()).rejects.toThrow('Token expired');
+    // Tokens are cleared and session-expired error is thrown (refresh failed),
+    // but hash is NOT changed because we are already on #/login
+    await expect(auth.me()).rejects.toThrow('Session expired');
 
-    // Tokens are NOT cleared because the 401 special handling was skipped
-    expect(localStorage.getItem('access_token')).toBe('expired-token');
-    // Hash should remain unchanged
+    expect(localStorage.getItem('access_token')).toBeNull();
+    expect(localStorage.getItem('refresh_token')).toBeNull();
+    // Hash should remain unchanged — no redirect when already on login
     expect(mockHash).toBe('#/login');
   });
 });
