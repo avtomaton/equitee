@@ -81,6 +81,11 @@ export default function Sidebar({ currentView, onNavigate }) {
         {navItem('documents', '📎', 'Documents')}
       </div>
 
+      <div className="nav-section">
+        <div className="nav-section-title">System</div>
+        {navItem('settings', '⚙️', 'Settings')}
+      </div>
+
       {isSaasMode && user && (
         <div className="nav-section sidebar-user">
           <div className="sidebar-user-email">{user.email}</div>

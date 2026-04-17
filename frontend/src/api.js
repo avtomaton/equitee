@@ -153,6 +153,16 @@ export const getEvents             = (propertyId)       => get(`/events${propert
 export const updateEvent           = (id, data)         => put(`/events/${id}`, data);
 export const deleteEvent           = (id)               => del(`/events/${id}`);
 
+// ── Property Groups ───────────────────────────────────────────────────────────
+
+export const getGroups             = ()                 => get('/groups');
+export const getGroup              = (id)               => get(`/groups/${id}`);
+export const createGroup           = (data)             => post('/groups', data);
+export const updateGroup           = (id, data)         => put(`/groups/${id}`, data);
+export const deleteGroup           = (id)               => del(`/groups/${id}`);
+export const getDefaultGroup       = ()                 => get('/groups/default');
+export const clearDefaultGroup     = ()                 => post('/groups/clear-default', {});
+
 // ── Misc ──────────────────────────────────────────────────────────────────────
 
 export const getStatistics         = ()                 => get('/statistics');

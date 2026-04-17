@@ -12,7 +12,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { getProperties, getIncome, getExpenses, getEvents } from '../api.js';
+import { getProperties, getIncome, getExpenses, getEvents, getGroups, getDefaultGroup } from '../api.js';
 
 const PortfolioDataContext = createContext(null);
 
@@ -40,6 +40,8 @@ export function PortfolioDataProvider({ children }) {
   const [allIncome,   setAllIncome]   = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
   const [allEvents,   setAllEvents]   = useState({});
+  const [groups,      setGroups]      = useState([]);
+  const [defaultGroup, setDefaultGroup] = useState(null);
   const [loading,     setLoading]     = useState(true);
 
   // Build lookup maps once per properties change
@@ -50,7 +52,7 @@ export function PortfolioDataProvider({ children }) {
     try {
       if (!silent) setLoading(true);
 
-      // Fetch everything in parallel — 4 requests instead of N+1
+      // Fetch everything in parallel
       const [props, income, expenses] = await Promise.all([
         getProperties(),
         getIncome(),
@@ -76,6 +78,14 @@ export function PortfolioDataProvider({ children }) {
         if (evMap[e.property_id]) evMap[e.property_id].push(e);
       });
       setAllEvents(evMap);
+
+      // Fetch groups and default group
+      const [grps, defGrp] = await Promise.all([
+        getGroups().catch(() => []),
+        getDefaultGroup().catch(() => null),
+      ]);
+      setGroups(grps);
+      setDefaultGroup(defGrp);
     } catch (err) {
       console.error('Failed to load portfolio data:', err);
     } finally {
@@ -86,14 +96,36 @@ export function PortfolioDataProvider({ children }) {
   // Initial load
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  // Built-in pseudo-group: "All Properties" — always present, non-editable
+  const allPropertiesGroup = useMemo(() => ({
+    id: '__all__',
+    name: 'All Properties',
+    is_default: defaultGroup === null,
+    is_builtin: true,
+    property_ids: properties.map(p => p.id),
+  }), [properties, defaultGroup]);
+
+  // Groups list with the built-in pseudo-group prepended
+  const allGroups = useMemo(() => [allPropertiesGroup, ...groups], [allPropertiesGroup, groups]);
+
+  // Derived: properties filtered by default group (or all if no default)
+  const defaultGroupProperties = useMemo(() => {
+    if (!defaultGroup || !defaultGroup.property_ids?.length) return properties;
+    const groupIds = new Set(defaultGroup.property_ids);
+    return properties.filter(p => groupIds.has(p.id));
+  }, [properties, defaultGroup]);
+
   const value = useMemo(() => ({
     properties,
     allIncome,
     allExpenses,
     allEvents,
+    groups: allGroups,
+    defaultGroup,
+    defaultGroupProperties,
     loading,
     refresh: loadAll,
-  }), [properties, allIncome, allExpenses, allEvents, loading, loadAll]);
+  }), [properties, allIncome, allExpenses, allEvents, allGroups, defaultGroup, defaultGroupProperties, loading, loadAll]);
 
   return (
     <PortfolioDataContext.Provider value={value}>

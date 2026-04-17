@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { getProperty } from './api.js';
 
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
@@ -12,6 +12,8 @@ import TenantsView    from './components/TenantsView.jsx';
 import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 import DocumentsView  from './components/DocumentsView.jsx';
+import PropertyGroupsView from './components/PropertyGroupsView.jsx';
+import GroupSelector  from './components/GroupSelector.jsx';
 import { isAuthenticated, isSaasMode } from './components/AuthGuard.jsx';
 
 // Lazy loaded views - loaded only when needed
@@ -35,7 +37,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 const VALID_VIEWS = [
   'dashboard', 'properties', 'expenses', 'income', 'tenants', 'events',
   'property-detail', 'evaluator', 'renovation', 'comparison', 'documents',
-  'login', 'register',
+  'settings', 'login', 'register',
 ];
 
 const getViewFromHash = () => {
@@ -53,6 +55,7 @@ function AppInner() {
   const { success, error: toastError } = useToast();
   const {
     properties, allIncome, allExpenses,
+    groups, defaultGroupProperties,
     loading, refresh: loadData
   } = usePortfolioData();
 
@@ -60,6 +63,19 @@ function AppInner() {
 
   const [currentView, setCurrentView]   = useState(getViewFromHash);
   const [selectedProperty, setSelectedProperty] = useState(null);
+
+  // Active group override — null means use default group, '__all__' means all properties
+  const [activeGroupId, setActiveGroupId] = useState(null);
+
+  // Resolve properties for the active group (or default if no override)
+  const viewProperties = useMemo(() => {
+    if (activeGroupId === null) return defaultGroupProperties;
+    if (activeGroupId === '__all__') return properties;
+    const g = groups.find(g => g.id === activeGroupId);
+    if (!g || !g.property_ids?.length) return properties;
+    const ids = new Set(g.property_ids);
+    return properties.filter(p => ids.has(p.id));
+  }, [activeGroupId, groups, defaultGroupProperties, properties]);
 
   // modal state: { type: 'property'|'expense'|'income'|'tenant', data: obj|null, context: obj|null }
   const [modal, setModal] = useState(null);
@@ -182,17 +198,28 @@ function AppInner() {
 
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard properties={properties} onPropertyClick={handlePropertyClick} />;
+        return (
+          <Dashboard
+            properties={viewProperties}
+            onPropertyClick={handlePropertyClick}
+            activeGroupId={activeGroupId}
+            onGroupChange={setActiveGroupId}
+          />
+        );
 
       case 'properties':
-        return <PropertiesView
-          properties={properties}
-          onPropertyClick={handlePropertyClick}
-          onAddProperty={() => openModal('property')}
-          onEditProperty={(p) => openModal('property', p)}
-          onReloadProperties={() => loadData({ silent: true })}
-          onError={(msg) => showAlert(msg, 'error')}
-        />;
+        return (
+          <PropertiesView
+            properties={viewProperties}
+            onPropertyClick={handlePropertyClick}
+            onAddProperty={() => openModal('property')}
+            onEditProperty={(p) => openModal('property', p)}
+            onReloadProperties={() => loadData({ silent: true })}
+            onError={(msg) => showAlert(msg, 'error')}
+            activeGroupId={activeGroupId}
+            onGroupChange={setActiveGroupId}
+          />
+        );
 
       case 'expenses':
         return <ExpensesView
@@ -248,6 +275,9 @@ function AppInner() {
       case 'documents':
         return <DocumentsView properties={properties} initialPropertyId={jumpPropertyId} />;
 
+      case 'settings':
+        return <PropertyGroupsView />;
+
       case 'property-detail':
         return <PropertyDetail
           property={selectedProperty}
@@ -262,7 +292,7 @@ function AppInner() {
         />;
 
       default:
-        return <Dashboard properties={properties} onPropertyClick={handlePropertyClick} />;
+        return <Dashboard properties={viewProperties} onPropertyClick={handlePropertyClick} />;
     }
   };
 

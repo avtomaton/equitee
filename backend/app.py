@@ -44,7 +44,7 @@ with app.app_context():
         init_db()
 
 # ── Route registration ──────────────────────────────────────────
-from routes import properties, expenses, income, tenants, events, misc, documents
+from routes import properties, expenses, income, tenants, events, misc, documents, groups
 
 properties.register_routes(app)
 expenses.register_routes(app)
@@ -53,6 +53,7 @@ tenants.register_routes(app)
 events.register_routes(app)
 misc.register_routes(app)
 documents.register_routes(app)
+groups.register_routes(app)
 
 # Auth routes — only in SaaS mode
 if Config.TENANCY_MODE == 'saas':

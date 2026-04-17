@@ -2,35 +2,53 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useChartJs } from '../hooks/useChartJs.js';
 import { principalInRange, computeMortgagePrincipal, monthlyMortgageEquiv, extractRateHistory } from '../metrics.js';
 import { parseLocalDate } from '../utils.js';
+import { INITIAL_OPTIONS } from '../config.js';
 
-// ── Category definitions ──────────────────────────────────────────────────────
+// ── Category definitions (dynamic from config) ───────────────────────────────
 
-const FLAT_CATS = [
-  { key: 'interest',   label: 'Mortgage interest', color: '#378ADD' },
-  { key: 'principal',  label: 'Principal',          color: '#B5D4F4' },
-  { key: 'management', label: 'Condo / mgmt',       color: '#1D9E75' },
-  { key: 'insurance',  label: 'Insurance',           color: '#5DCAA5' },
-  { key: 'tax',        label: 'Property tax',        color: '#EF9F27' },
-  { key: 'utilities',  label: 'Utilities',           color: '#F0997B' },
-  { key: 'maint',      label: 'Maintenance',         color: '#7F77DD' },
-  { key: 'other',      label: 'Other',               color: '#888780' },
+const PALETTE = [
+  '#378ADD', '#1D9E75', '#EF9F27', '#7F77DD', '#F0997B',
+  '#5DCAA5', '#B5D4F4', '#E74C3C', '#2ECC71', '#F39C12',
+  '#9B59B6', '#3498DB', '#E67E22', '#1ABC9C',
 ];
 
-const BREAKDOWN = [
-  {
-    key: 'mortgage', label: 'Mortgage', color: '#378ADD', isGroup: true,
+const CONFIG_CATEGORIES = INITIAL_OPTIONS.expenseCategories;
+const KNOWN_CATEGORIES  = new Set(CONFIG_CATEGORIES);
+const _SKIP = new Set(['Mortgage', 'Principal']); // handled by mortgage group
+
+const FLAT_CATS = [];
+const BREAKDOWN = [];
+let _ci = 0;
+const _nc = () => PALETTE[_ci++ % PALETTE.length];
+
+// Mortgage group — always present (interest + principal computed from mortgage math)
+{
+  const c1 = _nc(), c2 = _nc();
+  FLAT_CATS.push(
+    { key: 'interest',  label: 'Mortgage interest', color: c1 },
+    { key: 'principal', label: 'Principal',          color: c2 },
+  );
+  BREAKDOWN.push({
+    key: 'mortgage', label: 'Mortgage', color: c1, isGroup: true,
     children: [
-      { key: 'interest',  label: 'Interest',  color: '#378ADD' },
-      { key: 'principal', label: 'Principal', color: '#B5D4F4' },
+      { key: 'interest',  label: 'Interest',  color: c1 },
+      { key: 'principal', label: 'Principal', color: c2 },
     ],
-  },
-  { key: 'management', label: 'Condo / mgmt', color: '#1D9E75' },
-  { key: 'insurance',  label: 'Insurance',    color: '#5DCAA5' },
-  { key: 'tax',        label: 'Property tax', color: '#EF9F27' },
-  { key: 'utilities',  label: 'Utilities',    color: '#F0997B' },
-  { key: 'maint',      label: 'Maintenance',  color: '#7F77DD' },
-  { key: 'other',      label: 'Other',        color: '#888780' },
-];
+  });
+}
+
+// All other config categories
+for (const cat of CONFIG_CATEGORIES) {
+  if (_SKIP.has(cat)) continue;
+  const color = _nc();
+  const key   = cat.toLowerCase();
+  FLAT_CATS.push({ key, label: cat, color });
+  BREAKDOWN.push({ key, label: cat, color });
+}
+
+// Catch-all for expenses with categories not in config
+FLAT_CATS.push({ key: '_uncategorized', label: 'Uncategorized', color: '#666' });
+BREAKDOWN.push({ key: '_uncategorized', label: 'Uncategorized', color: '#666' });
 
 const TABS = [
   { id: 'monthly',   label: 'Monthly avg' },
@@ -101,16 +119,15 @@ function computeWindow(properties, allIncome, allExpenses, start, end, divisor =
   interest  /= divisor;
 
   const byCategory = cat => filteredExp.filter(r => r.expense_category === cat).reduce((s, r) => s + r.amount, 0) / divisor;
-  const cats = {
-    interest, principal,
-    mortgage:    interest + principal,
-    management:  byCategory('Management'),
-    insurance:   byCategory('Insurance'),
-    tax:         byCategory('Tax'),
-    utilities:   byCategory('Utilities'),
-    maint:       byCategory('Maintenance') + byCategory('Capital'),
-    other:       byCategory('Other'),
-  };
+  const cats = { interest, principal, mortgage: interest + principal };
+  for (const cat of CONFIG_CATEGORIES) {
+    if (_SKIP.has(cat)) continue;
+    cats[cat.toLowerCase()] = byCategory(cat);
+  }
+  // Uncategorized: expenses whose category is not in the config
+  cats._uncategorized = filteredExp
+    .filter(r => !KNOWN_CATEGORIES.has(r.expense_category))
+    .reduce((s, r) => s + r.amount, 0) / divisor;
 
   const balance  = income - totalExpenses;
   const opProfit = balance + principal;
@@ -121,7 +138,7 @@ function computeWindow(properties, allIncome, allExpenses, start, end, divisor =
 
 function computeExpected(properties, allExpenses) {
   let expIncome = 0, expManagement = 0, expInsurance = 0, expTax = 0;
-  let expUtilities = 0, expMaint = 0, expMortgage = 0;
+  let expUtilities = 0, expMaintenance = 0, expMortgage = 0;
   let hasData = false;
 
   for (const p of properties) {
@@ -139,7 +156,7 @@ function computeExpected(properties, allExpenses) {
     expInsurance  += p.expected_insurance     || 0;
     expTax        += (p.annual_property_tax   || 0) / 12;
     expUtilities  += p.expected_utilities     || 0;
-    expMaint      += p.expected_misc_expenses || 0;
+    expMaintenance += p.expected_misc_expenses || 0;
 
     if (hasMtgPayment) {
       expMortgage += monthlyMortgageEquiv(p.mortgage_payment, p.mortgage_frequency);
@@ -150,11 +167,11 @@ function computeExpected(properties, allExpenses) {
   }
 
   if (!hasData && expIncome === 0) return null;
-  const expTotalExp = expManagement + expInsurance + expTax + expUtilities + expMaint + expMortgage;
+  const expTotalExp = expManagement + expInsurance + expTax + expUtilities + expMaintenance + expMortgage;
   return {
     income: expIncome, totalExp: expTotalExp, balance: expIncome - expTotalExp,
     mortgage: expMortgage,
-    cats: { management: expManagement, insurance: expInsurance, tax: expTax, utilities: expUtilities, maint: expMaint },
+    cats: { management: expManagement, insurance: expInsurance, tax: expTax, utilities: expUtilities, maintenance: expMaintenance },
   };
 }
 

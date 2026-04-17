@@ -235,6 +235,50 @@ class Document(Base):
         }
 
 
+class PropertyGroup(Base):
+    __tablename__ = 'property_groups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationship
+    members = relationship("PropertyGroupMember", back_populates="group", cascade="all, delete-orphan")
+
+    def to_dict(self, include_properties=False):
+        d = {
+            'id': self.id,
+            'name': self.name,
+            'is_default': self.is_default,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_properties:
+            d['property_ids'] = [m.property_id for m in self.members]
+        return d
+
+
+class PropertyGroupMember(Base):
+    __tablename__ = 'property_group_members'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey('property_groups.id', ondelete='CASCADE'), nullable=False)
+    property_id = Column(Integer, ForeignKey('properties.id', ondelete='CASCADE'), nullable=False)
+
+    # Relationships
+    group = relationship("PropertyGroup", back_populates="members")
+    property = relationship("Property")
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'group_id': self.group_id,
+            'property_id': self.property_id,
+        }
+
+
 # Database indexes - original indexes only (performance indexes managed by migration: add_missing_indexes)
 Index('idx_expenses_property', Expense.property_id)
 Index('idx_income_property', Income.property_id)
@@ -243,6 +287,8 @@ Index('idx_tenants_property', Tenant.property_id)
 Index('idx_expenses_date', Expense.expense_date)
 Index('idx_income_date', Income.income_date)
 Index('idx_properties_archived', Property.is_archived)
+Index('idx_group_members_group', PropertyGroupMember.group_id)
+Index('idx_group_members_property', PropertyGroupMember.property_id)
 # NOTE: The following performance indexes are managed by the Alembic migration
 # 'add_missing_indexes' and are NOT declared here to avoid duplication:
 #   idx_tenants_lease_end, idx_tenants_archived, idx_events_column,
