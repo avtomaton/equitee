@@ -11,7 +11,7 @@
  *   </PortfolioDataProvider>
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getProperties, getIncome, getExpenses, getEvents, getGroups, getDefaultGroup } from '../api.js';
 
 const PortfolioDataContext = createContext(null);
@@ -43,10 +43,6 @@ export function PortfolioDataProvider({ children }) {
   const [groups,      setGroups]      = useState([]);
   const [defaultGroup, setDefaultGroup] = useState(null);
   const [loading,     setLoading]     = useState(true);
-
-  // Build lookup maps once per properties change
-  const propIds   = useMemo(() => new Set(properties.map(p => p.id)), [properties]);
-  const nameMap   = useMemo(() => Object.fromEntries(properties.map(p => [p.id, p.name])), [properties]);
 
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     try {

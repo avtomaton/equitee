@@ -13,7 +13,6 @@ import EventsView     from './components/EventsView.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 import DocumentsView  from './components/DocumentsView.jsx';
 import PropertyGroupsView from './components/PropertyGroupsView.jsx';
-import GroupSelector  from './components/GroupSelector.jsx';
 import { isAuthenticated, isSaasMode } from './components/AuthGuard.jsx';
 
 // Lazy loaded views - loaded only when needed

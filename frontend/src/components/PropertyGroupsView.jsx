@@ -72,7 +72,6 @@ export default function PropertyGroupsView() {
   const propMap = useMemo(() => Object.fromEntries(properties.map(p => [p.id, p.name])), [properties]);
 
   // Separate built-in group from user groups
-  const builtinGroup = groups.find(g => g.is_builtin);
   const userGroups = groups.filter(g => !g.is_builtin);
 
   const startNew = () => {

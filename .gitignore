@@ -1,6 +1,5 @@
 node_modules/
 /frontend/dist-single/
-**/package-lock.json
 *.pyc
 *.pyo
 /.idea/
