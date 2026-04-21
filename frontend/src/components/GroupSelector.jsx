@@ -31,7 +31,9 @@ export default function GroupSelector({ value, onChange }) {
       value={selectValue}
       onChange={e => {
         const raw = e.target.value;
-        onChange(raw === '__all__' ? '__all__' : Number(raw));
+        if (raw === '__all__') onChange('__all__');
+        else if (defaultGroup && Number(raw) === defaultGroup.id) onChange(null);
+        else onChange(Number(raw));
       }}
       style={{
         fontSize: '0.78rem',

@@ -4,6 +4,7 @@ import { getProperty } from './api.js';
 import ErrorBoundary  from './components/ErrorBoundary.jsx';
 import Sidebar        from './components/Sidebar.jsx';
 import GlobalSearch   from './components/GlobalSearch.jsx';
+import GroupSelector  from './components/GroupSelector.jsx';
 import Dashboard      from './components/Dashboard.jsx';
 import PropertiesView from './components/PropertiesView.jsx';
 import ExpensesView   from './components/ExpensesView.jsx';
@@ -39,6 +40,11 @@ const VALID_VIEWS = [
   'settings', 'login', 'register',
 ];
 
+// Views where the GroupSelector should be hidden (tools + settings + auth)
+const GROUP_HIDDEN_VIEWS = new Set([
+  'evaluator', 'renovation', 'comparison', 'settings', 'login', 'register',
+]);
+
 const getViewFromHash = () => {
   const hash = window.location.hash.replace('#', '').replace('/', '');
   return VALID_VIEWS.includes(hash) ? hash : 'dashboard';
@@ -65,6 +71,23 @@ function AppInner() {
 
   // Active group override — null means use default group, '__all__' means all properties
   const [activeGroupId, setActiveGroupId] = useState(null);
+
+  // Sidebar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Theme state (lifted from Sidebar so we can render toggle in top bar)
+  const [theme, setTheme] = useState(() => {
+    const stored = localStorage.getItem('theme');
+    if (stored) return stored;
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
   // Resolve properties for the active group (or default if no override)
   const viewProperties = useMemo(() => {
@@ -201,8 +224,6 @@ function AppInner() {
           <Dashboard
             properties={viewProperties}
             onPropertyClick={handlePropertyClick}
-            activeGroupId={activeGroupId}
-            onGroupChange={setActiveGroupId}
           />
         );
 
@@ -215,14 +236,12 @@ function AppInner() {
             onEditProperty={(p) => openModal('property', p)}
             onReloadProperties={() => loadData({ silent: true })}
             onError={(msg) => showAlert(msg, 'error')}
-            activeGroupId={activeGroupId}
-            onGroupChange={setActiveGroupId}
           />
         );
 
       case 'expenses':
         return <ExpensesView
-          properties={properties}
+          properties={viewProperties}
           onAddExpense={() => openModal('expense')}
           onEditExpense={(e) => openModal('expense', e)}
           initialPropertyId={jumpPropertyId}
@@ -231,7 +250,7 @@ function AppInner() {
 
       case 'income':
         return <IncomeView
-          properties={properties}
+          properties={viewProperties}
           onAddIncome={() => openModal('income')}
           onEditIncome={(i) => openModal('income', i)}
           initialPropertyId={jumpPropertyId}
@@ -240,7 +259,7 @@ function AppInner() {
 
       case 'tenants':
         return <TenantsView
-          properties={properties}
+          properties={viewProperties}
           onAddTenant={() => openModal('tenant')}
           onEditTenant={(t) => openModal('tenant', t)}
           initialPropertyId={jumpPropertyId}
@@ -248,7 +267,7 @@ function AppInner() {
         />;
 
       case 'events':
-        return <EventsView properties={properties} initialPropertyId={jumpPropertyId} />;
+        return <EventsView properties={viewProperties} initialPropertyId={jumpPropertyId} />;
 
       case 'evaluator':
         return (
@@ -272,12 +291,13 @@ function AppInner() {
         );
 
       case 'documents':
-        return <DocumentsView properties={properties} initialPropertyId={jumpPropertyId} />;
+        return <DocumentsView properties={viewProperties} initialPropertyId={jumpPropertyId} />;
 
       case 'settings':
         return <PropertyGroupsView />;
 
       case 'property-detail':
+        if (!selectedProperty) return <Dashboard properties={viewProperties} onPropertyClick={handlePropertyClick} />;
         return <PropertyDetail
           property={selectedProperty}
           properties={properties}
@@ -312,18 +332,39 @@ function AppInner() {
   return (
     <ErrorBoundary>
     <div className="app">
-      <Sidebar currentView={currentView} onNavigate={navigate} />
+      <Sidebar
+        currentView={currentView}
+        onNavigate={navigate}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+      />
 
-      <main className="main-content">
-        <div style={{ position: 'fixed', top: '1rem', right: '1.5rem', zIndex: 500 }}>
-          <GlobalSearch
-            properties={properties}
-            allIncome={allIncome}
-            allExpenses={allExpenses}
-            onNavigate={(view, propertyId) => { setJumpPropertyId(propertyId ?? null); navigate(view); }}
-            onPropertyDetail={handlePropertyClick}
-          />
+      <main className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        {/* ── Top bar: search, group selector, theme toggle ── */}
+        <div className="top-bar">
+          {/* Hide group selector on tool pages and settings */}
+          {!GROUP_HIDDEN_VIEWS.has(currentView) && (
+            <GroupSelector value={activeGroupId} onChange={setActiveGroupId} />
+          )}
+          <div className="top-bar-right">
+            <GlobalSearch
+              properties={properties}
+              allIncome={allIncome}
+              allExpenses={allExpenses}
+              onNavigate={(view, propertyId) => { setJumpPropertyId(propertyId ?? null); navigate(view); }}
+              onPropertyDetail={handlePropertyClick}
+            />
+            <button
+              className="theme-toggle-btn"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+          </div>
         </div>
+
         <ToastContainer />
         <ErrorBoundary>
           {renderView()}

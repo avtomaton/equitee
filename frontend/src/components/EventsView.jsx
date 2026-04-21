@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { COLUMN_DEFS } from '../config.js';
 import { getEvents, updateEvent, deleteEvent } from '../api.js';
 import { useSilentLoading } from '../hooks/useSilentLoading.js';
@@ -63,9 +63,15 @@ export default function EventsView({ properties, initialPropertyId }) {
     window.scrollTo({ top: scroll, behavior: 'instant' });
   };
 
-  const filtered = events.filter(
-    e => filterProperty === 'all' || e.property_id === parseInt(filterProperty)
-  );
+  // Scope events to the currently visible properties (group filtering)
+  const propIdSet = useMemo(() => new Set(properties.map(p => p.id)), [properties]);
+
+  const filtered = useMemo(() => {
+    const scoped = events.filter(e => propIdSet.has(e.property_id));
+    return scoped.filter(
+      e => filterProperty === 'all' || e.property_id === parseInt(filterProperty)
+    );
+  }, [events, filterProperty, propIdSet]);
 
   return (
     <>

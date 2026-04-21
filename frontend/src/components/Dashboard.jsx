@@ -11,9 +11,7 @@ import { usePortfolioAggregates } from '../hooks/usePortfolioAggregates.js';
 import usePortfolioMetrics from '../hooks/usePortfolioMetrics.js';
 import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
 import { cardAvgIncome, cardAvgExpenses, cardAvgCashFlow, cardAvgNOI, cardCapRate, cardOER, cardDSCR, cardICR, cardMonthlyGain, cardNetPosition, cardPaybackPeriod, cardBreakEven, cardTotalAppreciation, cardYearlyAppreciation, cardProjectedYearEnd, cardYearEndBalance } from '../metricDefs.jsx';
-import GroupSelector from './GroupSelector.jsx';
-
-export default function Dashboard({ properties, onPropertyClick, activeGroupId, onGroupChange }) {
+export default function Dashboard({ properties, onPropertyClick }) {
   const { allIncome, allExpenses, allEvents } = usePropertyTransactions(properties);
   const [avgWindow,       setAvgWindow]       = useState(3);
   const [expiringLeases,  setExpiringLeases]  = useState([]);
@@ -76,7 +74,6 @@ export default function Dashboard({ properties, onPropertyClick, activeGroupId, 
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">Portfolio overview and performance</p>
         </div>
-        <GroupSelector value={activeGroupId} onChange={onGroupChange} />
       </div>
 
       {/* ── Portfolio KPIs ── */}

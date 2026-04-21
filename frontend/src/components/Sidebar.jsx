@@ -2,21 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { isSaasMode } from './AuthGuard.jsx';
 
-export default function Sidebar({ currentView, onNavigate }) {
+export default function Sidebar({ currentView, onNavigate, collapsed, onToggleCollapse }) {
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [theme, setTheme] = useState(() => {
-    // Check localStorage first, then system preference
-    const stored = localStorage.getItem('theme');
-    if (stored) return stored;
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  });
-
-  // Apply theme to document
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
 
   // Close mobile menu on navigation (skip initial mount)
   const isInitialMount = useRef(true);
@@ -34,67 +22,75 @@ export default function Sidebar({ currentView, onNavigate }) {
     return () => window.removeEventListener('keydown', handleEscape);
   }, []);
 
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
-
   const navItem = (view, icon, label) => (
     <div
       className={`nav-item ${currentView === view ? 'active' : ''}`}
       onClick={() => onNavigate(view)}
+      title={collapsed ? label : undefined}
     >
       <span className="nav-icon">{icon}</span>
-      <span>{label}</span>
+      {!collapsed && <span>{label}</span>}
     </div>
   );
 
   const sidebarContent = (
     <>
       <div className="sidebar-header">
-        <div className="sidebar-title">Equitee</div>
-        <div className="sidebar-subtitle">Real Estate Manager</div>
+        <div className="sidebar-header-top">
+          {!collapsed && <div className="sidebar-title">Equitee</div>}
+          <button
+            className="sidebar-collapse-btn"
+            onClick={onToggleCollapse}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <span className="panel-icon" />
+          </button>
+        </div>
+        {!collapsed && <div className="sidebar-subtitle">Real Estate Manager</div>}
       </div>
 
       <div className="nav-section">
-        <div className="nav-section-title">Overview</div>
+        {!collapsed && <div className="nav-section-title">Overview</div>}
         {navItem('dashboard',  '📊', 'Dashboard')}
         {navItem('properties', '🏢', 'Properties')}
       </div>
 
       <div className="nav-section">
-        <div className="nav-section-title">Financials</div>
+        {!collapsed && <div className="nav-section-title">Financials</div>}
         {navItem('income',   '💰', 'Income')}
         {navItem('expenses', '💳', 'Expenses')}
       </div>
 
       <div className="nav-section">
-        <div className="nav-section-title">Tools</div>
+        {!collapsed && <div className="nav-section-title">Tools</div>}
         {navItem('evaluator',   '🧮', 'Evaluator')}
         {navItem('renovation',  '🔨', 'Renovation')}
         {navItem('comparison',  '⚖️', 'Compare')}
       </div>
 
       <div className="nav-section">
-        <div className="nav-section-title">Management</div>
+        {!collapsed && <div className="nav-section-title">Management</div>}
         {navItem('tenants', '👤', 'Tenants')}
         {navItem('events',  '📝', 'Events Log')}
         {navItem('documents', '📎', 'Documents')}
       </div>
 
       <div className="nav-section">
-        <div className="nav-section-title">System</div>
+        {!collapsed && <div className="nav-section-title">System</div>}
         {navItem('settings', '⚙️', 'Settings')}
       </div>
 
       {isSaasMode && user && (
         <div className="nav-section sidebar-user">
-          <div className="sidebar-user-email">{user.email}</div>
+          {!collapsed && <div className="sidebar-user-email">{user.email}</div>}
           <div
             className="nav-item logout-item"
             onClick={() => { logout(); onNavigate('login'); }}
+            title={collapsed ? 'Sign Out' : undefined}
           >
             <span className="nav-icon">🚪</span>
-            <span>Sign Out</span>
+            {!collapsed && <span>Sign Out</span>}
           </div>
         </div>
       )}
@@ -115,24 +111,16 @@ export default function Sidebar({ currentView, onNavigate }) {
         <span className="hamburger-line"></span>
       </button>
 
-      {/* Theme toggle — top right corner */}
-      <button
-        className="theme-toggle-global"
-        onClick={toggleTheme}
-        aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-        title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
-
       {/* Overlay for mobile */}
       {mobileOpen && (
         <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Sidebar */}
-      <div className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-        {sidebarContent}
+      <div className={`sidebar ${mobileOpen ? 'mobile-open' : ''} ${collapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-nav">
+          {sidebarContent}
+        </div>
       </div>
     </>
   );

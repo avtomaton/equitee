@@ -95,12 +95,16 @@ export default function TenantsView({ properties, onAddTenant, onEditTenant, ini
     try { await restoreTenant(id); await loadTenants(); } catch (e) { console.error(e); }
   };
 
+  // Scope tenants to the currently visible properties (group filtering)
+  const propIdSet = useMemo(() => new Set(properties.map(p => p.id)), [properties]);
+
   const filtered = useMemo(() => tenants.filter(t => {
+    if (!propIdSet.has(t.property_id)) return false;
     if (filterProperty !== 'all' && t.property_id !== parseInt(filterProperty)) return false;
     if (filterStatus === 'current' && !isCurrentTenant(t)) return false;
     if (filterStatus === 'past'    &&  isCurrentTenant(t)) return false;
     return true;
-  }), [tenants, filterProperty, filterStatus]);
+  }), [tenants, filterProperty, filterStatus, propIdSet]);
 
   const rowProps = { onEdit: onEditTenant, onArchive: handleArchive, onRestore: handleRestore, col };
 

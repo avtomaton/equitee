@@ -90,16 +90,20 @@ export default function DocumentsView({ properties, initialPropertyId }) {
     a.click();
   };
 
+  // Scope documents to the currently visible properties (group filtering)
+  const propIdSet = useMemo(() => new Set(properties.map(p => p.id)), [properties]);
+
   const filtered = useMemo(() => {
-    if (!searchTerm) return documents;
+    const scoped = documents.filter(d => propIdSet.has(d.property_id));
+    if (!searchTerm) return scoped;
     const q = searchTerm.toLowerCase();
-    return documents.filter(d =>
+    return scoped.filter(d =>
       d.original_filename.toLowerCase().includes(q) ||
       d.doc_type.toLowerCase().includes(q) ||
       (d.property_name && d.property_name.toLowerCase().includes(q)) ||
       (d.notes && d.notes.toLowerCase().includes(q))
     );
-  }, [documents, searchTerm]);
+  }, [documents, searchTerm, propIdSet]);
 
   return (
     <div className="documents-view">

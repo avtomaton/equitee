@@ -12,7 +12,6 @@ import { useColumnVisibility } from '../hooks/useColumnVisibility.js';
 import usePropertyTransactions from '../hooks/usePropertyTransactions.js';
 import { archiveProperty, restoreProperty, getProperties } from '../api.js';
 import { fmt, ltvColor } from './uiHelpers.jsx';
-import GroupSelector from './GroupSelector.jsx';
 
 // ── Archived section ──────────────────────────────────────────────────────────
 
@@ -67,7 +66,7 @@ function ArchivedPropertiesSection({ archivedProps, onRestore }) {
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 
-export default function PropertiesView({ properties, onPropertyClick, onAddProperty, onEditProperty, onReloadProperties, onError, activeGroupId, onGroupChange }) {
+export default function PropertiesView({ properties, onPropertyClick, onAddProperty, onEditProperty, onReloadProperties, onError }) {
   const { visible, update: setVisible, col, isCustom, reset } = useColumnVisibility('properties');
   const allColKeys   = COLUMN_DEFS.properties.map(d => d.key);
   const allColLabels = Object.fromEntries(COLUMN_DEFS.properties.map(d => [d.key, d.label]));
@@ -335,7 +334,6 @@ export default function PropertiesView({ properties, onPropertyClick, onAddPrope
           <p className="page-subtitle">Manage your real estate portfolio</p>
         </div>
         <div className="page-actions">
-          <GroupSelector value={activeGroupId} onChange={onGroupChange} />
           <button className="btn btn-primary" onClick={onAddProperty}>+ Add Property</button>
         </div>
       </div>

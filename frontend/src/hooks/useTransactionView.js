@@ -41,12 +41,22 @@ export default function useTransactionView({
     if (initialPropertyId) setFilterProperty(String(initialPropertyId));
   }, [initialPropertyId]);
 
+  // Keep records scoped to the currently visible properties (group filtering)
+  const propIdSet   = useMemo(() => new Set(properties.map(p => p.id)), [properties]);
+  const propNameMap = useMemo(() => Object.fromEntries(properties.map(p => [p.id, p.name])), [properties]);
+
+  // Group-scoped records — used to derive filter options (types, categories)
+  const groupRecords = useMemo(() =>
+    records.filter(r => propIdSet.has(r.property_id)),
+    [records, propIdSet]
+  );
+
   const allTypes = useMemo(() =>
-    mergeOptions(seedTypeOptions, records.map(r => r[typeField])), [records, seedTypeOptions, typeField]);
+    mergeOptions(seedTypeOptions, groupRecords.map(r => r[typeField])), [groupRecords, seedTypeOptions, typeField]);
 
   const allCategories = useMemo(() =>
-    categoryField ? mergeOptions(seedCategoryOptions, records.map(r => r[categoryField])) : [],
-  [records, categoryField, seedCategoryOptions]);
+    categoryField ? mergeOptions(seedCategoryOptions, groupRecords.map(r => r[categoryField])) : [],
+  [groupRecords, categoryField, seedCategoryOptions]);
 
   useEffect(() => {
     const newOnes = allTypes.filter(v => v && !seenTypesRef.current.has(v));
@@ -65,25 +75,13 @@ export default function useTransactionView({
     }
   }, [allCategories, categoryField]);
 
-  // propertiesRef: always current, lets load() be stable (no useCallback deps)
-  const propertiesRef = useRef(properties);
-  propertiesRef.current = properties;
-
-  // Build a lookup from property_id → property_name for tagging fetched records
-  const propNameMapRef = useRef({});
-  useEffect(() => {
-    propNameMapRef.current = Object.fromEntries(properties.map(p => [p.id, p.name]));
-  }, [properties]);
-
   const load = async () => {
     await wrapLoad(async () => {
       // Single request for all records (no property_id filter) — avoids N+1.
+      // Store ALL records unfiltered so group changes can re-scope without re-fetching.
+      // property_name is resolved dynamically in baseRecords (see below).
       const all = await apiFetch(null).catch(() => []);
-      const propIds = new Set(propertiesRef.current.map(p => p.id));
-      const tagged  = all
-        .filter(r => propIds.has(r.property_id))
-        .map(r => ({ ...r, property_name: propNameMapRef.current[r.property_id] ?? '' }));
-      setRecords(tagged);
+      setRecords(all);
     });
   };
 
@@ -105,11 +103,13 @@ export default function useTransactionView({
     try { await apiRemove(id); await stableLoad(); } catch (err) { console.error(err); }
   };
 
-  const baseRecords = useMemo(() =>
-    filterProperty === 'all'
-      ? records
-      : records.filter(r => r.property_id === parseInt(filterProperty)),
-  [records, filterProperty]);
+  const baseRecords = useMemo(() => {
+    const scoped = groupRecords
+      .map(r => ({ ...r, property_name: propNameMap[r.property_id] ?? '' }));
+    return filterProperty === 'all'
+      ? scoped
+      : scoped.filter(r => r.property_id === parseInt(filterProperty));
+  }, [groupRecords, filterProperty, propNameMap]);
 
   const filtered = useMemo(() => {
     let list = baseRecords.filter(r => {
