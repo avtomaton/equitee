@@ -28,6 +28,30 @@ class Config:
         'enterprise': None,  # unlimited
     }
 
+    # ── Google OAuth (SaaS mode only) ────────────────────────────────
+    GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+    GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+    GOOGLE_REDIRECT_URI = os.environ.get(
+        'GOOGLE_REDIRECT_URI',
+        'http://localhost:5173/auth/google/callback',
+    )
+
+    # ── Email / SMTP (SaaS mode only) ───────────────────────────────
+    SMTP_HOST = os.environ.get('SMTP_HOST', '')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+    SMTP_USER = os.environ.get('SMTP_USER', '')
+    SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+    SMTP_USE_TLS = os.environ.get('SMTP_USE_TLS', 'true').lower() == 'true'
+    MAIL_FROM = os.environ.get('MAIL_FROM', 'noreply@equitee.app')
+
+    # Base URL used for building links in emails
+    APP_BASE_URL = os.environ.get('APP_BASE_URL', 'http://localhost:5173')
+
+    # Email verification token expiry (hours)
+    EMAIL_VERIFICATION_EXPIRY_HOURS = int(
+        os.environ.get('EMAIL_VERIFICATION_EXPIRY_HOURS', '24')
+    )
+
     # ── Validation ───────────────────────────────────────────────────
     @classmethod
     def validate(cls):

@@ -22,6 +22,7 @@ const RenovationView = lazy(() => import('./components/RenovationView.jsx'));
 const ComparisonView = lazy(() => import('./components/ComparisonView.jsx'));
 const LoginPage      = lazy(() => import('./pages/Login.jsx'));
 const RegisterPage   = lazy(() => import('./pages/Register.jsx'));
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmail.jsx'));
 
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
@@ -37,12 +38,13 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 const VALID_VIEWS = [
   'dashboard', 'properties', 'expenses', 'income', 'tenants', 'events',
   'property-detail', 'evaluator', 'renovation', 'comparison', 'documents',
-  'settings', 'login', 'register',
+  'settings', 'login', 'register', 'verify-email',
 ];
 
 // Views where the GroupSelector should be hidden (tools + settings + auth)
 const GROUP_HIDDEN_VIEWS = new Set([
   'evaluator', 'renovation', 'comparison', 'settings', 'login', 'register',
+  'verify-email',
 ]);
 
 const getViewFromHash = () => {
@@ -130,7 +132,7 @@ function AppInner() {
   // Auth guard: redirect based on mode and authentication state
   useEffect(() => {
     const view = getViewFromHash();
-    const authViews = ['login', 'register'];
+    const authViews = ['login', 'register', 'verify-email'];
 
     // In single mode, auth pages don't exist — redirect to dashboard
     if (!isSaasMode && authViews.includes(view)) {
@@ -144,8 +146,8 @@ function AppInner() {
       window.location.hash = '/login';
     }
 
-    // If logged in and on auth page, go to dashboard
-    if (user && authViews.includes(view)) {
+    // If logged in and on auth page (but not verify-email), go to dashboard
+    if (user && authViews.includes(view) && view !== 'verify-email') {
       navigate('dashboard');
     }
   }, [user]);
@@ -214,6 +216,13 @@ function AppInner() {
       return (
         <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
           <RegisterPage onNavigate={handleAuthNavigate} />
+        </Suspense>
+      );
+    }
+    if (currentView === 'verify-email') {
+      return (
+        <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+          <VerifyEmailPage onNavigate={handleAuthNavigate} />
         </Suspense>
       );
     }

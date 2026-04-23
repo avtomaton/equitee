@@ -1,6 +1,7 @@
 /**
  * Register page — create a new account (tenant + user + schema).
  *
+ * After registration, shows a "Check your email" message.
  * In self-hosted mode, this page is never navigated to.
  * Uses hash-based routing to match the existing app pattern.
  */
@@ -19,15 +20,40 @@ export default function RegisterPage({ onNavigate }) {
   const [tenantName, setTenantName] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [registered, setRegistered] = useState(false);
 
-  // If already logged in, go to dashboard
-  useEffect(() => {
-    if (user) {
-      onNavigate('dashboard');
-    }
-  }, [user, onNavigate]);
+  // Show "Check your email" screen after successful registration
+  // This takes priority over the user check so the user sees the confirmation
+  if (registered) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-logo">
+            <h1>Equitee</h1>
+            <p>Real Estate Portfolio Analytics</p>
+          </div>
 
-  if (user) return null;
+          <div className="auth-success">
+            <div className="auth-success-icon">✉️</div>
+            <h2>Check your email</h2>
+            <p>
+              We've sent a verification link to <strong>{email}</strong>.
+            </p>
+            <p>
+              Please click the link in the email to activate your account.
+              The link expires in 24 hours.
+            </p>
+            <button
+              className="auth-submit"
+              onClick={() => onNavigate('login')}
+            >
+              Go to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -47,7 +73,7 @@ export default function RegisterPage({ onNavigate }) {
 
     try {
       await register(email, password, tenantName || null);
-      onNavigate('dashboard');
+      setRegistered(true);
     } catch (err) {
       setError(err.message || 'Registration failed');
     } finally {

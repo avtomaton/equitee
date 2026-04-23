@@ -113,6 +113,20 @@ export const auth = {
 
   me: () =>
     get('/auth/me'),
+
+  // Email verification
+  verifyEmail: (token) =>
+    post('/auth/verify-email', { token }),
+
+  resendVerification: (email) =>
+    post('/auth/resend-verification', { email }),
+
+  // Google OAuth
+  googleOAuthInit: () =>
+    post('/auth/google', {}),
+
+  googleOAuthCallback: (code, state) =>
+    post('/auth/google/callback', { code, state }),
 };
 
 // ── Properties ────────────────────────────────────────────────────────────────

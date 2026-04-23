@@ -1,40 +1,49 @@
 /**
  * Tests for AuthContext — authentication state management.
+ * Updated to cover email verification and Google OAuth flows.
  */
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../context/AuthContext.jsx';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function TestConsumer({ loginFn, registerFn, logoutFn }) {
-  const { user, login, register, logout, loading } = useAuth();
+function TestConsumer({ actionFn }) {
+  const { user, login, register, logout, verifyEmail, resendVerification, loginWithGoogle, loading } = useAuth();
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
       <span data-testid="user">{user ? JSON.stringify(user) : 'null'}</span>
       <button
         data-testid="login-btn"
-        onClick={loginFn || (() => login('test@example.com', 'password123'))}
+        onClick={() => actionFn ? actionFn('login') : login('test@example.com', 'password123')}
       >Login</button>
       <button
         data-testid="register-btn"
-        onClick={registerFn || (() => register('new@example.com', 'password123', 'Test'))}
+        onClick={() => actionFn ? actionFn('register') : register('new@example.com', 'password123', 'Test')}
       >Register</button>
       <button
         data-testid="logout-btn"
-        onClick={logoutFn || (() => logout())}
+        onClick={() => actionFn ? actionFn('logout') : logout()}
       >Logout</button>
+      <button
+        data-testid="verify-btn"
+        onClick={() => actionFn ? actionFn('verify') : verifyEmail('test-token')}
+      >Verify</button>
+      <button
+        data-testid="resend-btn"
+        onClick={() => actionFn ? actionFn('resend') : resendVerification('test@example.com')}
+      >Resend</button>
     </div>
   );
 }
 
-function renderWithContext() {
+function renderWithContext(actionFn) {
   return render(
     <AuthProvider>
-      <TestConsumer />
+      <TestConsumer actionFn={actionFn} />
     </AuthProvider>
   );
 }
@@ -75,7 +84,6 @@ describe('AuthProvider', () => {
       expect(screen.getByTestId('user').textContent).toContain('test@example.com');
     });
 
-    // Token should still be in storage
     expect(localStorage.getItem('access_token')).toBe('stored-token');
   });
 
@@ -136,7 +144,6 @@ describe('AuthProvider', () => {
   });
 
   it('clears tokens on logout', async () => {
-    // Pre-set tokens to simulate a logged-in state
     localStorage.setItem('access_token', 'existing-token');
     localStorage.setItem('refresh_token', 'existing-refresh');
 
@@ -157,17 +164,70 @@ describe('AuthProvider', () => {
 
     renderWithContext();
 
-    // Wait for user to be loaded (mount + me call)
     await waitFor(() => {
       expect(screen.getByTestId('user').textContent).toContain('test@example.com');
     });
 
-    // Now logout
     screen.getByTestId('logout-btn').click();
 
     await waitFor(() => {
       expect(localStorage.getItem('access_token')).toBeNull();
       expect(localStorage.getItem('refresh_token')).toBeNull();
+    });
+  });
+
+  it('calls verify email API', async () => {
+    localStorage.setItem('access_token', 'stored-token');
+    // Mock /auth/me on mount
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        user: { id: 1, email: 'test@example.com', role: 'owner', email_verified: false },
+        tenant: { id: 't1', name: 'Test', plan: 'free' },
+      }),
+    });
+    // Mock verify-email
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        message: 'Email verified successfully',
+        user: { id: 1, email: 'test@example.com', tenant_id: 't1' },
+      }),
+    });
+
+    renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('user').textContent).toContain('test@example.com');
+    });
+
+    screen.getByTestId('verify-btn').click();
+
+    await waitFor(() => {
+      // Should have called the verify-email endpoint
+      const calls = mockFetch.mock.calls;
+      const verifyCall = calls.find(c => c[0] && c[0].includes('/auth/verify-email'));
+      expect(verifyCall).toBeDefined();
+    });
+  });
+
+  it('calls resend verification API', async () => {
+    // Mock resend-verification
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        message: 'If an account exists...',
+      }),
+    });
+
+    renderWithContext();
+
+    screen.getByTestId('resend-btn').click();
+
+    await waitFor(() => {
+      const calls = mockFetch.mock.calls;
+      const resendCall = calls.find(c => c[0] && c[0].includes('/auth/resend-verification'));
+      expect(resendCall).toBeDefined();
     });
   });
 });

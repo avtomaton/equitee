@@ -1,5 +1,6 @@
 /**
  * Tests for RegisterPage component.
+ * Updated to cover email confirmation flow ("Check your email" screen).
  */
 
 import '@testing-library/jest-dom';
@@ -86,7 +87,7 @@ describe('RegisterPage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('submits correct payload on registration', async () => {
+  it('shows "Check your email" screen after successful registration', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -112,20 +113,20 @@ describe('RegisterPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
+    // Should show "Check your email" screen
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('/api/auth/register', {
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-        body: JSON.stringify({
-          email: 'new@example.com',
-          password: 'password123',
-          tenantName: 'My Portfolio',
-        }),
-      });
+      expect(screen.getByText('Check your email')).toBeInTheDocument();
     });
 
-    expect(onNavigate).toHaveBeenCalledWith('dashboard');
-    expect(localStorage.getItem('access_token')).toBe('jwt-token');
+    // Should show the email address
+    expect(screen.getByText(/new@example\.com/)).toBeInTheDocument();
+
+    // Should have a "Go to Sign In" button
+    expect(screen.getByRole('button', { name: /go to sign in/i })).toBeInTheDocument();
+
+    // Clicking it should navigate to login
+    fireEvent.click(screen.getByRole('button', { name: /go to sign in/i }));
+    expect(onNavigate).toHaveBeenCalledWith('login');
   });
 
   it('shows server error on registration failure', async () => {
@@ -152,5 +153,34 @@ describe('RegisterPage', () => {
       expect(screen.getByText('Email already registered')).toBeInTheDocument();
     });
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('stores tokens after successful registration', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        access_token: 'jwt-token',
+        refresh_token: 'refresh-token',
+        user: { email: 'new@example.com', tenant_id: 't1' },
+      }),
+    });
+
+    renderRegister();
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'password123' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm Password'), {
+      target: { value: 'password123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(localStorage.getItem('access_token')).toBe('jwt-token');
+      expect(localStorage.getItem('refresh_token')).toBe('refresh-token');
+    });
   });
 });

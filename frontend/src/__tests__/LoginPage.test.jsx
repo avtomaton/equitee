@@ -1,5 +1,6 @@
 /**
  * Tests for LoginPage component.
+ * Updated to cover Google OAuth button and email verification error handling.
  */
 
 import '@testing-library/jest-dom';
@@ -13,9 +14,18 @@ import LoginPage from '../pages/Login.jsx';
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// Mock window.open for Google OAuth tests
+const mockOpen = vi.fn();
+const originalWindowOpen = window.open;
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  window.open = mockOpen;
+});
+
+afterAll(() => {
+  window.open = originalWindowOpen;
 });
 
 function renderLogin(overrides = {}) {
@@ -29,12 +39,22 @@ function renderLogin(overrides = {}) {
 }
 
 describe('LoginPage', () => {
+  // Helper: get the form submit button (not the Google button)
+  const getSubmitBtn = () => screen.getByRole('button', { name: /^sign in$/i });
+  const getGoogleBtn = () => screen.getByRole('button', { name: /sign in with google/i });
+
   it('renders email and password fields', () => {
     renderLogin();
 
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    expect(getSubmitBtn()).toBeInTheDocument();
+  });
+
+  it('renders Google Sign-In button', () => {
+    renderLogin();
+
+    expect(getGoogleBtn()).toBeInTheDocument();
   });
 
   it('navigates to register page when clicking create account link', () => {
@@ -61,12 +81,41 @@ describe('LoginPage', () => {
     fireEvent.change(screen.getByLabelText('Password'), {
       target: { value: 'wrongpassword' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(getSubmitBtn());
 
     await waitFor(() => {
       expect(screen.getByText('Invalid email or password')).toBeInTheDocument();
     });
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('shows email verification prompt when login returns 403 with email_not_verified', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve(JSON.stringify({
+        error: 'Please verify your email address before logging in.',
+        code: 'email_not_verified',
+        email: 'unverified@example.com',
+      })),
+    });
+
+    renderLogin();
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'unverified@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'password123' },
+    });
+    fireEvent.click(getSubmitBtn());
+
+    await waitFor(() => {
+      expect(screen.getByText(/verify your email address to continue/i)).toBeInTheDocument();
+    });
+
+    // Should show resend verification button
+    expect(screen.getByText('Resend verification email')).toBeInTheDocument();
   });
 
   it('submits correct payload on login', async () => {
@@ -87,7 +136,7 @@ describe('LoginPage', () => {
     fireEvent.change(screen.getByLabelText('Password'), {
       target: { value: 'password123' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(getSubmitBtn());
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith('/api/auth/login', {
@@ -113,10 +162,23 @@ describe('LoginPage', () => {
     fireEvent.change(screen.getByLabelText('Password'), {
       target: { value: 'password123' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(getSubmitBtn());
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /signing in/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /signing in…/i })).toBeDisabled();
+    });
+  });
+
+  it('disables Google button while loading', async () => {
+    // Mock the google OAuth init to hang
+    mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+
+    renderLogin();
+
+    fireEvent.click(getGoogleBtn());
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connecting/i })).toBeDisabled();
     });
   });
 });

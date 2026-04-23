@@ -56,9 +56,13 @@ class User(PublicBase):
         nullable=False,
     )
     email = Column(String(255), unique=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=True)  # Nullable for Google OAuth users
     role = Column(String(50), nullable=False, server_default='owner')
     is_active = Column(Boolean, nullable=False, server_default='true')
+    email_verified = Column(Boolean, nullable=False, server_default='false')
+    email_verification_token = Column(String(255), nullable=True)
+    email_verification_sent_at = Column(DateTime, nullable=True)
+    google_id = Column(String(255), nullable=True, unique=True)
     created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
 
     # Relationships
@@ -71,5 +75,6 @@ class User(PublicBase):
             'email': self.email,
             'role': self.role,
             'is_active': self.is_active,
+            'email_verified': self.email_verified,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
