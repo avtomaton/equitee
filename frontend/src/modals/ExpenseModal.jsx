@@ -21,11 +21,15 @@ const toFormState_Expense = (expense, property) => expense ? {
 const NON_DEDUCTIBLE_CATEGORIES = ['Mortgage', 'Principal'];
 
 // Estimate days between payments based on mortgage frequency
+// Average days per period — uses 365.25/12 ≈ 30.4375 for monthly to match
+// typical lender accrual more closely than a flat 30.
+const AVG_DAYS_PER_MONTH = 365.25 / 12; // ≈ 30.4375
+
 const freqToDays = (freq) => {
   if (freq === 'bi-weekly')    return 14;
   if (freq === 'semi-monthly') return 15;
   if (freq === 'weekly')       return 7;
-  return 30; // monthly default
+  return AVG_DAYS_PER_MONTH; // monthly default
 };
 
 export default function ExpenseModal({ expense, properties, property, onClose, onSave, onError }) {
@@ -90,7 +94,7 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
     let principal = formData.amount;
 
     if (formData.expense_category === 'Mortgage' && selectedProp.mortgage_rate > 0) {
-      const dailyRate = selectedProp.mortgage_rate / 100 / 365;
+      const dailyRate = selectedProp.mortgage_rate / 100 / 365.25;
       const days      = freqToDays(selectedProp.mortgage_frequency);
       const interest  = loanNow * dailyRate * days;
       principal       = Math.max(0, formData.amount - interest);

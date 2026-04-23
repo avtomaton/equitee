@@ -132,6 +132,7 @@ export const computeMortgagePrincipal = (
   if (!annualRatePct || mortgageExpenses.length === 0) return [];
 
   const MS_PER_DAY = 1000 * 60 * 60 * 24;
+  const AVG_DAYS_PER_MONTH = 365.25 / 12; // ≈ 30.4375
 
   // Sort ascending (oldest → newest)
   const sorted = [...mortgageExpenses].sort(
@@ -155,10 +156,10 @@ export const computeMortgagePrincipal = (
     const payment = sorted[i].amount;
     const days =
       i === 0
-        ? 30 // no prior payment date available; assume ~1 month
+        ? AVG_DAYS_PER_MONTH // no prior payment date available; assume ~1 month
         : Math.max(
             1,
-            Math.floor(
+            Math.round(
               (new Date(sorted[i].expense_date) - new Date(sorted[i - 1].expense_date)) /
                 MS_PER_DAY
             )
@@ -170,7 +171,7 @@ export const computeMortgagePrincipal = (
     // before any event → returns preHistoryRate correctly.
     const periodStart = i > 0 ? sorted[i - 1].expense_date : '0000-01-01';
     const ratePct     = rateAtDate(periodStart, rateHistory, preHistoryRate);
-    const dailyRate   = ratePct / 100 / 365;
+    const dailyRate   = ratePct / 100 / 365.25;
     const balanceBefore = (balanceAfter + payment) / (1 + dailyRate * days);
     const interest      = balanceBefore * dailyRate * days;
     const principal     = Math.max(0, payment - interest);
