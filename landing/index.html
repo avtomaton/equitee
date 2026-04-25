@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Equitee — Real Estate Portfolio Analytics</title>
+  <meta name="description" content="Track properties, income, expenses, and tenants. Analyse portfolio-level financial health with 50+ metrics. Self-hosted or cloud." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Reset & Base ────────────────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-primary: #0f1419;
+      --bg-secondary: #1a1f2e;
+      --bg-tertiary: #252d3d;
+      --accent: #3b82f6;
+      --accent-light: #60a5fa;
+      --accent-glow: rgba(59, 130, 246, 0.15);
+      --success: #10b981;
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --text-tertiary: #6b7280;
+      --border: #374151;
+      --max-width: 1200px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    a { color: var(--accent-light); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Navigation ─────────────────────────────────────────────── */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(15, 20, 25, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      transition: box-shadow 0.3s;
+    }
+    .nav.scrolled { box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3); }
+    .nav-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 72px;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .nav-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .nav-tagline {
+      font-size: 0.75rem;
+      color: var(--text-tertiary);
+      display: none;
+    }
+    @media (min-width: 768px) {
+      .nav-tagline { display: block; }
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .nav-links a {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); text-decoration: none; }
+
+    /* ── Buttons ────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.75rem;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .btn:hover { transform: translateY(-1px); text-decoration: none; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+    }
+    .btn-primary:hover { background: #2563eb; box-shadow: 0 6px 25px rgba(59, 130, 246, 0.4); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent-light); }
+    .btn-large { padding: 1rem 2.5rem; font-size: 1.05rem; border-radius: 12px; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--accent-light);
+      padding: 0.5rem 1rem;
+    }
+    .btn-ghost:hover { background: var(--accent-glow); }
+
+    /* ── Hero ───────────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8rem 2rem 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(ellipse at 50% 30%, rgba(59, 130, 246, 0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-content { max-width: 800px; position: relative; z-index: 1; }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--accent-glow);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      border-radius: 100px;
+      font-size: 0.85rem;
+      color: var(--accent-light);
+      margin-bottom: 2rem;
+    }
+    .hero h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.02em;
+    }
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, var(--accent-light), #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto 2.5rem;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .hero-sub {
+      margin-top: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Sections ───────────────────────────────────────────────── */
+    section { padding: 6rem 2rem; }
+    .section-inner { max-width: var(--max-width); margin: 0 auto; }
+    .section-header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+    .section-header h2 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+    .section-header p {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    /* ── Features Grid ──────────────────────────────────────────── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+    .feature-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      transition: all 0.3s;
+    }
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-4px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    }
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: var(--accent-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .feature-card h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    .feature-card p {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ── Metrics ────────────────────────────────────────────────── */
+    .metrics-section { background: var(--bg-secondary); }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+    }
+    .metric-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .metric-card .metric-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-light);
+      margin-bottom: 0.5rem;
+    }
+    .metric-card .metric-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* ── How It Works ───────────────────────────────────────────── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 2rem;
+      counter-reset: step;
+    }
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0 auto 1.25rem;
+    }
+    .step h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .step p { font-size: 0.95rem; color: var(--text-secondary); }
+
+    /* ── CTA ────────────────────────────────────────────────────── */
+    .cta-section {
+      text-align: center;
+      position: relative;
+    }
+    .cta-box {
+      background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 4rem 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .cta-box::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+    .cta-box h2 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+    .cta-box p {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .cta-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    .footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem;
+    }
+    .footer-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .footer-brand {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .footer-copy {
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+    }
+    .footer-links {
+      display: flex;
+      gap: 1.5rem;
+    }
+    .footer-links a {
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+    }
+    .footer-links a:hover { color: var(--text-primary); }
+
+    /* ── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-links .hide-mobile { display: none; }
+      .hero { padding: 7rem 1.5rem 3rem; }
+      section { padding: 4rem 1.5rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: 1fr; }
+    }
+
+    /* ── Animations ─────────────────────────────────────────────── */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate {
+      opacity: 0;
+      animation: fadeInUp 0.6s ease forwards;
+    }
+    .animate-d1 { animation-delay: 0.1s; }
+    .animate-d2 { animation-delay: 0.2s; }
+    .animate-d3 { animation-delay: 0.3s; }
+    .animate-d4 { animation-delay: 0.4s; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Navigation ──────────────────────────────────────────────── -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <div class="nav-brand">
+        <span class="nav-logo">Equitee</span>
+        <span class="nav-tagline">Real Estate Portfolio Analytics</span>
+      </div>
+      <div class="nav-links">
+        <a href="#features" class="hide-mobile">Features</a>
+        <a href="#metrics" class="hide-mobile">Metrics</a>
+        <a href="#how-it-works" class="hide-mobile">How It Works</a>
+        <a href="/app/#/login" class="btn btn-ghost">Sign In</a>
+        <a href="/app/#/register" class="btn btn-primary">Get Started</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge animate">
+        ✨ Now with multi-tenant SaaS support
+      </div>
+      <h1 class="animate animate-d1">
+        Your Real Estate Portfolio,<br>
+        <span class="highlight">Crystal Clear</span>
+      </h1>
+      <p class="animate animate-d2">
+        Track properties, income, expenses, and tenants. Get 50+ financial metrics,
+        interactive charts, and actionable insights — all in one beautiful dashboard.
+      </p>
+      <div class="hero-actions animate animate-d3">
+        <a href="/app/#/register" class="btn btn-primary btn-large">
+          Start Free Account →
+        </a>
+        <a href="/app/#/login" class="btn btn-secondary btn-large">
+          Sign In
+        </a>
+      </div>
+      <p class="hero-sub animate animate-d4">
+        No credit card required &middot; Self-hosted option available
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Features ────────────────────────────────────────────────── -->
+  <section id="features">
+    <div class="section-inner">
+      <div class="section-header">
+        <h2>Everything You Need to Manage Your Portfolio</h2>
+        <p>From acquisition analysis to ongoing management — Equitee covers the full lifecycle of real estate investing.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">📊</div>
+          <h3>Dashboard & KPIs</h3>
+          <p>Portfolio-level overview with appreciation, YTD income/expenses, monthly averages, key ratios, and a 3-chart visual summary.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🏠</div>
+          <h3>Property Management</h3>
+          <p>Full CRUD with soft-archive, possession dates, mortgage details, budgeted operating costs, and per-property scoring.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">💰</div>
+          <h3>Income & Expense Tracking</h3>
+          <p>Per-property ledgers with category tagging, tax-deductibility tracking, and date-range filters for deep analysis.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">👥</div>
+          <h3>Tenant Management</h3>
+          <p>Lease tracking with current, past, and archived status. Soft-delete with restore keeps your history intact.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3>Property Evaluator</h3>
+          <p>Model a prospective purchase with scenario sliders, 10-year projections, and an investment score before you buy.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔧</div>
+          <h3>Renovation Planner</h3>
+          <p>Calculate payback periods, appreciation-adjusted returns, and renovation ROI with live sensitivity sliders.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📈</div>
+          <h3>50+ Financial Metrics</h3>
+          <p>Cap Rate, DSCR, ICR, OER, Cash-on-Cash, IRR, economic vacancy, payback period, break-even, and many more.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📋</div>
+          <h3>Audit Trail</h3>
+          <p>Automatic change history on every property edit with editable notes. Full transparency into your data evolution.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🗂️</div>
+          <h3>Property Groups</h3>
+          <p>Organize properties into custom groups. Compare performance across regions, types, or any criteria you choose.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Metrics ─────────────────────────────────────────────────── -->
+  <section id="metrics" class="metrics-section">
+    <div class="section-inner">
+      <div class="section-header">
+        <h2>Built-In Financial Metrics</h2>
+        <p>Every metric a real estate investor needs, calculated automatically from your data.</p>
+      </div>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-name">Cap Rate</div>
+          <div class="metric-desc">Annual NOI ÷ market value — yield on the asset</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">DSCR</div>
+          <div class="metric-desc">Monthly NOI ÷ monthly mortgage — can income service the debt?</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">ICR</div>
+          <div class="metric-desc">Annual NOI ÷ annual interest — interest coverage ratio</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">OER</div>
+          <div class="metric-desc">Operating expenses ÷ gross income — cost efficiency</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Cash-on-Cash</div>
+          <div class="metric-desc">Annual cash flow ÷ equity — return on invested capital</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">IRR</div>
+          <div class="metric-desc">Internal rate of return — annualised return across all cash flows</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Economic Vacancy</div>
+          <div class="metric-desc">Lost rent from vacancy ÷ potential rent — event-based calculation</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Payback Period</div>
+          <div class="metric-desc">Time for cumulative cash flow to recover total expenses</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How It Works ────────────────────────────────────────────── -->
+  <section id="how-it-works">
+    <div class="section-inner">
+      <div class="section-header">
+        <h2>Up and Running in Minutes</h2>
+        <p>Whether you choose cloud or self-hosted, getting started is simple.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <h3>Create Your Account</h3>
+          <p>Sign up with email and password. No credit card needed — start with a free portfolio.</p>
+        </div>
+        <div class="step">
+          <h3>Add Your Properties</h3>
+          <p>Enter property details, mortgage info, and operating costs. Import from JSON or add manually.</p>
+        </div>
+        <div class="step">
+          <h3>Track & Analyse</h3>
+          <p>Log income, expenses, and tenants. Watch your dashboard come alive with real-time metrics and insights.</p>
+        </div>
+        <div class="step">
+          <h3>Make Better Decisions</h3>
+          <p>Use the Evaluator and Renovation Planner to model scenarios before committing capital.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ─────────────────────────────────────────────────────── -->
+  <section class="cta-section">
+    <div class="section-inner">
+      <div class="cta-box">
+        <h2>Ready to Take Control of Your Portfolio?</h2>
+        <p>Join investors who track their real estate with clarity and confidence.</p>
+        <div class="cta-actions">
+          <a href="/app/#/register" class="btn btn-primary btn-large">Create Free Account →</a>
+          <a href="/app/#/login" class="btn btn-secondary btn-large">Sign In</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand">Equitee</div>
+        <div class="footer-copy">&copy; 2024 Equitee. All rights reserved.</div>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/avtomaton/equitee" target="_blank" rel="noopener">GitHub</a>
+        <a href="/app/#/login">Sign In</a>
+        <a href="/app/#/register">Register</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ── Scripts ─────────────────────────────────────────────────── -->
+  <script>
+    // ── Dynamic app URL ────────────────────────────────────────────
+    // Landing page is on equitee.ca (or dev.equitee.ca).
+    // App is on app.equitee.ca (or app.dev.equitee.ca).
+    // Construct the app URL dynamically so the same landing page
+    // works for both production and development deployments.
+    (function() {
+      var host = window.location.hostname;
+      var isApp = host.startsWith('app.');
+      var appBase = isApp
+        ? window.location.origin
+        : window.location.protocol + '//app.' + host;
+
+      document.querySelectorAll('a[href^="/app/"]').forEach(function(a) {
+        var path = a.getAttribute('href').replace('/app', '');
+        a.setAttribute('href', appBase + path);
+      });
+    })();
+
+    // Navbar shadow on scroll
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 20);
+    }, { passive: true });
+
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', (e) => {
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    // Intersection Observer for scroll animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+    document.querySelectorAll('.feature-card, .metric-card, .step').forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(20px)';
+      el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+      observer.observe(el);
+    });
+  </script>
+</body>
+</html>

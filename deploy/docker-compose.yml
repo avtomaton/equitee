@@ -1,10 +1,44 @@
+# ── Equitee Docker Compose ────────────────────────────────────────
+#
+# Production:  docker compose up -d
+# Development: docker compose --profile dev up -d
+#
+# The nginx container serves:
+#   - Landing page on the root domain (equitee.ca / dev.equitee.ca)
+#   - React SPA + API proxy on the app subdomain (app.equitee.ca / app.dev.equitee.ca)
+#
+# Required .env file (see .env.saas.example):
+#   JWT_SECRET, DB_PASSWORD, SMTP_*, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+
 services:
+  # ── Nginx Gateway ───────────────────────────────────────────────
+  # Serves landing page, frontend SPA, and proxies API requests.
+  # This is the only service that exposes ports to the host.
+  nginx:
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+      args:
+        # Switch to "development.conf" for the dev server
+        VHOST: ${VHOST:-production.conf}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Mount SSL certs from Let's Encrypt (production only)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ── Backend API ─────────────────────────────────────────────────
   backend:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    ports:
-      - "5000:5000"
+    # No ports exposed to host — nginx proxies to this container
+    expose:
+      - "5000"
     environment:
       - TENANCY_MODE=saas
       - DATABASE_URL=postgresql://equitee:${DB_PASSWORD:-equitee_db_password}@db:5432/equitee
@@ -25,6 +59,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── PostgreSQL ──────────────────────────────────────────────────
   db:
     image: postgres:15-alpine
     environment:
@@ -40,6 +75,7 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── Redis ───────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     volumes:
@@ -49,18 +85,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:80"
-    environment:
-      - VITE_API_URL=http://localhost:5000
-    depends_on:
-      - backend
     restart: unless-stopped
 
 volumes:
