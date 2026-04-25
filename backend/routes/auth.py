@@ -6,18 +6,69 @@ In single mode, this module's register_routes() is never called.
 """
 
 import logging
+import re
 import secrets
+import time
 
 from flask import request, jsonify, g, redirect
 
 from config import Config
 from services.auth_service import AuthService
+from services.auth_service import _get_redis_client as _get_redis_client
 from middleware.tenant_router import tenant_required
 from utils.errors import handle_errors
 from validation import validate_email as validate_email_format, ValidationError
 
 logger = logging.getLogger(__name__)
 
+# ── Password strength requirements ────────────────────────────────────────────
+_PASSWORD_MIN_LENGTH = 12
+_PASSWORD_RE_UPPERCASE = re.compile(r'[A-Z]')
+_PASSWORD_RE_DIGIT = re.compile(r'[0-9]')
+_PASSWORD_RE_SPECIAL = re.compile(r'[!@#$%^&*()\-_=+\[\]{}|;:\'",.<>?/\\`~]')
+
+# ── OAuth state store ─────────────────────────────────────────────────────────
+# Uses Redis when available (multi-process), falls back to in-memory (single-process).
+_oauth_states: dict[str, float] = {}
+_OAUTH_STATE_TTL = 600  # 10 minutes
+
+
+def _prune_oauth_states():
+    """Remove expired OAuth states to prevent unbounded memory growth."""
+    now = time.time()
+    expired = [k for k, v in _oauth_states.items() if v < now]
+    for k in expired:
+        del _oauth_states[k]
+
+
+def _store_oauth_state(state):
+    """Store OAuth state with expiry time — uses Redis if available."""
+    redis = _get_redis_client()
+    if redis:
+        try:
+            redis.setex(f"oauth_state:{state}", _OAUTH_STATE_TTL, "1")
+            return
+        except Exception:
+            logger.warning("Redis OAuth state write failed, using in-memory fallback")
+    _prune_oauth_states()
+    _oauth_states[state] = time.time() + _OAUTH_STATE_TTL
+
+
+def _validate_oauth_state(state):
+    """Validate and consume OAuth state (one-time use). Returns True if valid."""
+    redis = _get_redis_client()
+    if redis:
+        try:
+            return redis.delete(f"oauth_state:{state}") > 0
+        except Exception:
+            logger.warning("Redis OAuth state read failed, checking in-memory")
+    if state not in _oauth_states:
+        return False
+    if time.time() > _oauth_states[state]:
+        del _oauth_states[state]
+        return False
+    del _oauth_states[state]
+    return True
 
 def register_auth_routes(app, limiter=None):
     """Register auth routes on the Flask app. Call only in SaaS mode.
@@ -75,8 +126,18 @@ def register_auth_routes(app, limiter=None):
         except ValidationError as e:
             return jsonify({'error': str(e)}), 400
 
-        if not password or len(password) < 8:
-            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        if not password:
+            return jsonify({'error': 'Password is required'}), 400
+
+        # Password strength validation
+        if len(password) < _PASSWORD_MIN_LENGTH:
+            return jsonify({'error': f'Password must be at least {_PASSWORD_MIN_LENGTH} characters'}), 400
+        if not _PASSWORD_RE_UPPERCASE.search(password):
+            return jsonify({'error': 'Password must contain at least one uppercase letter'}), 400
+        if not _PASSWORD_RE_DIGIT.search(password):
+            return jsonify({'error': 'Password must contain at least one number'}), 400
+        if not _PASSWORD_RE_SPECIAL.search(password):
+            return jsonify({'error': 'Password must contain at least one special character'}), 400
 
         try:
             result = AuthService.register(email, password, tenant_name)
@@ -315,8 +376,7 @@ def register_auth_routes(app, limiter=None):
             return jsonify({'error': 'Google Sign-In is not configured'}), 503
 
         state = secrets.token_urlsafe(32)
-        # Store state in a short-lived way — for simplicity we embed it in the URL
-        # In production, store in server-side session or Redis
+        _store_oauth_state(state)
         try:
             auth_url = GoogleOAuthService.get_authorization_url(state)
         except RuntimeError as e:
@@ -360,7 +420,10 @@ def register_auth_routes(app, limiter=None):
 
         if not code:
             return jsonify({'error': 'Authorization code is required'}), 400
-
+    
+        if not _validate_oauth_state(state):
+            return jsonify({'error': 'Invalid or expired state parameter'}), 400
+    
         # Get user info from Google
         google_user_info = GoogleOAuthService.handle_callback(code)
         if google_user_info is None:

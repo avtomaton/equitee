@@ -6,6 +6,7 @@ Only used in SaaS mode. In single mode, auth routes are not registered.
 
 import datetime
 import logging
+import os
 import secrets
 import uuid
 
@@ -18,9 +19,34 @@ from utils.db import engine, create_tenant_schema
 
 logger = logging.getLogger(__name__)
 
-# ── In-memory token blacklist ────────────────────────────────────────────────
-# For single-process deployments. For multi-process/multi-server deployments,
-# replace with Redis or a database-backed store.
+# ── Token blacklist ──────────────────────────────────────────────────────────
+# Supports both in-memory (single-process) and Redis (multi-process) storage.
+# Set REDIS_URL environment variable to enable Redis storage.
+
+_redis_client = None
+
+def _get_redis_client():
+    """Get or create Redis client. Returns None if Redis is not available."""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    
+    redis_url = os.environ.get('REDIS_URL')
+    if not redis_url:
+        return None
+    
+    try:
+        import redis
+        _redis_client = redis.from_url(redis_url, decode_responses=True)
+        _redis_client.ping()
+        logger.info("Using Redis for token blacklist")
+        return _redis_client
+    except Exception as e:
+        logger.warning("Redis connection failed, using in-memory blacklist: %s", e)
+        _redis_client = None
+        return None
+
+# In-memory fallback for single-process deployments
 _blacklist: dict[str, float] = {}
 
 # How long to keep expired entries before pruning (seconds)
@@ -47,8 +73,8 @@ class AuthService:
         """
         Add a token to the blacklist so it can no longer be used.
 
-        The token is stored until its natural expiry (plus a safety margin),
-        after which it is pruned automatically.
+        Uses Redis if available (multi-process deployments), otherwise
+        falls back to in-memory storage (single-process deployments).
         """
         try:
             payload = jwt.decode(
@@ -58,8 +84,21 @@ class AuthService:
             )
             # Store with the token's expiry timestamp
             exp = payload.get('exp', _utcnow().timestamp() + _BLACKLIST_TTL)
-            _blacklist[token_str] = exp
-            _prune_blacklist()
+            
+            redis = _get_redis_client()
+            if redis:
+                try:
+                    ttl = int(exp - _utcnow().timestamp())
+                    if ttl > 0:
+                        redis.setex(f"blacklist:{token_str}", ttl, "1")
+                except Exception:
+                    logger.warning("Redis blacklist write failed, using in-memory fallback")
+                    _blacklist[token_str] = exp
+                    _prune_blacklist()
+            else:
+                # In-memory fallback
+                _blacklist[token_str] = exp
+                _prune_blacklist()
         except jwt.InvalidTokenError:
             # If the token is already invalid, nothing to blacklist
             pass
@@ -67,6 +106,12 @@ class AuthService:
     @staticmethod
     def is_token_blacklisted(token_str):
         """Check whether a token has been blacklisted."""
+        redis = _get_redis_client()
+        if redis:
+            try:
+                return redis.exists(f"blacklist:{token_str}") > 0
+            except Exception:
+                logger.warning("Redis blacklist read failed, checking in-memory")
         return token_str in _blacklist
 
     @staticmethod

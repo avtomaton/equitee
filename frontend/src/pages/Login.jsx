@@ -5,13 +5,11 @@
  * Uses hash-based routing to match the existing app pattern.
  */
 
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
-import AuthContext from '../context/AuthContext.jsx';
 
 export default function LoginPage({ onNavigate }) {
-  const { login, loginWithGoogle } = useAuth();
-  const { user } = useContext(AuthContext);
+  const { login, loginWithGoogle, user } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

@@ -25,14 +25,21 @@ if Config.TENANCY_MODE == 'saas':
     try:
         from flask_limiter import Limiter
         from flask_limiter.util import get_remote_address
+        
+        # Use Redis if REDIS_URL is set, otherwise fall back to in-memory
+        redis_url = os.environ.get('REDIS_URL')
+        storage_uri = redis_url if redis_url else "memory://"
+        
         limiter = Limiter(
             app=app,
             key_func=get_remote_address,
             default_limits=["200 per day", "50 per hour"],
-            storage_uri="memory://",
+            storage_uri=storage_uri,
         )
+        if redis_url:
+            print("✅ Rate limiter using Redis")
     except ImportError:
-        print("⚠️  flask-limiter not installed — auth endpoints will run without rate limiting")
+        print("⚠️ flask-limiter not installed — auth endpoints will run without rate limiting")
 
 # ── Database initialization ─────────────────────────────────────
 with app.app_context():

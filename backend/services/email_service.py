@@ -88,11 +88,11 @@ class EmailService:
 
         try:
             if Config.SMTP_USE_TLS:
-                server = smtplib.SMTP(Config.SMTP_HOST, Config.SMTP_PORT)
+                server = smtplib.SMTP(Config.SMTP_HOST, Config.SMTP_PORT, timeout=30)
                 server.starttls()
             else:
-                server = smtplib.SMTP(Config.SMTP_HOST, Config.SMTP_PORT)
-
+                server = smtplib.SMTP(Config.SMTP_HOST, Config.SMTP_PORT, timeout=30)
+    
             server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
             server.sendmail(Config.MAIL_FROM, [to_email], msg.as_string())
             server.quit()

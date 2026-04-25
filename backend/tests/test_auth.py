@@ -240,6 +240,132 @@ class TestAuthRoutes:
             assert response.status_code == 200
             data = response.get_json()
             assert data['user']['email'] == email
+    
+    
+    class TestPasswordStrength:
+        """Test password strength validation."""
+    
+        @pytest.fixture
+        def app(self):
+            """Create Flask app in SaaS mode."""
+            from app import app as flask_app
+            flask_app.config['TESTING'] = True
+            return flask_app
+    
+        def test_weak_password_too_short(self, app):
+            """Password less than 12 characters should be rejected."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/register', json={
+                    'email': f"short-pw-{uuid.uuid4().hex[:8]}@example.com",
+                    'password': 'Short1!',
+                })
+                assert response.status_code == 400
+                assert '12 characters' in response.get_json()['error']
+    
+        def test_weak_password_no_uppercase(self, app):
+            """Password without uppercase should be rejected."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/register', json={
+                    'email': f"no-upper-{uuid.uuid4().hex[:8]}@example.com",
+                    'password': 'nouppercase123!',
+                })
+                assert response.status_code == 400
+                assert 'uppercase' in response.get_json()['error']
+    
+        def test_weak_password_no_number(self, app):
+            """Password without number should be rejected."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/register', json={
+                    'email': f"no-number-{uuid.uuid4().hex[:8]}@example.com",
+                    'password': 'NoNumberHere!',
+                })
+                assert response.status_code == 400
+                assert 'number' in response.get_json()['error']
+    
+        def test_weak_password_no_special_char(self, app):
+            """Password without special character should be rejected."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/register', json={
+                    'email': f"no-special-{uuid.uuid4().hex[:8]}@example.com",
+                    'password': 'NoSpecialChar123',
+                })
+                assert response.status_code == 400
+                assert 'special character' in response.get_json()['error']
+    
+        def test_strong_password_accepted(self, app):
+            """Strong password should be accepted."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/register', json={
+                    'email': f"strong-pw-{uuid.uuid4().hex[:8]}@example.com",
+                    'password': 'Str0ngP@ssw0rd!',
+                })
+                assert response.status_code == 201
+    
+    
+    class TestOAuthStateValidation:
+        """Test OAuth state validation."""
+    
+        @pytest.fixture
+        def app(self):
+            """Create Flask app in SaaS mode."""
+            from app import app as flask_app
+            flask_app.config['TESTING'] = True
+            return flask_app
+    
+        def test_oauth_init_stores_state(self, app):
+            """OAuth init should return a state parameter."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/google')
+                # May fail if Google OAuth not configured, skip if so
+                if response.status_code == 503:
+                    pytest.skip("Google OAuth not configured")
+                assert response.status_code == 200
+                data = response.get_json()
+                assert 'state' in data
+                assert len(data['state']) > 0
+    
+        def test_oauth_callback_rejects_invalid_state(self, app):
+            """OAuth callback with invalid state should be rejected."""
+            with app.test_client() as client:
+                response = client.post('/api/auth/google/callback', json={
+                    'code': 'fake_code',
+                    'state': 'invalid_state',
+                })
+                # Should fail with invalid state
+                assert response.status_code == 400
+                assert 'state' in response.get_json()['error'].lower()
+    
+    
+    class TestTokenBlacklist:
+        """Test token blacklist functionality."""
+    
+        def test_blacklist_token_in_memory(self):
+            """Token should be blacklisted and checked correctly."""
+            from services.auth_service import AuthService
+            
+            # Register and get a token
+            email = f"blacklist-test-{uuid.uuid4().hex[:8]}@example.com"
+            result = AuthService.register(email, 'TestPassword123!')
+            token = result['access_token']
+            
+            # Initially not blacklisted
+            assert not AuthService.is_token_blacklisted(token)
+            
+            # Blacklist the token
+            AuthService.blacklist_token(token)
+            
+            # Now should be blacklisted
+            assert AuthService.is_token_blacklisted(token)
+    
+        def test_blacklist_nonexistent_token(self):
+            """Blacklisting an invalid JWT should not raise."""
+            from services.auth_service import AuthService
+            
+            # Should not raise — invalid JWT is silently ignored
+            AuthService.blacklist_token('nonexistent.token.here')
+            
+            # Invalid token was never added to the blacklist
+            assert not AuthService.is_token_blacklisted('nonexistent.token.here')
 
     def test_short_password_rejected(self, app):
         """Registration should reject passwords shorter than 8 characters."""

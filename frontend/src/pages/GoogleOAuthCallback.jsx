@@ -24,7 +24,7 @@ export default function GoogleOAuthCallback() {
           state: state || '',
           error: error || '',
         },
-        '*' // In production, restrict to your origin
+        window.location.origin
       );
     }
 
