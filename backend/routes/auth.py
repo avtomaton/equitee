@@ -10,7 +10,7 @@ import re
 import secrets
 import time
 
-from flask import request, jsonify, g, redirect
+from flask import request, jsonify, g, redirect, make_response
 
 from config import Config
 from services.auth_service import AuthService
@@ -18,6 +18,11 @@ from services.auth_service import _get_redis_client as _get_redis_client
 from middleware.tenant_router import tenant_required
 from utils.errors import handle_errors
 from validation import validate_email as validate_email_format, ValidationError
+from security import (
+    set_auth_cookies, clear_auth_cookies, set_csrf_cookie,
+    get_access_token_from_cookie, get_refresh_token_from_cookie,
+    validate_csrf,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +177,17 @@ def register_auth_routes(app, limiter=None):
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
 
+        # Check account lockout
+        is_locked, remaining = AuthService._check_account_locked(email)
+        if is_locked:
+            return jsonify({
+                'error': f'Account temporarily locked. Try again in {remaining} minute(s).',
+                'code': 'account_locked',
+            }), 429
+
         result = AuthService.login(email, password)
         if result is None:
+            AuthService._record_failed_login(email)
             return jsonify({'error': 'Invalid email or password'}), 401
 
         # Check for email-not-verified special case
@@ -184,7 +198,16 @@ def register_auth_routes(app, limiter=None):
                 'email': result['email'],
             }), 403
 
-        return jsonify(result), 200
+        # Reset failed login counter on success
+        AuthService._reset_failed_logins(email)
+
+        response = make_response(jsonify({
+            'user': result['user'],
+            'tenant': result.get('tenant'),
+        }), 200)
+        set_auth_cookies(response, result['access_token'], result['refresh_token'])
+        set_csrf_cookie(response)
+        return response
 
     # ── Token refresh ───────────────────────────────────────────────
 
@@ -205,17 +228,26 @@ def register_auth_routes(app, limiter=None):
                 "access_token": "..."
             }
         """
-        data = request.get_json()
-        refresh_token_str = data.get('refresh_token', '')
+        # Support both cookie-based and body-based refresh tokens
+        refresh_token_str = get_refresh_token_from_cookie()
+        if not refresh_token_str:
+            data = request.get_json(silent=True) or {}
+            refresh_token_str = data.get('refresh_token', '')
 
         if not refresh_token_str:
             return jsonify({'error': 'Refresh token is required'}), 400
 
         result = AuthService.refresh_token(refresh_token_str)
         if result is None:
-            return jsonify({'error': 'Invalid or expired refresh token'}), 401
+            response = make_response(jsonify({'error': 'Invalid or expired refresh token'}), 401)
+            clear_auth_cookies(response)
+            return response
 
-        return jsonify(result), 200
+        response = make_response(jsonify({
+            'access_token': result['access_token'],
+        }), 200)
+        set_auth_cookies(response, result['access_token'], refresh_token_str)
+        return response
 
     # ── Logout ──────────────────────────────────────────────────────
 
@@ -233,17 +265,23 @@ def register_auth_routes(app, limiter=None):
 
         Response: 200 OK
         """
+        # Blacklist both access and refresh tokens
+        access_token = get_access_token_from_cookie()
+        if access_token:
+            AuthService.blacklist_token(access_token)
+
+        refresh_token = get_refresh_token_from_cookie()
+        if refresh_token:
+            AuthService.blacklist_token(refresh_token)
+
+        # Also support legacy Authorization header
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
-            token = auth_header.split(' ', 1)[1]
-            AuthService.blacklist_token(token)
+            AuthService.blacklist_token(auth_header.split(' ', 1)[1])
 
-        data = request.get_json(silent=True) or {}
-        refresh_token_str = data.get('refresh_token', '')
-        if refresh_token_str:
-            AuthService.blacklist_token(refresh_token_str)
-
-        return jsonify({'message': 'Logged out successfully'}), 200
+        response = make_response(jsonify({'message': 'Logged out successfully'}), 200)
+        clear_auth_cookies(response)
+        return response
 
     # ── Current user ────────────────────────────────────────────────
 
@@ -344,6 +382,74 @@ def register_auth_routes(app, limiter=None):
                 'a new verification email has been sent.'
             ),
         }), 200
+
+
+    # ── Forgot Password ────────────────────────────────────────────
+
+    @app.route('/api/auth/forgot-password', methods=['POST'])
+    @_limit("3/minute")
+    @handle_errors
+    def forgot_password():
+        """
+        Request a password reset link.
+        Always returns 200 to prevent email enumeration.
+
+        Request body:
+            {
+                "email": "user@example.com"
+            }
+        """
+        data = request.get_json()
+        email = data.get('email', '').strip()
+
+        if email:
+            try:
+                validate_email_format(email)
+            except ValidationError:
+                pass  # Still return 200 to prevent enumeration
+            else:
+                AuthService.forgot_password(email)
+
+        return jsonify({
+            'message': 'If an account with that email exists, a password reset link has been sent.'
+        }), 200
+
+    # ── Reset Password ─────────────────────────────────────────────
+
+    @app.route('/api/auth/reset-password', methods=['POST'])
+    @_limit("5/minute")
+    @handle_errors
+    def reset_password():
+        """
+        Reset password using a reset token.
+
+        Request body:
+            {
+                "token": "...",
+                "password": "newsecurepassword"
+            }
+        """
+        data = request.get_json()
+        token = data.get('token', '').strip()
+        password = data.get('password', '')
+
+        if not token:
+            return jsonify({'error': 'Reset token is required'}), 400
+
+        if not password:
+            return jsonify({'error': 'New password is required'}), 400
+
+        # Password strength validation
+        try:
+            validate_password_strength(password)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+
+        success = AuthService.reset_password(token, password)
+        if not success:
+            return jsonify({'error': 'Invalid or expired reset token'}), 400
+
+        return jsonify({'message': 'Password has been reset successfully.'}), 200
 
     # ── Google OAuth ────────────────────────────────────────────────
 

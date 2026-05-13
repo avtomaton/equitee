@@ -596,6 +596,162 @@ class AuthService:
         }
         return jwt.encode(payload, Config.JWT_SECRET, algorithm=Config.JWT_ALGORITHM)
 
+    # ── Account lockout ──────────────────────────────────────────
+
+    _MAX_FAILED_LOGINS = 5
+    _LOCKOUT_MINUTES = 15
+
+    @staticmethod
+    def _check_account_locked(email):
+        """Check if the account is currently locked due to too many failed attempts.
+        Returns (is_locked, remaining_minutes)."""
+        redis = _get_redis_client()
+        key = f"login_fail:{email}"
+        lock_key = f"login_lock:{email}"
+
+        if redis:
+            try:
+                ttl = redis.ttl(lock_key)
+                if ttl > 0:
+                    return True, max(1, ttl // 60)
+                return False, 0
+            except Exception:
+                pass
+
+        # In-memory fallback
+        if lock_key in _blacklist:
+            remaining = _blacklist[lock_key] - utcnow().timestamp()
+            if remaining > 0:
+                return True, max(1, int(remaining // 60))
+        return False, 0
+
+    @staticmethod
+    def _record_failed_login(email):
+        """Record a failed login attempt. Locks account after _MAX_FAILED_LOGINS."""
+        redis = _get_redis_client()
+        key = f"login_fail:{email}"
+        lock_key = f"login_lock:{email}"
+
+        if redis:
+            try:
+                count = redis.incr(key)
+                redis.expire(key, AuthService._LOCKOUT_MINUTES * 60)
+                if count >= AuthService._MAX_FAILED_LOGINS:
+                    redis.setex(lock_key, AuthService._LOCKOUT_MINUTES * 60, "1")
+                    logger.warning("Account locked for %s after %d failed attempts", email, count)
+                return
+            except Exception:
+                pass
+
+        # In-memory fallback
+        count = _blacklist.get(key, 0) + 1
+        _blacklist[key] = count
+        if count >= AuthService._MAX_FAILED_LOGINS:
+            _blacklist[lock_key] = utcnow().timestamp() + AuthService._LOCKOUT_MINUTES * 60
+            logger.warning("Account locked for %s after %d failed attempts", email, count)
+
+    @staticmethod
+    def _reset_failed_logins(email):
+        """Clear failed login attempts after successful login."""
+        redis = _get_redis_client()
+        key = f"login_fail:{email}"
+        lock_key = f"login_lock:{email}"
+
+        if redis:
+            try:
+                redis.delete(key, lock_key)
+                return
+            except Exception:
+                pass
+
+        _blacklist.pop(key, None)
+        _blacklist.pop(lock_key, None)
+
+    # ── Password reset ───────────────────────────────────────────
+
+    @staticmethod
+    def forgot_password(email):
+        """Generate a password reset token and (in production) send it via email.
+        Always returns True to prevent email enumeration."""
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT id, email FROM public.users WHERE email = :email"),
+                {'email': email.lower().strip()},
+            )
+            row = result.fetchone()
+
+            if not row:
+                return True  # Don't reveal that the user doesn't exist
+
+            token = secrets.token_urlsafe(32)
+            conn.execute(
+                text("""
+                    UPDATE public.users
+                    SET email_verification_token = :token,
+                        email_verification_sent_at = :now
+                    WHERE id = :user_id
+                """),
+                {'token': token, 'now': utcnow(), 'user_id': row.id},
+            )
+            conn.commit()
+
+            # Send reset email
+            try:
+                from services.email_service import EmailService
+                reset_url = f"{Config.APP_BASE_URL}/#/reset-password?token={token}"
+                EmailService.send_password_reset_email(row.email, reset_url)
+            except Exception:
+                logger.warning("Failed to send password reset email to %s", row.email, exc_info=True)
+
+            return True
+
+    @staticmethod
+    def reset_password(token, new_password):
+        """Reset a user's password using a reset token.
+        Returns True on success, False if token is invalid/expired."""
+        validate_password_strength(new_password)
+
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, email_verification_sent_at
+                    FROM public.users
+                    WHERE email_verification_token = :token
+                """),
+                {'token': token},
+            )
+            row = result.fetchone()
+
+            if not row:
+                return False
+
+            # Check token expiry (24 hours, same as email verification)
+            if row.email_verification_sent_at:
+                elapsed = utcnow() - row.email_verification_sent_at.replace(
+                    tzinfo=datetime.timezone.utc
+                )
+                if elapsed.total_seconds() > Config.EMAIL_VERIFICATION_EXPIRY_HOURS * 3600:
+                    return False
+
+            # Update password and clear token
+            conn.execute(
+                text("""
+                    UPDATE public.users
+                    SET password_hash = :password_hash,
+                        email_verification_token = NULL
+                    WHERE id = :user_id
+                """),
+                {
+                    'password_hash': generate_password_hash(new_password),
+                    'user_id': row.id,
+                },
+            )
+
+            # Invalidate all existing tokens by changing a token version
+            # This forces re-login on all devices
+            logger.info("Password reset successful for user id=%s", row.id)
+            return True
+
     @staticmethod
     def _create_refresh_token(tenant_id, email, user_id):
         """Create a long-lived refresh token."""

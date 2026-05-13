@@ -1,4 +1,4 @@
-\"
+"""
 Security utilities — CSRF protection and httpOnly cookie helpers.
 
 Only used in SaaS mode. In single mode, these are not needed.

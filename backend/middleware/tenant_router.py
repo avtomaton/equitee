@@ -123,12 +123,17 @@ def tenant_required(f):
             g.current_user = None
             return f(*args, **kwargs)
 
-        # ── SaaS mode: require JWT ─────────────────────────────
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Missing or invalid authorization header'}), 401
+        # ── SaaS mode: require JWT from cookie or header ──────
+        # Prefer httpOnly cookie (sent automatically by browser),
+        # fall back to Authorization header for backward compatibility.
+        token = request.cookies.get('equitee_access_token')
+        if not token:
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ', 1)[1]
 
-        token = auth_header.split(' ', 1)[1]
+        if not token:
+            return jsonify({'error': 'Missing or invalid authorization'}), 401
 
         # Check token blacklist (e.g. after logout)
         from services.auth_service import AuthService

@@ -96,6 +96,47 @@ class EmailService:
             server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
             server.sendmail(Config.MAIL_FROM, [to_email], msg.as_string())
             server.quit()
+        
+            @staticmethod
+            def send_password_reset_email(email, reset_url):
+                """
+                Send a password reset link.
+        
+                Args:
+                    email: Recipient email address.
+                    reset_url: Full URL with reset token.
+                """
+                subject = "Reset your Equitee password"
+                html_body = f"""
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #3b82f6;">Password Reset Request</h2>
+                    <p>Someone requested a password reset for your Equitee account.</p>
+                    <a href="{reset_url}"
+                       style="display: inline-block; padding: 12px 24px; background-color: #3b82f6;
+                              color: white; text-decoration: none; border-radius: 6px; margin: 16px 0;">
+                        Reset Password
+                    </a>
+                    <p style="color: #666; font-size: 14px;">
+                        If the button doesn't work, copy and paste this link into your browser:<br>
+                        <a href="{reset_url}">{reset_url}</a>
+                    </p>
+                    <p style="color: #666; font-size: 14px;">
+                        This link expires in {Config.EMAIL_VERIFICATION_EXPIRY_HOURS} hours.
+                    </p>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
+                    <p style="color: #999; font-size: 12px;">
+                        If you didn't request this, you can safely ignore this email.
+                    </p>
+                </div>
+                """
+                text_body = (
+                    f"Password Reset Request\n\n"
+                    f"Someone requested a password reset for your Equitee account.\n"
+                    f"To reset your password, visit:\n{reset_url}\n\n"
+                    f"This link expires in {Config.EMAIL_VERIFICATION_EXPIRY_HOURS} hours.\n\n"
+                    f"If you didn't request this, you can safely ignore this email."
+                )
+                EmailService._send_email(email, subject, html_body, text_body)
 
             logger.info("Email sent successfully to %s", to_email)
         except Exception:

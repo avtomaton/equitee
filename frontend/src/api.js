@@ -1,14 +1,21 @@
 /**
  * api.js — All HTTP calls to the backend in one place.
  *
- * Supports both self-hosted (no auth) and SaaS (JWT auth) modes.
- * In SaaS mode, the access token is automatically attached to every request.
+ * Supports both self-hosted (no auth) and SaaS (JWT via httpOnly cookies) modes.
+ * In SaaS mode, httpOnly cookies are sent automatically via credentials: 'include'.
  *
  * Adding auth headers, a base-URL swap, or global error toasts only
  * needs to happen here.
  */
 
 import { API_URL } from './config.js';
+
+// ── CSRF token helper ───────────────────────────────────────────────────────
+
+function getCsrfToken() {
+  const match = document.cookie.match(/(?:^|;\s*)equitee_csrf_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 // ── Silent token refresh ────────────────────────────────────────────────────
 
@@ -18,19 +25,14 @@ async function tryRefresh() {
   // Coalesce concurrent refresh attempts into a single call
   if (_refreshPromise) return _refreshPromise;
 
-  const refreshToken = localStorage.getItem('refresh_token');
-  if (!refreshToken) return false;
-
   _refreshPromise = (async () => {
     try {
       const res = await fetch(`${API_URL}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        credentials: 'include',
       });
       if (!res.ok) return false;
-      const data = await res.json();
-      localStorage.setItem('access_token', data.access_token);
       return true;
     } catch {
       return false;
@@ -47,7 +49,16 @@ async function tryRefresh() {
 async function req(path, options = {}) {
   const headers = { 'Content-Type': 'application/json' };
 
-  // Attach JWT token if available
+  // Attach CSRF token for state-changing requests
+  const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(options.method);
+  if (isMutation) {
+    const csrf = getCsrfToken();
+    if (csrf) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+  }
+
+  // Also support Authorization header for backward compatibility
   const token = localStorage.getItem('access_token');
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -55,15 +66,24 @@ async function req(path, options = {}) {
 
   let res = await fetch(`${API_URL}${path}`, {
     headers,
+    credentials: 'include',  // Send httpOnly cookies
     ...options,
   });
 
   // Handle 401 — try silent refresh once before kicking the user out
-  if (res.status === 401 && token) {
+  if (res.status === 401) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      headers['Authorization'] = `Bearer ${localStorage.getItem('access_token')}`;
-      res = await fetch(`${API_URL}${path}`, { headers, ...options });
+      // Update CSRF token if it changed
+      if (isMutation) {
+        const csrf = getCsrfToken();
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+      }
+      res = await fetch(`${API_URL}${path}`, {
+        headers,
+        credentials: 'include',
+        ...options,
+      });
     } else {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
@@ -105,11 +125,8 @@ export const auth = {
   refresh: (refreshToken) =>
     post('/auth/refresh', { refresh_token: refreshToken }),
 
-  logout: () => {
-    const refreshToken = localStorage.getItem('refresh_token');
-    return post('/auth/logout', { refresh_token: refreshToken || undefined })
-      .catch(() => {}); // Best-effort
-  },
+  logout: () =>
+    post('/auth/logout').catch(() => {}), // Best-effort; cookies are cleared by server
 
   me: () =>
     get('/auth/me'),
@@ -120,6 +137,13 @@ export const auth = {
 
   resendVerification: (email) =>
     post('/auth/resend-verification', { email }),
+
+  // Password reset
+  forgotPassword: (email) =>
+    post('/auth/forgot-password', { email }),
+
+  resetPassword: (token, password) =>
+    post('/auth/reset-password', { token, password }),
 
   // Google OAuth
   googleOAuthInit: () =>
