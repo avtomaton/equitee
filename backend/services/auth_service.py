@@ -7,6 +7,7 @@ Only used in SaaS mode. In single mode, auth routes are not registered.
 import datetime
 import logging
 import os
+import re
 import secrets
 import uuid
 
@@ -16,6 +17,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from config import Config
 from utils.db import engine, create_tenant_schema
+from utils.timeutils import utcnow
+from validation_password import validate_password_strength
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +56,9 @@ _blacklist: dict[str, float] = {}
 _BLACKLIST_TTL = 7 * 24 * 3600  # 7 days (matches max refresh token lifetime)
 
 
-def _utcnow():
-    """Return the current UTC time (timezone-aware)."""
-    return datetime.datetime.now(datetime.timezone.utc)
-
-
 def _prune_blacklist():
     """Remove expired entries from the blacklist to prevent unbounded growth."""
-    cutoff = _utcnow().timestamp()
+    cutoff = utcnow().timestamp()
     expired = [k for k, v in _blacklist.items() if v < cutoff]
     for k in expired:
         del _blacklist[k]
@@ -83,12 +81,12 @@ class AuthService:
                 algorithms=[Config.JWT_ALGORITHM],
             )
             # Store with the token's expiry timestamp
-            exp = payload.get('exp', _utcnow().timestamp() + _BLACKLIST_TTL)
+            exp = payload.get('exp', utcnow().timestamp() + _BLACKLIST_TTL)
             
             redis = _get_redis_client()
             if redis:
                 try:
-                    ttl = int(exp - _utcnow().timestamp())
+                    ttl = int(exp - utcnow().timestamp())
                     if ttl > 0:
                         redis.setex(f"blacklist:{token_str}", ttl, "1")
                 except Exception:
@@ -117,39 +115,26 @@ class AuthService:
     @staticmethod
     def register(email, password, tenant_name=None):
         """
-        Create a new tenant + user + schema.
+        Register a new user.
 
-        The user starts with is_active=True but email_verified=False.
-        A verification email is sent (if SMTP is configured).
+        In the new flow, registration creates a user WITHOUT a tenant.
+        The user must then request a tenancy, which an admin approves.
+        After approval, the tenant is created and linked to the user.
+
+        For backward compatibility, if tenant_name is provided, a tenancy
+        request is automatically created alongside the user.
 
         Returns:
-            dict with access_token, refresh_token, user, tenant
+            dict with access_token, refresh_token, user
         """
-        tenant_id = str(uuid.uuid4())
-        schema_name = f"tenant_{tenant_id}"
-        tenant_name = tenant_name or f"{email}'s Portfolio"
-        now = _utcnow()
+        # Password strength validation (shared module)
+        validate_password_strength(password)
+
+        now = utcnow()
         verification_token = secrets.token_urlsafe(32)
 
         with engine.begin() as conn:
-            # Create tenant record
-            conn.execute(
-                text("""
-                    INSERT INTO public.tenants
-                        (id, name, schema_name, plan, is_active, created_at)
-                    VALUES
-                        (:id, :name, :schema_name, :plan, true, :now)
-                """),
-                {
-                    'id': tenant_id,
-                    'name': tenant_name,
-                    'schema_name': schema_name,
-                    'plan': Config.DEFAULT_PLAN,
-                    'now': now,
-                },
-            )
-
-            # Create user record — active but email not yet verified
+            # Create user record — no tenant yet, email not yet verified
             conn.execute(
                 text("""
                     INSERT INTO public.users
@@ -157,11 +142,10 @@ class AuthService:
                          email_verified, email_verification_token,
                          email_verification_sent_at, created_at)
                     VALUES
-                        (:tenant_id, :email, :password_hash, 'owner', true,
+                        (NULL, :email, :password_hash, 'owner', true,
                          false, :verification_token, :now, :now)
                 """),
                 {
-                    'tenant_id': tenant_id,
                     'email': email.lower().strip(),
                     'password_hash': generate_password_hash(password),
                     'verification_token': verification_token,
@@ -169,21 +153,25 @@ class AuthService:
                 },
             )
 
-        # Create tenant schema and run migrations
-        try:
-            create_tenant_schema(tenant_id)
-        except Exception as e:
-            # Rollback: remove tenant and user records
-            with engine.begin() as conn:
+            # If tenant_name provided, create a tenancy request
+            if tenant_name:
+                user_row = conn.execute(
+                    text("SELECT id FROM public.users WHERE email = :email"),
+                    {'email': email.lower().strip()},
+                ).fetchone()
+
                 conn.execute(
-                    text("DELETE FROM public.users WHERE tenant_id = :id"),
-                    {'id': tenant_id},
+                    text("""
+                        INSERT INTO public.tenancy_requests
+                            (user_id, tenant_name, status, created_at)
+                        VALUES (:user_id, :tenant_name, 'pending', :now)
+                    """),
+                    {
+                        'user_id': user_row.id,
+                        'tenant_name': tenant_name.strip(),
+                        'now': now,
+                    },
                 )
-                conn.execute(
-                    text("DELETE FROM public.tenants WHERE id = :id"),
-                    {'id': tenant_id},
-                )
-            raise RuntimeError(f"Failed to create tenant schema: {e}") from e
 
         # Send verification email (best-effort, don't fail registration)
         try:
@@ -195,7 +183,8 @@ class AuthService:
         except Exception:
             logger.warning("Failed to send verification email to %s", email, exc_info=True)
 
-        return AuthService._generate_tokens(tenant_id, email.lower().strip())
+        # Generate tokens without a tenant (tenant_id will be None)
+        return AuthService._generate_tokens(None, email.lower().strip())
 
     @staticmethod
     def verify_email(token):
@@ -224,7 +213,7 @@ class AuthService:
 
             # Check token expiry
             if row.email_verification_sent_at:
-                elapsed = _utcnow() - row.email_verification_sent_at.replace(
+                elapsed = utcnow() - row.email_verification_sent_at.replace(
                     tzinfo=datetime.timezone.utc
                 )
                 if elapsed.total_seconds() > Config.EMAIL_VERIFICATION_EXPIRY_HOURS * 3600:
@@ -261,7 +250,7 @@ class AuthService:
             bool: True if email was sent, False if user not found or already verified.
         """
         verification_token = secrets.token_urlsafe(32)
-        now = _utcnow()
+        now = utcnow()
 
         with engine.begin() as conn:
             result = conn.execute(
@@ -300,6 +289,9 @@ class AuthService:
         """
         Authenticate a user and return JWT tokens.
 
+        Users without a tenant can still log in (they'll see a "request tenancy" page).
+        The token will have tenant_id=None in that case.
+
         Returns:
             dict with access_token, refresh_token, user, tenant
             or None if authentication fails
@@ -310,16 +302,14 @@ class AuthService:
                     SELECT
                         u.id AS user_id,
                         u.tenant_id,
+                        u.active_tenant_id,
                         u.password_hash,
                         u.email,
                         u.role,
                         u.is_active AS user_active,
-                        u.email_verified,
-                        t.schema_name,
-                        t.plan,
-                        t.is_active AS tenant_active
+                        u.is_admin,
+                        u.email_verified
                     FROM public.users u
-                    JOIN public.tenants t ON t.id = u.tenant_id
                     WHERE u.email = :email
                 """),
                 {'email': email.lower().strip()},
@@ -335,13 +325,25 @@ class AuthService:
             if not row.user_active:
                 return None
 
-            if not row.tenant_active:
-                return None
-
             if not row.email_verified:
                 return {'error': 'email_not_verified', 'email': row.email}
 
-            return AuthService._generate_tokens(row.tenant_id, row.email)
+            # Use active_tenant_id if set, otherwise tenant_id
+            effective_tenant_id = row.active_tenant_id or row.tenant_id
+
+            if effective_tenant_id:
+                # Verify tenant is active
+                tenant = conn.execute(
+                    text("SELECT is_active FROM public.tenants WHERE id = :id"),
+                    {'id': effective_tenant_id},
+                ).fetchone()
+                if not tenant or not tenant.is_active:
+                    effective_tenant_id = None
+
+            if effective_tenant_id:
+                return AuthService._generate_tokens(effective_tenant_id, row.email)
+            else:
+                return AuthService._generate_tokens(None, row.email)
 
     @staticmethod
     def google_oauth_login(google_user_info):
@@ -380,10 +382,9 @@ class AuthService:
             # Check if user exists with this email (but no Google ID linked)
             result = conn.execute(
                 text("""
-                    SELECT u.id, u.tenant_id, u.email, u.is_active, u.email_verified,
-                           t.is_active AS tenant_active
+                    SELECT u.id, u.tenant_id, u.active_tenant_id, u.email,
+                           u.is_active, u.email_verified
                     FROM public.users u
-                    JOIN public.tenants t ON t.id = u.tenant_id
                     WHERE u.email = :email
                 """),
                 {'email': email},
@@ -392,7 +393,7 @@ class AuthService:
 
             if row:
                 # Link Google ID to existing account
-                if not row.is_active or not row.tenant_active:
+                if not row.is_active:
                     return None
                 with engine.begin() as conn2:
                     conn2.execute(
@@ -403,81 +404,46 @@ class AuthService:
                         """),
                         {'google_id': google_id, 'user_id': row.id},
                     )
-                return AuthService._generate_tokens(row.tenant_id, row.email)
+                effective_tenant = row.active_tenant_id or row.tenant_id
+                if effective_tenant:
+                    return AuthService._generate_tokens(effective_tenant, row.email)
+                else:
+                    return AuthService._generate_tokens(None, row.email)
 
-        # New user — create tenant + user + schema
+        # New user — create without tenant (same as email registration)
         return AuthService._register_google_user(google_user_info)
 
     @staticmethod
     def _register_google_user(google_user_info):
         """
-        Create a new tenant + user + schema for a Google OAuth user.
+        Create a new user for a Google OAuth sign-in.
 
         Google OAuth users are automatically email_verified since Google
-        confirms the email.
+        confirms the email. No tenant is created — user must request one.
         """
         email = google_user_info['email']
         google_id = google_user_info['google_id']
-        name = google_user_info.get('name', '')
-        tenant_name = f"{name}'s Portfolio" if name else f"{email}'s Portfolio"
-
-        tenant_id = str(uuid.uuid4())
-        schema_name = f"tenant_{tenant_id}"
-        now = _utcnow()
+        now = utcnow()
 
         with engine.begin() as conn:
-            # Create tenant record
-            conn.execute(
-                text("""
-                    INSERT INTO public.tenants
-                        (id, name, schema_name, plan, is_active, created_at)
-                    VALUES
-                        (:id, :name, :schema_name, :plan, true, :now)
-                """),
-                {
-                    'id': tenant_id,
-                    'name': tenant_name,
-                    'schema_name': schema_name,
-                    'plan': Config.DEFAULT_PLAN,
-                    'now': now,
-                },
-            )
-
-            # Create user record — no password, email auto-verified
+            # Create user record — no password, no tenant, email auto-verified
             conn.execute(
                 text("""
                     INSERT INTO public.users
                         (tenant_id, email, password_hash, role, is_active,
                          email_verified, google_id, created_at)
                     VALUES
-                        (:tenant_id, :email, NULL, 'owner', true,
+                        (NULL, :email, NULL, 'owner', true,
                          true, :google_id, :now)
                 """),
                 {
-                    'tenant_id': tenant_id,
                     'email': email,
                     'google_id': google_id,
                     'now': now,
                 },
             )
 
-        # Create tenant schema and run migrations
-        try:
-            create_tenant_schema(tenant_id)
-        except Exception as e:
-            # Rollback
-            with engine.begin() as conn:
-                conn.execute(
-                    text("DELETE FROM public.users WHERE tenant_id = :id"),
-                    {'id': tenant_id},
-                )
-                conn.execute(
-                    text("DELETE FROM public.tenants WHERE id = :id"),
-                    {'id': tenant_id},
-                )
-            raise RuntimeError(f"Failed to create tenant schema: {e}") from e
-
-        return AuthService._generate_tokens(tenant_id, email)
+        return AuthService._generate_tokens(None, email)
 
     @staticmethod
     def refresh_token(refresh_token_str):
@@ -504,28 +470,30 @@ class AuthService:
         if payload.get('type') != 'refresh':
             return None
 
-        # Verify user and tenant still exist and are active
+        # Verify user still exists and is active
+        tenant_id = payload.get('tenant_id')
         with engine.connect() as conn:
             result = conn.execute(
-                text("""
-                    SELECT u.id, u.is_active, t.is_active AS tenant_active
-                    FROM public.users u
-                    JOIN public.tenants t ON t.id = u.tenant_id
-                    WHERE u.id = :user_id AND t.id = :tenant_id
-                """),
-                {
-                    'user_id': payload['user_id'],
-                    'tenant_id': payload['tenant_id'],
-                },
+                text("SELECT id, is_active FROM public.users WHERE id = :user_id"),
+                {'user_id': payload['user_id']},
             )
             row = result.fetchone()
 
-            if not row or not row.is_active or not row.tenant_active:
+            if not row or not row.is_active:
                 return None
+
+            # If token has a tenant, verify it's still active
+            if tenant_id:
+                tenant = conn.execute(
+                    text("SELECT is_active FROM public.tenants WHERE id = :id"),
+                    {'id': tenant_id},
+                ).fetchone()
+                if not tenant or not tenant.is_active:
+                    tenant_id = None
 
         return {
             'access_token': AuthService._create_access_token(
-                payload['tenant_id'], payload['email'], payload['user_id']
+                tenant_id, payload['email'], payload['user_id']
             ),
         }
 
@@ -535,7 +503,8 @@ class AuthService:
         Get user and tenant information.
 
         Returns:
-            dict with user and tenant info, or None
+            dict with user and tenant info, or None.
+            Tenant may be None if user has no tenant yet.
         """
         with engine.connect() as conn:
             result = conn.execute(
@@ -544,14 +513,16 @@ class AuthService:
                         u.id AS user_id,
                         u.email,
                         u.role,
+                        u.is_admin,
                         u.email_verified,
                         u.created_at AS user_created_at,
+                        u.active_tenant_id,
                         t.id AS tenant_id,
                         t.name AS tenant_name,
                         t.plan,
                         t.created_at AS tenant_created_at
                     FROM public.users u
-                    JOIN public.tenants t ON t.id = u.tenant_id
+                    LEFT JOIN public.tenants t ON t.id = u.active_tenant_id
                     WHERE u.id = :user_id
                 """),
                 {'user_id': user_id},
@@ -566,6 +537,7 @@ class AuthService:
                     'id': row.user_id,
                     'email': row.email,
                     'role': row.role,
+                    'is_admin': row.is_admin,
                     'email_verified': row.email_verified,
                     'created_at': row.user_created_at.isoformat() if row.user_created_at else None,
                 },
@@ -574,22 +546,27 @@ class AuthService:
                     'name': row.tenant_name,
                     'plan': row.plan,
                     'created_at': row.tenant_created_at.isoformat() if row.tenant_created_at else None,
-                },
+                } if row.tenant_id else None,
             }
 
     # ── Token helpers ───────────────────────────────────────────
 
     @staticmethod
     def _generate_tokens(tenant_id, email):
-        """Generate access and refresh tokens with user info."""
-        # We need the user_id — look it up
+        """Generate access and refresh tokens with user info.
+
+        tenant_id may be None for users without a tenant (pre-approval).
+        """
         with engine.connect() as conn:
             result = conn.execute(
-                text("SELECT id FROM public.users WHERE email = :email"),
+                text("SELECT id, is_admin FROM public.users WHERE email = :email"),
                 {'email': email},
             )
             row = result.fetchone()
-            user_id = row.id if row else 0
+            if not row:
+                raise ValueError(f"User not found: {email}")
+            user_id = row.id
+            is_admin = row.is_admin
 
         access_token = AuthService._create_access_token(tenant_id, email, user_id)
         refresh_token = AuthService._create_refresh_token(tenant_id, email, user_id)
@@ -600,13 +577,15 @@ class AuthService:
             'user': {
                 'email': email,
                 'tenant_id': tenant_id,
+                'user_id': user_id,
+                'is_admin': is_admin,
             },
         }
 
     @staticmethod
     def _create_access_token(tenant_id, email, user_id):
         """Create a short-lived access token."""
-        now = _utcnow()
+        now = utcnow()
         payload = {
             'tenant_id': tenant_id,
             'email': email,
@@ -620,7 +599,7 @@ class AuthService:
     @staticmethod
     def _create_refresh_token(tenant_id, email, user_id):
         """Create a long-lived refresh token."""
-        now = _utcnow()
+        now = utcnow()
         payload = {
             'tenant_id': tenant_id,
             'email': email,

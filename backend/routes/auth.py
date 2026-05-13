@@ -22,10 +22,7 @@ from validation import validate_email as validate_email_format, ValidationError
 logger = logging.getLogger(__name__)
 
 # ── Password strength requirements ────────────────────────────────────────────
-_PASSWORD_MIN_LENGTH = 12
-_PASSWORD_RE_UPPERCASE = re.compile(r'[A-Z]')
-_PASSWORD_RE_DIGIT = re.compile(r'[0-9]')
-_PASSWORD_RE_SPECIAL = re.compile(r'[!@#$%^&*()\-_=+\[\]{}|;:\'",.<>?/\\`~]')
+from validation_password import validate_password_strength
 
 # ── OAuth state store ─────────────────────────────────────────────────────────
 # Uses Redis when available (multi-process), falls back to in-memory (single-process).
@@ -129,15 +126,11 @@ def register_auth_routes(app, limiter=None):
         if not password:
             return jsonify({'error': 'Password is required'}), 400
 
-        # Password strength validation
-        if len(password) < _PASSWORD_MIN_LENGTH:
-            return jsonify({'error': f'Password must be at least {_PASSWORD_MIN_LENGTH} characters'}), 400
-        if not _PASSWORD_RE_UPPERCASE.search(password):
-            return jsonify({'error': 'Password must contain at least one uppercase letter'}), 400
-        if not _PASSWORD_RE_DIGIT.search(password):
-            return jsonify({'error': 'Password must contain at least one number'}), 400
-        if not _PASSWORD_RE_SPECIAL.search(password):
-            return jsonify({'error': 'Password must contain at least one special character'}), 400
+        # Password strength validation (shared module)
+        try:
+            validate_password_strength(password)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
 
         try:
             result = AuthService.register(email, password, tenant_name)

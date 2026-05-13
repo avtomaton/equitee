@@ -79,6 +79,7 @@ export default function Sidebar({ currentView, onNavigate, collapsed, onToggleCo
       <div className="nav-section">
         {!collapsed && <div className="nav-section-title">System</div>}
         {navItem('settings', '⚙️', 'Settings')}
+        {isSaasMode && user?.is_admin && navItem('admin', '🛡️', 'Admin Panel')}
       </div>
 
       {isSaasMode && user && (

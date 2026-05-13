@@ -30,12 +30,38 @@ _TENANT_USER_QUERY = text("""
         u.id AS user_id,
         u.email,
         u.role,
+        u.is_admin,
         u.is_active AS user_active
     FROM public.tenants t
     JOIN public.users u ON u.tenant_id = t.id
     WHERE t.id = :tenant_id
       AND u.id = :user_id
 """)
+
+_USER_ONLY_QUERY = text("""
+    SELECT
+        u.id AS user_id,
+        u.email,
+        u.role,
+        u.is_admin,
+        u.is_active AS user_active
+    FROM public.users u
+    WHERE u.id = :user_id
+""")
+
+
+class _NoTenantRow:
+    """Adapter that wraps a user-only row with tenant fields as None."""
+    def __init__(self, r):
+        self.user_id = r.user_id
+        self.email = r.email
+        self.role = r.role
+        self.is_admin = r.is_admin
+        self.user_active = r.user_active
+        self.tenant_id = None
+        self.schema_name = None
+        self.plan = None
+        self.is_active = None
 
 
 def _lookup_tenant_user(tenant_id, user_id):
@@ -45,22 +71,34 @@ def _lookup_tenant_user(tenant_id, user_id):
     Returns the result row or None.
     """
     with engine.connect() as conn:
-        result = conn.execute(
-            _TENANT_USER_QUERY,
-            {'tenant_id': tenant_id, 'user_id': user_id},
-        )
-        return result.fetchone()
+        if tenant_id:
+            result = conn.execute(
+                _TENANT_USER_QUERY,
+                {'tenant_id': tenant_id, 'user_id': user_id},
+            )
+            return result.fetchone()
+        else:
+            # User without a tenant — return user-only info
+            result = conn.execute(
+                _USER_ONLY_QUERY,
+                {'user_id': user_id},
+            )
+            row = result.fetchone()
+            if row:
+                return _NoTenantRow(row)
+            return None
 
 
 def _set_user_context(row):
     """Set g.tenant_schema and g.current_user from a database row."""
-    g.tenant_schema = row.schema_name
+    g.tenant_schema = row.schema_name  # None if user has no tenant
     g.current_user = {
         'id': row.user_id,
         'email': row.email,
         'role': row.role,
         'tenant_id': row.tenant_id,
         'plan': row.plan,
+        'is_admin': row.is_admin,
     }
 
 
@@ -110,16 +148,18 @@ def tenant_required(f):
 
         # Look up tenant schema and user from public database
         try:
-            row = _lookup_tenant_user(payload['tenant_id'], payload['user_id'])
+            tenant_id = payload.get('tenant_id')
+            row = _lookup_tenant_user(tenant_id, payload['user_id'])
 
             if not row:
-                return jsonify({'error': 'User or tenant not found'}), 403
-
-            if not row.is_active:
-                return jsonify({'error': 'Tenant account is inactive'}), 403
+                return jsonify({'error': 'User not found'}), 403
 
             if not row.user_active:
                 return jsonify({'error': 'User account is inactive'}), 403
+
+            # Tenant active check — only if user has a tenant
+            if tenant_id and row.is_active is not None and not row.is_active:
+                return jsonify({'error': 'Tenant account is inactive'}), 403
 
             _set_user_context(row)
 

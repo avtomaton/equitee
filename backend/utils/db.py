@@ -259,9 +259,9 @@ def init_db():
     from models.schema import Base
     Base.metadata.create_all(bind=engine)
     if TENANCY_MODE == 'single':
-        print("✅ Database initialized successfully!")
+        logger.info("Database initialized successfully!")
     else:
-        print("✅ PostgreSQL connection verified!")
+        logger.info("PostgreSQL connection verified!")
 
 
 class NotFoundError(Exception):

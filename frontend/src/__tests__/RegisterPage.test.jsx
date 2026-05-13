@@ -34,7 +34,7 @@ describe('RegisterPage', () => {
     renderRegister();
 
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
-    expect(screen.getByLabelText('Portfolio Name (optional)')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Portfolio Name/)).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
     expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe('RegisterPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Password must be at least 8 characters')).toBeInTheDocument();
+      expect(screen.getByText(/Password must be at least 12 characters/)).toBeInTheDocument();
     });
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -93,7 +93,7 @@ describe('RegisterPage', () => {
       json: () => Promise.resolve({
         access_token: 'jwt-token',
         refresh_token: 'refresh-token',
-        user: { email: 'new@example.com', tenant_id: 't1' },
+        user: { email: 'new@example.com', tenant_id: null, user_id: 1, is_admin: false },
       }),
     });
 
@@ -102,14 +102,14 @@ describe('RegisterPage', () => {
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'new@example.com' },
     });
-    fireEvent.change(screen.getByLabelText('Portfolio Name (optional)'), {
+    fireEvent.change(screen.getByLabelText(/Portfolio Name/), {
       target: { value: 'My Portfolio' },
     });
     fireEvent.change(screen.getByLabelText('Password'), {
-      target: { value: 'password123' },
+      target: { value: 'Password123!' },
     });
     fireEvent.change(screen.getByLabelText('Confirm Password'), {
-      target: { value: 'password123' },
+      target: { value: 'Password123!' },
     });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -142,10 +142,10 @@ describe('RegisterPage', () => {
       target: { value: 'existing@example.com' },
     });
     fireEvent.change(screen.getByLabelText('Password'), {
-      target: { value: 'password123' },
+      target: { value: 'Password123!' },
     });
     fireEvent.change(screen.getByLabelText('Confirm Password'), {
-      target: { value: 'password123' },
+      target: { value: 'Password123!' },
     });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -161,7 +161,7 @@ describe('RegisterPage', () => {
       json: () => Promise.resolve({
         access_token: 'jwt-token',
         refresh_token: 'refresh-token',
-        user: { email: 'new@example.com', tenant_id: 't1' },
+        user: { email: 'new@example.com', tenant_id: null, user_id: 1, is_admin: false },
       }),
     });
 
@@ -171,10 +171,10 @@ describe('RegisterPage', () => {
       target: { value: 'new@example.com' },
     });
     fireEvent.change(screen.getByLabelText('Password'), {
-      target: { value: 'password123' },
+      target: { value: 'Password123!' },
     });
     fireEvent.change(screen.getByLabelText('Confirm Password'), {
-      target: { value: 'password123' },
+      target: { value: 'Password123!' },
     });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -184,3 +184,4 @@ describe('RegisterPage', () => {
     });
   });
 });
+

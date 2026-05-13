@@ -10,6 +10,8 @@ import os
 
 
 class Config:
+    _frozen = False
+
     # ── Required for both modes ──────────────────────────────────────
     TENANCY_MODE = os.environ.get('TENANCY_MODE', 'single')  # 'single' | 'saas'
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///real_estate.db')
@@ -51,6 +53,29 @@ class Config:
     EMAIL_VERIFICATION_EXPIRY_HOURS = int(
         os.environ.get('EMAIL_VERIFICATION_EXPIRY_HOURS', '24')
     )
+
+    # ── Immutability guard ─────────────────────────────────────────
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls._frozen = True
+
+    def __setattr__(cls, name, value):
+        if cls._frozen and hasattr(cls, name):
+            raise AttributeError(
+                f"Config is frozen. Cannot reassign '{name}'. "
+                f"Use environment variables or a test fixture instead."
+            )
+        super().__setattr__(name, value)
+
+    @classmethod
+    def _unfreeze(cls):
+        """Temporarily unfreeze for testing. Use with caution."""
+        cls._frozen = False
+
+    @classmethod
+    def _freeze(cls):
+        """Re-freeze after test setup."""
+        cls._frozen = True
 
     # ── Validation ───────────────────────────────────────────────────
     @classmethod

@@ -129,6 +129,68 @@ export const auth = {
     post('/auth/google/callback', { code, state }),
 };
 
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+export const tenancy = {
+  requestTenancy: (tenantName) =>
+    post('/tenancy/request', { tenantName }),
+
+  getMyRequests: () =>
+    get('/tenancy/requests'),
+
+  getMyTenants: () =>
+    get('/tenancy/tenants'),
+
+  switchTenant: (tenantId) =>
+    post('/tenancy/switch', { tenant_id: tenantId }),
+
+  getMembers: () =>
+    get('/tenancy/members'),
+
+  inviteMember: (email, role = 'member') =>
+    post('/tenancy/invite', { email, role }),
+
+  revokeMember: (userId) =>
+    post(`/tenancy/members/${userId}/revoke`),
+};
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+
+export const admin = {
+  getAnalytics: () =>
+    get('/admin/analytics'),
+
+  listUsers: (page = 1, search = '') =>
+    get(`/admin/users?page=${page}&search=${encodeURIComponent(search)}`),
+
+  getUser: (userId) =>
+    get(`/admin/users/${userId}`),
+
+  toggleUserActive: (userId) =>
+    post(`/admin/users/${userId}/toggle-active`),
+
+  setUserAdmin: (userId, isAdmin) =>
+    post(`/admin/users/${userId}/set-admin`, { is_admin: isAdmin }),
+
+  listTenants: (page = 1, search = '') =>
+    get(`/admin/tenants?page=${page}&search=${encodeURIComponent(search)}`),
+
+  toggleTenantActive: (tenantId) =>
+    post(`/admin/tenants/${tenantId}/toggle-active`),
+
+  updateTenantPlan: (tenantId, plan) =>
+    put(`/admin/tenants/${tenantId}/plan`, { plan }),
+
+  listTenancyRequests: (page = 1, status = '') =>
+    get(`/admin/tenancy-requests?page=${page}${status ? `&status=${status}` : ''}`),
+
+  approveTenancyRequest: (requestId) =>
+    post(`/admin/tenancy-requests/${requestId}/approve`),
+
+  rejectTenancyRequest: (requestId, notes = '') =>
+    post(`/admin/tenancy-requests/${requestId}/reject`, { notes }),
+};
+
 // ── Properties ────────────────────────────────────────────────────────────────
 
 export const getProperties         = (archived = false) => get(`/properties${archived ? '?archived=1' : ''}`);

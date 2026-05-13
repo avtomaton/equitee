@@ -1,18 +1,17 @@
 /**
- * Register page — create a new account (tenant + user + schema).
+ * Register page — create a new account.
  *
- * After registration, shows a "Check your email" message.
- * In self-hosted mode, this page is never navigated to.
- * Uses hash-based routing to match the existing app pattern.
+ * After registration, the user gets a verification email.
+ * Once verified, they can request a tenancy from Settings.
+ * Optionally, they can provide a portfolio name during registration
+ * to automatically submit a tenancy request.
  */
 
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
-import AuthContext from '../context/AuthContext.jsx';
 
 export default function RegisterPage({ onNavigate }) {
-  const { register } = useAuth();
-  const { user } = useContext(AuthContext);
+  const { register, user } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,6 +20,13 @@ export default function RegisterPage({ onNavigate }) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [registered, setRegistered] = useState(false);
+
+  // If already logged in, go to dashboard
+  useEffect(() => {
+    if (user) {
+      onNavigate('dashboard');
+    }
+  }, [user, onNavigate]);
 
   // Show "Check your email" screen after successful registration
   // This takes priority over the user check so the user sees the confirmation
@@ -43,6 +49,11 @@ export default function RegisterPage({ onNavigate }) {
               Please click the link in the email to activate your account.
               The link expires in 24 hours.
             </p>
+            {tenantName && (
+              <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>
+                Your portfolio request "{tenantName}" has been submitted and will be reviewed by an admin.
+              </p>
+            )}
             <button
               className="auth-submit"
               onClick={() => onNavigate('login')}
@@ -64,8 +75,23 @@ export default function RegisterPage({ onNavigate }) {
       return;
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters');
+      return;
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      setError('Password must contain at least one uppercase letter');
+      return;
+    }
+
+    if (!/[0-9]/.test(password)) {
+      setError('Password must contain at least one number');
+      return;
+    }
+
+    if (!/[!@#$%^&*()\-_=+\[\]{}|;:\'",.<>?/\\`~]/.test(password)) {
+      setError('Password must contain at least one special character');
       return;
     }
 
@@ -108,7 +134,7 @@ export default function RegisterPage({ onNavigate }) {
           </div>
 
           <div className="auth-field">
-            <label htmlFor="tenantName">Portfolio Name (optional)</label>
+            <label htmlFor="tenantName">Portfolio Name (optional — request after signup)</label>
             <input
               id="tenantName"
               type="text"
@@ -117,6 +143,9 @@ export default function RegisterPage({ onNavigate }) {
               placeholder="My Real Estate Portfolio"
               autoComplete="organization"
             />
+            <small style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
+              Leave blank to request a portfolio later from Settings.
+            </small>
           </div>
 
           <div className="auth-field">
@@ -126,11 +155,14 @@ export default function RegisterPage({ onNavigate }) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="••••••••••••"
               required
               autoComplete="new-password"
-              minLength={8}
+              minLength={12}
             />
+            <small style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
+              12+ characters with uppercase, number, and special character.
+            </small>
           </div>
 
           <div className="auth-field">
@@ -140,10 +172,10 @@ export default function RegisterPage({ onNavigate }) {
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="••••••••••••"
               required
               autoComplete="new-password"
-              minLength={8}
+              minLength={12}
             />
           </div>
 

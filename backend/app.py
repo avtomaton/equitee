@@ -6,12 +6,17 @@ Supports two operation modes via the TENANCY_MODE environment variable:
   - 'saas': Multi-tenant, PostgreSQL, JWT auth, schema-per-tenant
 """
 
+import logging
+import os
+
+import click
 from flask import Flask
 from flask_cors import CORS
-import os
 
 from config import Config
 from utils.db import init_db, db_session
+
+logger = logging.getLogger(__name__)
 
 # Validate configuration before starting
 Config.validate()
@@ -37,16 +42,16 @@ if Config.TENANCY_MODE == 'saas':
             storage_uri=storage_uri,
         )
         if redis_url:
-            print("✅ Rate limiter using Redis")
+            logger.info("Rate limiter using Redis")
     except ImportError:
-        print("⚠️ flask-limiter not installed — auth endpoints will run without rate limiting")
+        logger.warning("flask-limiter not installed — auth endpoints will run without rate limiting")
 
 # ── Database initialization ─────────────────────────────────────
 with app.app_context():
     if Config.TENANCY_MODE == 'saas':
         from utils.db import init_public_schema
         init_public_schema()
-        print("✅ Public schema tables initialized!")
+        logger.info("Public schema tables initialized!")
     else:
         init_db()
 
@@ -65,10 +70,14 @@ groups.register_routes(app)
 # Auth routes — only in SaaS mode
 if Config.TENANCY_MODE == 'saas':
     from routes.auth import register_auth_routes
+    from routes.admin import register_admin_routes
+    from routes.tenancy import register_tenancy_routes
     register_auth_routes(app, limiter=limiter)
-    print("✅ Auth routes registered (SaaS mode)")
+    register_admin_routes(app, limiter=limiter)
+    register_tenancy_routes(app, limiter=limiter)
+    logger.info("Auth + Admin + Tenancy routes registered (SaaS mode)")
 else:
-    print("✅ Running in self-hosted mode (no auth)")
+    logger.info("Running in self-hosted mode (no auth)")
 
 # ── Session teardown ────────────────────────────────────────────
 @app.teardown_appcontext
@@ -80,6 +89,29 @@ def shutdown_session(exception=None):
     from flask import g
     if hasattr(g, 'tenant_session'):
         g.tenant_session.close()
+
+
+# ── CLI commands ────────────────────────────────────────────────
+@app.cli.command('admin-promote')
+@click.argument('email')
+def admin_promote(email):
+    """Promote a user to admin by email. Usage: flask admin-promote user@example.com"""
+    from sqlalchemy import text
+    from utils.db import engine
+
+    email = email.lower().strip()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("UPDATE public.users SET is_admin = true WHERE email = :email RETURNING id, email"),
+            {'email': email},
+        ).fetchone()
+        if result:
+            logger.info("User %s (id=%s) is now an admin", result.email, result.id)
+            print(f"✅ User {result.email} (id={result.id}) is now an admin")
+        else:
+            logger.warning("No user found with email: %s", email)
+            print(f"❌ No user found with email: {email}")
+            raise SystemExit(1)
 
 
 if __name__ == '__main__':

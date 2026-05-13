@@ -23,6 +23,8 @@ const ComparisonView = lazy(() => import('./components/ComparisonView.jsx'));
 const LoginPage      = lazy(() => import('./pages/Login.jsx'));
 const RegisterPage   = lazy(() => import('./pages/Register.jsx'));
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmail.jsx'));
+const AdminPanel     = lazy(() => import('./components/AdminPanel.jsx'));
+const SettingsPage   = lazy(() => import('./pages/Settings.jsx'));
 
 import PropertyModal  from './modals/PropertyModal.jsx';
 import ExpenseModal   from './modals/ExpenseModal.jsx';
@@ -38,13 +40,13 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 const VALID_VIEWS = [
   'dashboard', 'properties', 'expenses', 'income', 'tenants', 'events',
   'property-detail', 'evaluator', 'renovation', 'comparison', 'documents',
-  'settings', 'login', 'register', 'verify-email',
+  'settings', 'admin', 'login', 'register', 'verify-email',
 ];
 
 // Views where the GroupSelector should be hidden (tools + settings + auth)
 const GROUP_HIDDEN_VIEWS = new Set([
-  'evaluator', 'renovation', 'comparison', 'settings', 'login', 'register',
-  'verify-email',
+  'evaluator', 'renovation', 'comparison', 'settings', 'admin',
+  'login', 'register', 'verify-email',
 ]);
 
 const getViewFromHash = () => {
@@ -303,7 +305,21 @@ function AppInner() {
         return <DocumentsView properties={viewProperties} initialPropertyId={jumpPropertyId} />;
 
       case 'settings':
-        return <PropertyGroupsView />;
+        return (
+          <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+            <SettingsPage onNavigate={navigate} />
+          </Suspense>
+        );
+
+      case 'admin':
+        return (
+          <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+            <AdminPanel onNavigate={navigate} />
+          </Suspense>
+        );
+
+      case 'groups':
+      return <PropertyGroupsView onNavigate={navigate} />;
 
       case 'property-detail':
         if (!selectedProperty) return <Dashboard properties={viewProperties} onPropertyClick={handlePropertyClick} />;

@@ -71,12 +71,21 @@ def validate_phone(phone):
     return phone
 
 def sanitize_html(value):
-    """Basic HTML sanitization to prevent XSS attacks."""
+    """Safe HTML sanitization to prevent XSS attacks.
+    
+    Uses html.escape from the standard library which handles all five
+    reserved XML/HTML characters (<, >, &, ", ') and is well-tested.
+    Strips HTML tags first for defense-in-depth.
+    """
+    import html
+    import re as _re_sanitize
     if not value:
         return value
     value = str(value)
-    return value.replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#x27;')
-
+    # Strip any HTML tags as defense-in-depth
+    value = _re_sanitize.sub(r'<[^>]*>', '', value)
+    # Use stdlib html.escape for proper character escaping
+    return html.escape(value, quote=True)
 
 def validate_table_name(table_name):
     """Whitelist allowed table names to prevent SQL injection."""

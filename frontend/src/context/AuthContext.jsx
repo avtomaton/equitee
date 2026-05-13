@@ -24,6 +24,7 @@ export function AuthProvider({ children }) {
           setUser({
             ...data.user,
             tenant: data.tenant,
+            is_admin: data.user.is_admin || false,
           });
         })
         .catch(() => {
@@ -44,6 +45,7 @@ export function AuthProvider({ children }) {
     setUser({
       email: data.user.email,
       tenant_id: data.user.tenant_id,
+      is_admin: data.user.is_admin || false,
     });
     return data;
   }, []);
@@ -56,6 +58,7 @@ export function AuthProvider({ children }) {
     setUser({
       email: data.user.email,
       tenant_id: data.user.tenant_id,
+      is_admin: data.user.is_admin || false,
     });
     return data;
   }, []);
@@ -65,6 +68,10 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setUser(null);
+  }, []);
+
+  const updateUser = useCallback((newUserData) => {
+    setUser(prev => prev ? { ...prev, ...newUserData } : prev);
   }, []);
 
   const verifyEmail = useCallback(async (token) => {
@@ -151,6 +158,7 @@ export function AuthProvider({ children }) {
       login,
       register,
       logout,
+      updateUser,
       verifyEmail,
       resendVerification,
       loginWithGoogle,
