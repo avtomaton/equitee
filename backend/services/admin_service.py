@@ -3,15 +3,19 @@ Admin service — handles admin panel operations.
 
 Only used in SaaS mode. Admin users can manage users, tenants,
 tenancy requests, and view analytics.
+
+Uses SQLAlchemy ORM (select/insert/update) instead of raw SQL.
 """
 
 import datetime
 import logging
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import select, func, case, and_, or_, update as sa_update, insert as sa_insert
+from sqlalchemy.orm import Session
 
 from config import Config
+from models.public_schema import User, Tenant, TenantMembership, TenancyRequest
 from utils.db import engine, create_tenant_schema
 from utils.timeutils import utcnow
 
@@ -21,78 +25,76 @@ logger = logging.getLogger(__name__)
 class AdminService:
     """Service class for admin operations."""
 
+    # ── Helpers ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _orm_session() -> Session:
+        """Create a new ORM session bound to the global engine."""
+        return Session(engine, expire_on_commit=False)
+
+    @staticmethod
+    def _iso(dt):
+        """Safely convert a datetime to ISO string."""
+        return dt.isoformat() if dt else None
+
     # ── Dashboard Analytics ────────────────────────────────────────
 
     @staticmethod
     def get_analytics():
         """Get platform-wide analytics for the admin dashboard."""
-        with engine.connect() as conn:
-            # Total users
-            total_users = conn.execute(
-                text("SELECT COUNT(*) FROM public.users")
-            ).scalar()
+        cutoff = utcnow() - datetime.timedelta(days=30)
 
-            # Verified users
-            verified_users = conn.execute(
-                text("SELECT COUNT(*) FROM public.users WHERE email_verified = true")
-            ).scalar()
+        with AdminService._orm_session() as session:
+            stmt_users = select(
+                func.count(User.id),
+                func.count(func.nullif(User.email_verified, False)),
+                func.count(func.nullif(User.created_at >= cutoff, False)),
+            )
+            total_users, verified_users, new_users_30d = session.execute(stmt_users).one()
 
-            # Total tenants
-            total_tenants = conn.execute(
-                text("SELECT COUNT(*) FROM public.tenants")
-            ).scalar()
+            stmt_tenants = select(
+                func.count(Tenant.id),
+                func.count(func.nullif(Tenant.is_active, False)),
+                func.count(func.nullif(Tenant.created_at >= cutoff, False)),
+            )
+            total_tenants, active_tenants, new_tenants_30d = session.execute(stmt_tenants).one()
 
-            # Active tenants
-            active_tenants = conn.execute(
-                text("SELECT COUNT(*) FROM public.tenants WHERE is_active = true")
-            ).scalar()
-
-            # Pending tenancy requests
-            pending_requests = conn.execute(
-                text("SELECT COUNT(*) FROM public.tenancy_requests WHERE status = 'pending'")
-            ).scalar()
-
-            # New users in last 30 days
-            new_users_30d = conn.execute(
-                text("""
-                    SELECT COUNT(*) FROM public.users
-                    WHERE created_at >= :cutoff
-                """),
-                {'cutoff': utcnow() - datetime.timedelta(days=30)},
-            ).scalar()
-
-            # New tenants in last 30 days
-            new_tenants_30d = conn.execute(
-                text("""
-                    SELECT COUNT(*) FROM public.tenants
-                    WHERE created_at >= :cutoff
-                """),
-                {'cutoff': utcnow() - datetime.timedelta(days=30)},
+            pending_requests = session.execute(
+                select(func.count(TenancyRequest.id))
+                .where(TenancyRequest.status == 'pending')
             ).scalar()
 
             # Users by plan
-            plan_counts = conn.execute(
-                text("""
-                    SELECT t.plan, COUNT(DISTINCT u.id) as user_count
-                    FROM public.tenants t
-                    LEFT JOIN public.tenant_memberships tm ON tm.tenant_id = t.id AND tm.is_active = true
-                    LEFT JOIN public.users u ON u.id = tm.user_id
-                    GROUP BY t.plan
-                    ORDER BY user_count DESC
-                """)
+            plan_rows = session.execute(
+                select(
+                    Tenant.plan,
+                    func.count(func.distinct(User.id)).label('user_count'),
+                )
+                .select_from(Tenant)
+                .outerjoin(TenantMembership, and_(
+                    TenantMembership.tenant_id == Tenant.id,
+                    TenantMembership.is_active == True,
+                ))
+                .outerjoin(User, User.id == TenantMembership.user_id)
+                .group_by(Tenant.plan)
+                .order_by(func.count(func.distinct(User.id)).desc())
             ).fetchall()
 
             # Recent registrations (last 10)
-            recent_users = conn.execute(
-                text("""
-                    SELECT u.id, u.email, u.email_verified, u.is_active,
-                    u.created_at, u.tenant_id, u.active_tenant_id,
-                    t.name as tenant_name
-                    FROM public.users u
-                    LEFT JOIN public.tenants t ON t.id = COALESCE(u.active_tenant_id, u.tenant_id)
-                    ORDER BY u.created_at DESC
-                    LIMIT 10
-                """)
+            recent_users = session.execute(
+                select(
+                    User.id,
+                    User.email,
+                    User.email_verified,
+                    User.is_active,
+                    User.created_at,
+                    User.tenant_id,
+                    User.active_tenant_id,
+                    Tenant.name.label('tenant_name'),
+                )
+                .outerjoin(Tenant, Tenant.id == func.coalesce(User.active_tenant_id, User.tenant_id))
+                .order_by(User.created_at.desc())
+                .limit(10)
             ).fetchall()
 
             return {
@@ -107,7 +109,7 @@ class AdminService:
                 },
                 'plans': [
                     {'plan': row.plan, 'user_count': row.user_count}
-                    for row in plan_counts
+                    for row in plan_rows
                 ],
                 'recent_users': [
                     {
@@ -115,7 +117,7 @@ class AdminService:
                         'email': r.email,
                         'email_verified': r.email_verified,
                         'is_active': r.is_active,
-                        'created_at': r.created_at.isoformat() if r.created_at else None,
+                        'created_at': AdminService._iso(r.created_at),
                         'tenant_name': r.tenant_name,
                     }
                     for r in recent_users
@@ -128,45 +130,36 @@ class AdminService:
     def list_users(page=1, per_page=20, search=None):
         """List all users with pagination and optional search."""
         offset = (page - 1) * per_page
-        params = {'limit': per_page, 'offset': offset}
 
-        where = ""
-        if search:
-            where = "WHERE u.email ILIKE :search"
-            params['search'] = f'%{search}%'
+        with AdminService._orm_session() as session:
+            # Build base query
+            base = (
+                select(User, Tenant.name.label('tenant_name'))
+                .outerjoin(Tenant, Tenant.id == func.coalesce(User.active_tenant_id, User.tenant_id))
+            )
 
-        with engine.connect() as conn:
-            total = conn.execute(
-                text(f"SELECT COUNT(*) FROM public.users u {where}"),
-                {k: v for k, v in params.items() if k != 'limit' and k != 'offset'},
-            ).scalar()
+            if search:
+                base = base.where(User.email.ilike(f'%{search}%'))
 
-            rows = conn.execute(
-                text(f"""
-                    SELECT u.id, u.email, u.role, u.is_active, u.is_admin,
-                    u.email_verified, u.created_at, u.tenant_id,
-                    u.active_tenant_id,
-                    t.name as tenant_name
-                    FROM public.users u
-                    LEFT JOIN public.tenants t ON t.id = COALESCE(u.active_tenant_id, u.tenant_id)
-                    {where}
-                    ORDER BY u.created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """),
-            params,
-            ).fetchall()
+            # Total count
+            count_stmt = select(func.count()).select_from(base.subquery())
+            total = session.execute(count_stmt).scalar()
+
+            # Paginated rows
+            rows_stmt = base.order_by(User.created_at.desc()).offset(offset).limit(per_page)
+            rows = session.execute(rows_stmt).fetchall()
 
             return {
                 'users': [
                     {
-                        'id': r.id,
-                        'email': r.email,
-                        'role': r.role,
-                        'is_active': r.is_active,
-                        'is_admin': r.is_admin,
-                        'email_verified': r.email_verified,
-                        'created_at': r.created_at.isoformat() if r.created_at else None,
-                        'tenant_id': r.tenant_id,
+                        'id': r.User.id,
+                        'email': r.User.email,
+                        'role': r.User.role,
+                        'is_active': r.User.is_active,
+                        'is_admin': r.User.is_admin,
+                        'email_verified': r.User.email_verified,
+                        'created_at': AdminService._iso(r.User.created_at),
+                        'tenant_id': r.User.tenant_id,
                         'tenant_name': r.tenant_name,
                     }
                     for r in rows
@@ -179,66 +172,47 @@ class AdminService:
 
     @staticmethod
     def get_user(user_id):
-        """Get detailed user info including memberships."""
-        with engine.connect() as conn:
-            row = conn.execute(
-                text("""
-                    SELECT u.id, u.email, u.role, u.is_active, u.is_admin,
-                           u.email_verified, u.created_at, u.tenant_id,
-                           u.active_tenant_id, u.google_id
-                    FROM public.users u
-                    WHERE u.id = :user_id
-                """),
-                {'user_id': user_id},
-            ).fetchone()
+        """Get detailed user info including memberships and tenancy requests."""
+        with AdminService._orm_session() as session:
+            user = session.execute(
+                select(User).where(User.id == user_id)
+            ).scalar_one_or_none()
 
-            if not row:
+            if not user:
                 return None
 
-            # Get memberships
-            memberships = conn.execute(
-                text("""
-                    SELECT tm.id, tm.tenant_id, tm.role, tm.is_active,
-                           tm.created_at, t.name as tenant_name
-                    FROM public.tenant_memberships tm
-                    JOIN public.tenants t ON t.id = tm.tenant_id
-                    WHERE tm.user_id = :user_id
-                    ORDER BY tm.created_at
-                """),
-                {'user_id': user_id},
+            memberships = session.execute(
+                select(TenantMembership, Tenant.name.label('tenant_name'))
+                .join(Tenant, Tenant.id == TenantMembership.tenant_id)
+                .where(TenantMembership.user_id == user_id)
+                .order_by(TenantMembership.created_at)
             ).fetchall()
 
-            # Get tenancy requests
-            requests = conn.execute(
-                text("""
-                    SELECT tr.id, tr.tenant_name, tr.status, tr.admin_notes,
-                           tr.created_at, tr.resolved_at
-                    FROM public.tenancy_requests tr
-                    WHERE tr.user_id = :user_id
-                    ORDER BY tr.created_at DESC
-                """),
-                {'user_id': user_id},
-            ).fetchall()
+            requests = session.execute(
+                select(TenancyRequest)
+                .where(TenancyRequest.user_id == user_id)
+                .order_by(TenancyRequest.created_at.desc())
+            ).scalars().all()
 
             return {
-                'id': row.id,
-                'email': row.email,
-                'role': row.role,
-                'is_active': row.is_active,
-                'is_admin': row.is_admin,
-                'email_verified': row.email_verified,
-                'created_at': row.created_at.isoformat() if row.created_at else None,
-                'tenant_id': row.tenant_id,
-                'active_tenant_id': row.active_tenant_id,
-                'has_google': row.google_id is not None,
+                'id': user.id,
+                'email': user.email,
+                'role': user.role,
+                'is_active': user.is_active,
+                'is_admin': user.is_admin,
+                'email_verified': user.email_verified,
+                'created_at': AdminService._iso(user.created_at),
+                'tenant_id': user.tenant_id,
+                'active_tenant_id': user.active_tenant_id,
+                'has_google': user.google_id is not None,
                 'memberships': [
                     {
-                        'id': m.id,
-                        'tenant_id': m.tenant_id,
+                        'id': m.TenantMembership.id,
+                        'tenant_id': m.TenantMembership.tenant_id,
                         'tenant_name': m.tenant_name,
-                        'role': m.role,
-                        'is_active': m.is_active,
-                        'created_at': m.created_at.isoformat() if m.created_at else None,
+                        'role': m.TenantMembership.role,
+                        'is_active': m.TenantMembership.is_active,
+                        'created_at': AdminService._iso(m.TenantMembership.created_at),
                     }
                     for m in memberships
                 ],
@@ -248,8 +222,8 @@ class AdminService:
                         'tenant_name': r.tenant_name,
                         'status': r.status,
                         'admin_notes': r.admin_notes,
-                        'created_at': r.created_at.isoformat() if r.created_at else None,
-                        'resolved_at': r.resolved_at.isoformat() if r.resolved_at else None,
+                        'created_at': AdminService._iso(r.created_at),
+                        'resolved_at': AdminService._iso(r.resolved_at),
                     }
                     for r in requests
                 ],
@@ -257,63 +231,77 @@ class AdminService:
 
     @staticmethod
     def toggle_user_active(user_id):
-        """Toggle a user's is_active status."""
-        with engine.begin() as conn:
-            row = conn.execute(
-                text("SELECT is_active FROM public.users WHERE id = :id"),
-                {'id': user_id},
-            ).fetchone()
-            if not row:
-                return None
-            new_status = not row.is_active
-            conn.execute(
-                text("UPDATE public.users SET is_active = :active WHERE id = :id"),
-                {'active': new_status, 'id': user_id},
-            )
-            return new_status
+        """Toggle a user's is_active status. Returns new status or None if not found."""
+        with AdminService._orm_session() as session:
+            with session.begin():
+                user = session.execute(
+                    select(User).where(User.id == user_id)
+                ).scalar_one_or_none()
+                if not user:
+                    return None
+                new_status = not user.is_active
+                session.execute(
+                    sa_update(User)
+                    .where(User.id == user_id)
+                    .values(is_active=new_status)
+                )
+                return new_status
 
     @staticmethod
     def set_user_admin(user_id, is_admin):
         """Set or remove admin status for a user."""
-        with engine.begin() as conn:
-            result = conn.execute(
-                text("UPDATE public.users SET is_admin = :is_admin WHERE id = :id RETURNING id"),
-                {'is_admin': is_admin, 'id': user_id},
-            ).fetchone()
-            return result is not None
+        with AdminService._orm_session() as session:
+            with session.begin():
+                result = session.execute(
+                    sa_update(User)
+                    .where(User.id == user_id)
+                    .values(is_admin=is_admin)
+                )
+                return result.rowcount > 0
 
     # ── Tenant Management ──────────────────────────────────────────
 
     @staticmethod
     def list_tenants(page=1, per_page=20, search=None):
-        """List all tenants with pagination."""
+        """List all tenants with pagination and optional search."""
         offset = (page - 1) * per_page
-        params = {'limit': per_page, 'offset': offset}
 
-        where = ""
-        if search:
-            where = "WHERE t.name ILIKE :search"
-            params['search'] = f'%{search}%'
+        with AdminService._orm_session() as session:
+            # Subquery for member count
+            member_count_subq = (
+                select(func.count(TenantMembership.id))
+                .where(
+                    and_(
+                        TenantMembership.tenant_id == Tenant.id,
+                        TenantMembership.is_active == True,
+                    )
+                )
+                .correlate(Tenant)
+                .scalar_subquery()
+                .label('member_count')
+            )
 
-        with engine.connect() as conn:
-            total = conn.execute(
-                text(f"SELECT COUNT(*) FROM public.tenants t {where}"),
-                {k: v for k, v in params.items() if k != 'limit' and k != 'offset'},
-            ).scalar()
+            base = select(
+                Tenant.id,
+                Tenant.name,
+                Tenant.schema_name,
+                Tenant.plan,
+                Tenant.is_active,
+                Tenant.max_properties,
+                Tenant.created_at,
+                member_count_subq,
+            )
 
-            rows = conn.execute(
-                text(f"""
-                    SELECT t.id, t.name, t.schema_name, t.plan, t.is_active,
-                           t.max_properties, t.created_at,
-                           (SELECT COUNT(*) FROM public.tenant_memberships tm
-                            WHERE tm.tenant_id = t.id AND tm.is_active = true) as member_count
-                    FROM public.tenants t
-                    {where}
-                    ORDER BY t.created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """),
-                params,
-            ).fetchall()
+            if search:
+                base = base.where(Tenant.name.ilike(f'%{search}%'))
+
+            # Total count
+            count_stmt = select(func.count()).select_from(base.subquery())
+            total = session.execute(count_stmt).scalar()
+
+            # Paginated rows
+            rows_stmt = base.order_by(Tenant.created_at.desc()).offset(offset).limit(per_page)
+            rows = session.execute(rows_stmt).fetchall()
 
             return {
                 'tenants': [
@@ -325,7 +313,7 @@ class AdminService:
                         'is_active': r.is_active,
                         'max_properties': r.max_properties,
                         'member_count': r.member_count,
-                        'created_at': r.created_at.isoformat() if r.created_at else None,
+                        'created_at': AdminService._iso(r.created_at),
                     }
                     for r in rows
                 ],
@@ -338,29 +326,32 @@ class AdminService:
     @staticmethod
     def toggle_tenant_active(tenant_id):
         """Toggle a tenant's is_active status."""
-        with engine.begin() as conn:
-            row = conn.execute(
-                text("SELECT is_active FROM public.tenants WHERE id = :id"),
-                {'id': tenant_id},
-            ).fetchone()
-            if not row:
-                return None
-            new_status = not row.is_active
-            conn.execute(
-                text("UPDATE public.tenants SET is_active = :active WHERE id = :id"),
-                {'active': new_status, 'id': tenant_id},
-            )
-            return new_status
+        with AdminService._orm_session() as session:
+            with session.begin():
+                tenant = session.execute(
+                    select(Tenant).where(Tenant.id == tenant_id)
+                ).scalar_one_or_none()
+                if not tenant:
+                    return None
+                new_status = not tenant.is_active
+                session.execute(
+                    sa_update(Tenant)
+                    .where(Tenant.id == tenant_id)
+                    .values(is_active=new_status)
+                )
+                return new_status
 
     @staticmethod
     def update_tenant_plan(tenant_id, plan):
         """Update a tenant's plan."""
-        with engine.begin() as conn:
-            result = conn.execute(
-                text("UPDATE public.tenants SET plan = :plan WHERE id = :id RETURNING id"),
-                {'plan': plan, 'id': tenant_id},
-            ).fetchone()
-            return result is not None
+        with AdminService._orm_session() as session:
+            with session.begin():
+                result = session.execute(
+                    sa_update(Tenant)
+                    .where(Tenant.id == tenant_id)
+                    .values(plan=plan)
+                )
+                return result.rowcount > 0
 
     # ── Tenancy Requests ───────────────────────────────────────────
 
@@ -368,36 +359,46 @@ class AdminService:
     def list_tenancy_requests(page=1, per_page=20, status=None):
         """List tenancy requests with optional status filter."""
         offset = (page - 1) * per_page
-        params = {'limit': per_page, 'offset': offset}
 
-        where = ""
-        if status:
-            where = "WHERE tr.status = :status"
-            params['status'] = status
+        with AdminService._orm_session() as session:
+            # Join with users for requester and resolver info
+            UserAlias = User  # Requester
+            ResolverAlias = User  # Resolver (same table, different role)
 
-        with engine.connect() as conn:
-            total = conn.execute(
-                text(f"SELECT COUNT(*) FROM public.tenancy_requests tr {where}"),
-                {k: v for k, v in params.items() if k != 'limit' and k != 'offset'},
-            ).scalar()
+            base = (
+                select(
+                    TenancyRequest.id,
+                    TenancyRequest.tenant_name,
+                    TenancyRequest.status,
+                    TenancyRequest.admin_notes,
+                    TenancyRequest.created_at,
+                    TenancyRequest.resolved_at,
+                    UserAlias.id.label('user_id'),
+                    UserAlias.email.label('user_email'),
+                    ResolverAlias.email.label('resolver_email'),
+                )
+                .join(UserAlias, UserAlias.id == TenancyRequest.user_id)
+                .outerjoin(ResolverAlias, ResolverAlias.id == TenancyRequest.resolved_by)
+            )
 
-            rows = conn.execute(
-                text(f"""
-                    SELECT tr.id, tr.tenant_name, tr.status, tr.admin_notes,
-                           tr.created_at, tr.resolved_at,
-                           u.id as user_id, u.email as user_email,
-                           r.email as resolver_email
-                    FROM public.tenancy_requests tr
-                    JOIN public.users u ON u.id = tr.user_id
-                    LEFT JOIN public.users r ON r.id = tr.resolved_by
-                    {where}
-                    ORDER BY
-                        CASE WHEN tr.status = 'pending' THEN 0 ELSE 1 END,
-                        tr.created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """),
-                params,
-            ).fetchall()
+            if status:
+                base = base.where(TenancyRequest.status == status)
+
+            # Total count
+            count_stmt = select(func.count()).select_from(base.subquery())
+            total = session.execute(count_stmt).scalar()
+
+            # Paginated rows with pending-first ordering
+            rows_stmt = (
+                base
+                .order_by(
+                    case((TenancyRequest.status == 'pending', 0), else_=1),
+                    TenancyRequest.created_at.desc(),
+                )
+                .offset(offset)
+                .limit(per_page)
+            )
+            rows = session.execute(rows_stmt).fetchall()
 
             return {
                 'requests': [
@@ -406,8 +407,8 @@ class AdminService:
                         'tenant_name': r.tenant_name,
                         'status': r.status,
                         'admin_notes': r.admin_notes,
-                        'created_at': r.created_at.isoformat() if r.created_at else None,
-                        'resolved_at': r.resolved_at.isoformat() if r.resolved_at else None,
+                        'created_at': AdminService._iso(r.created_at),
+                        'resolved_at': AdminService._iso(r.resolved_at),
                         'user': {
                             'id': r.user_id,
                             'email': r.user_email,
@@ -428,99 +429,92 @@ class AdminService:
         Approve a tenancy request.
 
         Creates the tenant, schema, membership, and links the user.
+        Uses ORM with a nested transaction for schema creation.
         """
         now = utcnow()
 
-        with engine.begin() as conn:
-            # Get the request
-            req = conn.execute(
-                text("""
-                    SELECT tr.id, tr.user_id, tr.tenant_name, tr.status, u.email
-                    FROM public.tenancy_requests tr
-                    JOIN public.users u ON u.id = tr.user_id
-                    WHERE tr.id = :id
-                """),
-                {'id': request_id},
-            ).fetchone()
+        with AdminService._orm_session() as session:
+            with session.begin():
+                # Get the request with user info
+                req_result = session.execute(
+                    select(TenancyRequest, User.email)
+                    .join(User, User.id == TenancyRequest.user_id)
+                    .where(TenancyRequest.id == request_id)
+                ).one_or_none()
 
-            if not req:
-                raise ValueError("Tenancy request not found")
-            if req.status != 'pending':
-                raise ValueError(f"Request is already {req.status}")
-           
-            # Check for duplicate tenant name
-            existing = conn.execute(
-            text("SELECT id FROM public.tenants WHERE name = :name"),
-            {'name': req.tenant_name},
-            ).fetchone()
-            if existing:
-                raise ValueError(f"A tenant named '{req.tenant_name}' already exists")
-           
-            # Create tenant
-            tenant_id = str(uuid.uuid4())
-            schema_name = f"tenant_{tenant_id}"
+                if not req_result:
+                    raise ValueError("Tenancy request not found")
+                req = req_result.TenancyRequest
+                user_email = req_result.email
 
-            conn.execute(
-                text("""
-                    INSERT INTO public.tenants
-                        (id, name, schema_name, plan, is_active, created_at)
-                    VALUES
-                        (:id, :name, :schema_name, :plan, true, :now)
-                """),
-                {
-                    'id': tenant_id,
-                    'name': req.tenant_name,
-                    'schema_name': schema_name,
-                    'plan': Config.DEFAULT_PLAN,
-                    'now': now,
-                },
-            )
+                if req.status != 'pending':
+                    raise ValueError(f"Request is already {req.status}")
 
-            # Create owner membership
-            conn.execute(
-                text("""
-                    INSERT INTO public.tenant_memberships
-                        (user_id, tenant_id, role, is_active, created_at)
-                    VALUES (:user_id, :tenant_id, 'owner', true, :now)
-                """),
-                {'user_id': req.user_id, 'tenant_id': tenant_id, 'now': now},
-            )
+                # Check for duplicate tenant name
+                existing = session.execute(
+                    select(Tenant.id).where(Tenant.name == req.tenant_name)
+                ).scalar_one_or_none()
+                if existing:
+                    raise ValueError(f"A tenant named '{req.tenant_name}' already exists")
 
-            # Update user's tenant_id and active_tenant_id
-            conn.execute(
-                text("""
-                    UPDATE public.users
-                    SET tenant_id = :tenant_id,
-                        active_tenant_id = :tenant_id,
-                        role = 'owner'
-                    WHERE id = :user_id
-                """),
-                {'tenant_id': tenant_id, 'user_id': req.user_id},
-            )
+                # Create tenant
+                tenant_id = str(uuid.uuid4())
+                schema_name = f"tenant_{tenant_id}"
 
-            # Mark request as approved
-            conn.execute(
-                text("""
-                    UPDATE public.tenancy_requests
-                    SET status = 'approved',
-                        resolved_by = :admin_id,
-                        resolved_at = :now
-                    WHERE id = :id
-                """),
-                {'admin_id': admin_user_id, 'now': now, 'id': request_id},
-            )
+                session.execute(
+                    sa_insert(Tenant).values(
+                        id=tenant_id,
+                        name=req.tenant_name,
+                        schema_name=schema_name,
+                        plan=Config.DEFAULT_PLAN,
+                        is_active=True,
+                        created_at=now,
+                    )
+                )
 
-            # Create tenant schema inside transaction (PostgreSQL DDL is transactional)
-            try:
-                create_tenant_schema(tenant_id)
-            except Exception as e:
-                logger.error("Failed to create tenant schema for approved request %s: %s", request_id, e)
-                raise  # Rolls back entire transaction automatically
+                # Create owner membership
+                session.execute(
+                    sa_insert(TenantMembership).values(
+                        user_id=req.user_id,
+                        tenant_id=tenant_id,
+                        role='owner',
+                        is_active=True,
+                        created_at=now,
+                    )
+                )
+
+                # Update user's tenant_id and role
+                session.execute(
+                    sa_update(User)
+                    .where(User.id == req.user_id)
+                    .values(tenant_id=tenant_id, active_tenant_id=tenant_id, role='owner')
+                )
+
+                # Mark request as approved
+                session.execute(
+                    sa_update(TenancyRequest)
+                    .where(TenancyRequest.id == request_id)
+                    .values(
+                        status='approved',
+                        resolved_by=admin_user_id,
+                        resolved_at=now,
+                    )
+                )
+
+                # Create tenant schema (DDL — transactional in PostgreSQL)
+                try:
+                    create_tenant_schema(tenant_id)
+                except Exception as e:
+                    logger.error(
+                        "Failed to create tenant schema for approved request %s: %s",
+                        request_id, e,
+                    )
+                    raise  # Rolls back entire transaction
 
         return {
             'tenant_id': tenant_id,
             'tenant_name': req.tenant_name,
-            'user_email': req.email,
+            'user_email': user_email,
         }
 
     @staticmethod
@@ -528,32 +522,26 @@ class AdminService:
         """Reject a tenancy request."""
         now = utcnow()
 
-        with engine.begin() as conn:
-            req = conn.execute(
-                text("SELECT id, status FROM public.tenancy_requests WHERE id = :id"),
-                {'id': request_id},
-            ).fetchone()
+        with AdminService._orm_session() as session:
+            with session.begin():
+                req = session.execute(
+                    select(TenancyRequest).where(TenancyRequest.id == request_id)
+                ).scalar_one_or_none()
 
-            if not req:
-                raise ValueError("Tenancy request not found")
-            if req.status != 'pending':
-                raise ValueError(f"Request is already {req.status}")
+                if not req:
+                    raise ValueError("Tenancy request not found")
+                if req.status != 'pending':
+                    raise ValueError(f"Request is already {req.status}")
 
-            conn.execute(
-                text("""
-                    UPDATE public.tenancy_requests
-                    SET status = 'rejected',
-                        resolved_by = :admin_id,
-                        resolved_at = :now,
-                        admin_notes = :notes
-                    WHERE id = :id
-                """),
-                {
-                    'admin_id': admin_user_id,
-                    'now': now,
-                    'notes': notes,
-                    'id': request_id,
-                },
-            )
+                session.execute(
+                    sa_update(TenancyRequest)
+                    .where(TenancyRequest.id == request_id)
+                    .values(
+                        status='rejected',
+                        resolved_by=admin_user_id,
+                        resolved_at=now,
+                        admin_notes=notes,
+                    )
+                )
 
         return True
