@@ -5,35 +5,53 @@
  * across all views.  Eliminates the redundant fetches that occurred when
  * App, usePropertyTransactions, and PropertyDetail each fetched independently.
  *
+ * Mutation helpers update state optimistically (no full re-fetch),
+ * rolling back on API failure.
+ *
  * Usage:
  *   <PortfolioDataProvider>    ← wraps the app (inside ToastProvider)
  *     ... children that call usePortfolioData() ...
  *   </PortfolioDataProvider>
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { getProperties, getIncome, getExpenses, getEvents, getGroups, getDefaultGroup } from '../api.js';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  getProperties, getIncome, getExpenses, getEvents, getGroups, getDefaultGroup,
+  createProperty, updateProperty, archiveProperty, restoreProperty,
+  createIncome, updateIncome, deleteIncome,
+  createExpense, updateExpense, deleteExpense,
+  createGroup, updateGroup, deleteGroup,
+} from '../api.js';
 
 const PortfolioDataContext = createContext(null);
 
 /**
- * Hook to access shared portfolio data from any component.
- *
- * Returns:
- *   { properties, allIncome, allExpenses, allEvents, loading, refresh }
- *
- * - properties:   active property records (with total_income, total_expenses)
- * - allIncome:    all income records tagged with property_name
- * - allExpenses:  all expense records tagged with property_name
- * - allEvents:    { propertyId: [events] } map
- * - loading:      true during initial load
- * - refresh:      ({ silent }) => Promise<void>  — reload everything
+ * Hook to access shared portfolio data + mutation helpers.
  */
 export function usePortfolioData() {
   const ctx = useContext(PortfolioDataContext);
   if (!ctx) throw new Error('usePortfolioData must be used within <PortfolioDataProvider>');
   return ctx;
 }
+
+/* ── Helpers ─────────────────────────────────────────────────────────── */
+
+/** Build a { id → name } lookup from a properties list. */
+const buildNameMap = (props) => Object.fromEntries(props.map(p => [p.id, p.name]));
+
+/** Tag transaction records with property_name given a name lookup. */
+const tagWithNames = (records, nameMap) =>
+  records.map(r => ({ ...r, property_name: nameMap[r.property_id] ?? '' }));
+
+/** Build an events map { propertyId: [events] } from a flat events array. */
+const buildEventMap = (properties, events) => {
+  const map = {};
+  properties.forEach(p => { map[p.id] = []; });
+  events.forEach(e => {
+    if (map[e.property_id]) map[e.property_id].push(e);
+  });
+  return map;
+};
 
 export function PortfolioDataProvider({ children }) {
   const [properties,  setProperties]  = useState([]);
@@ -44,38 +62,39 @@ export function PortfolioDataProvider({ children }) {
   const [defaultGroup, setDefaultGroup] = useState(null);
   const [loading,     setLoading]     = useState(true);
 
+  // Refs to latest state for use inside mutation callbacks without stale closure
+  const propsRef = useRef(properties);
+  propsRef.current = properties;
+  const incomeRef = useRef(allIncome);
+  incomeRef.current = allIncome;
+  const expensesRef = useRef(allExpenses);
+  expensesRef.current = allExpenses;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const defaultGroupRef = useRef(defaultGroup);
+  defaultGroupRef.current = defaultGroup;
+
+  /* ── Full load ────────────────────────────────────────────────────── */
+
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
 
-      // Fetch everything in parallel
       const [props, income, expenses] = await Promise.all([
-        getProperties(),
-        getIncome(),
-        getExpenses(),
+        getProperties(), getIncome(), getExpenses(),
       ]);
 
-      const ids = new Set(props.map(p => p.id));
-      const names = Object.fromEntries(props.map(p => [p.id, p.name]));
-
-      const tag = arr => arr
-        .filter(r => ids.has(r.property_id))
-        .map(r => ({ ...r, property_name: names[r.property_id] ?? '' }));
+      const nameMap = buildNameMap(props);
 
       setProperties(props);
-      setAllIncome(tag(income));
-      setAllExpenses(tag(expenses));
+      setAllIncome(tagWithNames(income, nameMap));
+      setAllExpenses(tagWithNames(expenses, nameMap));
 
-      // Fetch all events in a single request, then partition by property_id
+      // Events (silently) — re-fetched only on explicit refresh
       const allEvs = await getEvents().catch(() => []);
-      const evMap = {};
-      props.forEach(p => { evMap[p.id] = []; });
-      allEvs.forEach(e => {
-        if (evMap[e.property_id]) evMap[e.property_id].push(e);
-      });
-      setAllEvents(evMap);
+      setAllEvents(buildEventMap(props, allEvs));
 
-      // Fetch groups and default group
+      // Groups
       const [grps, defGrp] = await Promise.all([
         getGroups().catch(() => []),
         getDefaultGroup().catch(() => null),
@@ -89,10 +108,267 @@ export function PortfolioDataProvider({ children }) {
     }
   }, []);
 
+  /* ── Silent events-only refresh ──────────────────────────────────── */
+
+  const refreshEvents = useCallback(async () => {
+    try {
+      const allEvs = await getEvents().catch(() => []);
+      setAllEvents(buildEventMap(propsRef.current, allEvs));
+    } catch (err) {
+      console.error('Failed to refresh events:', err);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // Built-in pseudo-group: "All Properties" — always present, non-editable
+  /* ── Optimistic mutation helpers ─────────────────────────────────── */
+
+  // ▶ Properties
+
+  const addProperty = useCallback(async (data) => {
+    const previousState = propsRef.current;
+    try {
+      const created = await createProperty(data);
+      const nameMap = buildNameMap([...propsRef.current, created]);
+      nameMap[created.id] = created.name;
+      setProperties(prev => [...prev, created]);
+      // Re-tag existing income/expenses that reference this property (shouldn't exist yet, but safe)
+      setAllIncome(prev => tagWithNames(prev, nameMap));
+      setAllExpenses(prev => tagWithNames(prev, nameMap));
+      return created;
+    } catch (err) {
+      // Rollback on failure
+      setProperties(previousState);
+      throw err;
+    }
+  }, []);
+
+  const editProperty = useCallback(async (id, data) => {
+    const previousState = propsRef.current;
+    const oldName = previousState.find(p => p.id === id)?.name;
+    // Optimistic: update immediately
+    setProperties(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+    try {
+      const updated = await updateProperty(id, data);
+      // Apply server response (includes computed fields like total_income)
+      setProperties(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+      // Update name map if name changed
+      if (updated.name !== oldName) {
+        // Build name map from the updated property list
+        setAllIncome(prev => tagWithNames(prev, buildNameMap([...previousState.filter(p => p.id !== id), updated])));
+        setAllExpenses(prev => tagWithNames(prev, buildNameMap([...previousState.filter(p => p.id !== id), updated])));
+      }
+      refreshEvents();
+      return updated;
+    } catch (err) {
+      // Rollback
+      setProperties(previousState);
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const removeProperty = useCallback(async (id) => {
+    const previousState = propsRef.current;
+    setProperties(prev => prev.filter(p => p.id !== id));
+    try {
+      await archiveProperty(id);
+      // Clean up events map
+      setAllEvents(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (err) {
+      setProperties(previousState);
+      throw err;
+    }
+  }, []);
+
+  const unarchiveProperty = useCallback(async (id) => {
+    const previousState = propsRef.current;
+    try {
+      const restored = await restoreProperty(id);
+      setProperties(prev => [...prev, restored]);
+      return restored;
+    } catch (err) {
+      setProperties(previousState);
+      throw err;
+    }
+  }, []);
+
+  // ▶ Income
+
+  const addIncome = useCallback(async (data) => {
+    const nameMap = buildNameMap(propsRef.current);
+    // Optimistic: temporary negative ID
+    const tempId = -Date.now();
+    const temp = { id: tempId, ...data, property_name: nameMap[data.property_id] ?? '' };
+    setAllIncome(prev => [...prev, temp]);
+    try {
+      const created = await createIncome(data);
+      setAllIncome(prev => {
+        const idx = prev.findIndex(i => i.id === tempId);
+        const next = [...prev];
+        next[idx] = { ...created, property_name: nameMap[created.property_id] ?? '' };
+        return next;
+      });
+      // Refresh events in case income creation triggers them
+      refreshEvents();
+      return created;
+    } catch (err) {
+      setAllIncome(prev => prev.filter(i => i.id !== tempId));
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const editIncome = useCallback(async (id, data) => {
+    const prev = propsRef.current;
+    const old = incomeRef.current.find(i => i.id === id);
+    const nameMap = buildNameMap(prev);
+    // Optimistic
+    setAllIncome(prevInc => prevInc.map(i =>
+      i.id === id ? { ...i, ...data, property_name: nameMap[data.property_id ?? i.property_id] ?? i.property_name } : i
+    ));
+    try {
+      const updated = await updateIncome(id, data);
+      setAllIncome(prevInc => prevInc.map(i =>
+        i.id === id ? { ...updated, property_name: nameMap[updated.property_id] ?? '' } : i
+      ));
+      refreshEvents();
+      return updated;
+    } catch (err) {
+      setAllIncome(prevInc => prevInc.map(i => i.id === id ? old : i));
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const removeIncome = useCallback(async (id) => {
+    const old = incomeRef.current.find(i => i.id === id);
+    setAllIncome(prevInc => prevInc.filter(i => i.id !== id));
+    try {
+      await deleteIncome(id);
+      refreshEvents();
+    } catch (err) {
+      setAllIncome(prev => [...prev, old]);
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  // ▶ Expenses
+
+  const addExpense = useCallback(async (data) => {
+    const nameMap = buildNameMap(propsRef.current);
+    const tempId = -Date.now();
+    const temp = { id: tempId, ...data, property_name: nameMap[data.property_id] ?? '' };
+    setAllExpenses(prev => [...prev, temp]);
+    try {
+      const created = await createExpense(data);
+      setAllExpenses(prev => {
+        const idx = prev.findIndex(e => e.id === tempId);
+        const next = [...prev];
+        next[idx] = { ...created, property_name: nameMap[created.property_id] ?? '' };
+        return next;
+      });
+      refreshEvents();
+      return created;
+    } catch (err) {
+      setAllExpenses(prev => prev.filter(e => e.id !== tempId));
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const editExpense = useCallback(async (id, data) => {
+    const old = expensesRef.current.find(e => e.id === id);
+    const nameMap = buildNameMap(propsRef.current);
+    setAllExpenses(prev => prev.map(e =>
+      e.id === id ? { ...e, ...data, property_name: nameMap[data.property_id ?? e.property_id] ?? e.property_name } : e
+    ));
+    try {
+      const updated = await updateExpense(id, data);
+      setAllExpenses(prev => prev.map(e =>
+        e.id === id ? { ...updated, property_name: nameMap[updated.property_id] ?? '' } : e
+      ));
+      // If the expense is/was a loan payment (Mortgage or Principal), the property's loan_amount may have changed
+      if (old) {
+        const newCategory = data.expense_category ?? old.expense_category;
+        const targetPropertyId = data.property_id ?? old.property_id;
+        if (old.expense_category === 'Mortgage' || old.expense_category === 'Principal' ||
+            newCategory === 'Mortgage' || newCategory === 'Principal') {
+          setProperties(prev => prev.map(p =>
+            p.id === targetPropertyId ? { ...p, loan_amount: updated.loan_amount ?? p.loan_amount } : p
+          ));
+        }
+      }
+      refreshEvents();
+      return updated;
+    } catch (err) {
+      setAllExpenses(prev => prev.map(e => e.id === id ? old : e));
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const removeExpense = useCallback(async (id) => {
+    const old = expensesRef.current.find(e => e.id === id);
+    setAllExpenses(prevExp => prevExp.filter(e => e.id !== id));
+    try {
+      await deleteExpense(id);
+      refreshEvents();
+    } catch (err) {
+      setAllExpenses(prev => [...prev, old]);
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  // ▶ Groups
+
+  const addGroup = useCallback(async (data) => {
+    const previousState = groupsRef.current;
+    try {
+      const created = await createGroup(data);
+      setGroups(prev => [...prev, created]);
+      refreshEvents();
+      return created;
+    } catch (err) {
+      // Rollback on failure
+      setGroups(previousState);
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const editGroup = useCallback(async (id, data) => {
+    const prev = groupsRef.current;
+    setGroups(prevG => prevG.map(g => g.id === id ? { ...g, ...data } : g));
+    try {
+      const updated = await updateGroup(id, data);
+      setGroups(prevG => prevG.map(g => g.id === id ? updated : g));
+      refreshEvents();
+      return updated;
+    } catch (err) {
+      setGroups(prev);
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  const removeGroup = useCallback(async (id) => {
+    const prev = groupsRef.current;
+    const prevDefaultGroup = defaultGroupRef.current;
+    const wasDefault = prevDefaultGroup?.id === id;
+    setGroups(prevG => prevG.filter(g => g.id !== id));
+    // Also clear default group if we're deleting it
+    if (wasDefault) setDefaultGroup(null);
+    try {
+      await deleteGroup(id);
+      refreshEvents();
+    } catch (err) {
+      setGroups(prev);
+      if (wasDefault) setDefaultGroup(prevDefaultGroup);
+      throw err;
+    }
+  }, [refreshEvents]);
+
+  /* ── Derived values ──────────────────────────────────────────────── */
+
   const allPropertiesGroup = useMemo(() => ({
     id: '__all__',
     name: 'All Properties',
@@ -101,10 +377,8 @@ export function PortfolioDataProvider({ children }) {
     property_ids: properties.map(p => p.id),
   }), [properties, defaultGroup]);
 
-  // Groups list with the built-in pseudo-group prepended
   const allGroups = useMemo(() => [allPropertiesGroup, ...groups], [allPropertiesGroup, groups]);
 
-  // Derived: properties filtered by default group (or all if no default)
   const defaultGroupProperties = useMemo(() => {
     if (!defaultGroup || !defaultGroup.property_ids?.length) return properties;
     const groupIds = new Set(defaultGroup.property_ids);
@@ -121,7 +395,19 @@ export function PortfolioDataProvider({ children }) {
     defaultGroupProperties,
     loading,
     refresh: loadAll,
-  }), [properties, allIncome, allExpenses, allEvents, allGroups, defaultGroup, defaultGroupProperties, loading, loadAll]);
+    // Optimistic mutation helpers
+    addProperty, editProperty, removeProperty, unarchiveProperty,
+    addIncome, editIncome, removeIncome,
+    addExpense, editExpense, removeExpense,
+    addGroup, editGroup, removeGroup,
+  }), [
+    properties, allIncome, allExpenses, allEvents,
+    allGroups, defaultGroup, defaultGroupProperties, loading, loadAll,
+    addProperty, editProperty, removeProperty, unarchiveProperty,
+    addIncome, editIncome, removeIncome,
+    addExpense, editExpense, removeExpense,
+    addGroup, editGroup, removeGroup,
+  ]);
 
   return (
     <PortfolioDataContext.Provider value={value}>

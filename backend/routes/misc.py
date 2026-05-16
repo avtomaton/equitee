@@ -7,6 +7,7 @@ from models.schema import Property, Expense, Income
 from models.property import check_property_params
 from middleware.tenant_router import tenant_required
 from sqlalchemy import func
+from config import Config
 
 
 def register_routes(app):
@@ -106,6 +107,11 @@ def register_routes(app):
     @app.route('/api/health', methods=['GET'])
     def health_check():
         return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()}), 200
+
+    @app.route('/api/mode', methods=['GET'])
+    def get_mode():
+        """Return the current tenancy mode (single or saas)."""
+        return jsonify({'mode': Config.TENANCY_MODE}), 200
 
     @app.route('/', methods=['GET'])
     def index():

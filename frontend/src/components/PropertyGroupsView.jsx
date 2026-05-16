@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
 import { usePortfolioData } from '../context/PortfolioDataContext.jsx';
-import { createGroup, updateGroup, deleteGroup } from '../api.js';
 
 const styles = {
   container: { maxWidth: 720, margin: '0 auto', padding: '1.5rem' },
@@ -62,7 +61,7 @@ const styles = {
 };
 
 export default function PropertyGroupsView() {
-  const { properties, groups, defaultGroup, refresh } = usePortfolioData();
+  const { properties, groups, defaultGroup, addGroup, editGroup, removeGroup } = usePortfolioData();
   const [editing, setEditing] = useState(null); // null | 'new' | group.id
   const [editName, setEditName] = useState('');
   const [editPropIds, setEditPropIds] = useState([]);
@@ -100,12 +99,12 @@ export default function PropertyGroupsView() {
     if (!editName.trim()) return;
     setSaving(true);
     try {
+      const payload = { name: editName.trim(), property_ids: editPropIds, is_default: editIsDefault };
       if (editing === 'new') {
-        await createGroup({ name: editName.trim(), property_ids: editPropIds, is_default: editIsDefault });
+        await addGroup(payload);
       } else {
-        await updateGroup(editing, { name: editName.trim(), property_ids: editPropIds, is_default: editIsDefault });
+        await editGroup(editing, payload);
       }
-      await refresh({ silent: true });
       setEditing(null);
     } catch (err) {
       alert(err.message || 'Failed to save group');
@@ -117,8 +116,7 @@ export default function PropertyGroupsView() {
   const handleDelete = async (id) => {
     if (!confirm('Delete this group?')) return;
     try {
-      await deleteGroup(id);
-      await refresh({ silent: true });
+      await removeGroup(id);
     } catch (err) {
       alert(err.message || 'Failed to delete group');
     }
@@ -130,12 +128,11 @@ export default function PropertyGroupsView() {
         // Setting "All Properties" as default = unset the current default group
         const currentDefault = groups.find(gr => gr.is_default && !gr.is_builtin);
         if (currentDefault) {
-          await updateGroup(currentDefault.id, { is_default: false });
+          await editGroup(currentDefault.id, { is_default: false });
         }
       } else {
-        await updateGroup(g.id, { is_default: true });
+        await editGroup(g.id, { is_default: true });
       }
-      await refresh({ silent: true });
     } catch (err) {
       alert(err.message || 'Failed to set default group');
     }

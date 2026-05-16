@@ -1,9 +1,11 @@
 /**
  * Settings page — tenancy switching, member management, and account settings.
+ * In self-hosted mode, shows a simplified view without tenancy features.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { tenancy } from '../api.js';
+import { tenancy, getMode } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { isSaasMode } from '../components/AuthGuard.jsx';
 
 export default function SettingsPage({ onNavigate }) {
   const [tenants, setTenants] = useState(null);
@@ -16,10 +18,26 @@ export default function SettingsPage({ onNavigate }) {
   const [inviteRole, setInviteRole] = useState('member');
   const [tenantName, setTenantName] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [backendMode, setBackendMode] = useState('single');
 
   const { updateUser } = useAuth();
 
+  // Fetch backend mode to confirm SaaS mode
+  useEffect(() => {
+    getMode().then(data => setBackendMode(data.mode)).catch(() => setBackendMode('single'));
+  }, []);
+
   const loadData = useCallback(async () => {
+    // Check current mode inside the callback to avoid stale closure
+    const currentMode = backendMode;
+    const isSelfHostedNow = !isSaasMode || currentMode === 'single';
+
+    // In self-hosted mode, skip tenancy API calls
+    if (isSelfHostedNow) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const [tenantsData, requestsData] = await Promise.all([
@@ -37,7 +55,7 @@ export default function SettingsPage({ onNavigate }) {
       }
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
-  }, []);
+  }, [backendMode]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -76,7 +94,7 @@ export default function SettingsPage({ onNavigate }) {
   };
 
   const handleRevoke = async (userId) => {
-    if (!confirm('Revoke this member\'s access?')) return;
+    if (!confirm("Revoke this member's access?")) return;
     setError(''); setSuccess('');
     try {
       const result = await tenancy.revokeMember(userId);
@@ -95,6 +113,29 @@ export default function SettingsPage({ onNavigate }) {
       setRequests(await tenancy.getMyRequests());
     } catch (e) { setError(e.message); }
   };
+
+  // In self-hosted mode, show a simplified settings page
+  const isSelfHosted = !isSaasMode || backendMode === 'single';
+  if (isSelfHosted) {
+    return (
+      <div style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: '2rem' }}>Settings</h1>
+          <button className="btn btn-secondary" onClick={() => onNavigate('dashboard')}>← Back</button>
+        </div>
+
+        <section style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', marginBottom: '2rem' }}>
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Self-Hosted Mode</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+            You're running Equitee in self-hosted mode. All data is stored locally and no authentication is required.
+          </p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <strong>Note:</strong> Multi-tenant features like team management, portfolio switching, and admin controls are only available in SaaS mode.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   const hasTenant = tenants?.active_tenant_id != null;
   const tenantList = tenants?.tenants || [];

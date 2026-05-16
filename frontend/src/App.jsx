@@ -174,10 +174,10 @@ function AppInner() {
     const scrollPos = savedScroll.current;
     closeModal();
     showAlert('Saved successfully', 'success');
-    await Promise.all([
-      viewReloadRef.current?.() ?? Promise.resolve(),
-      loadData({ silent: true }),
-    ]);
+    // Await view-level reload (IncomeView, ExpensesView, etc. have their own local state)
+    await (viewReloadRef.current?.() ?? Promise.resolve());
+    // No full loadData — the modal already made the API call, and optimistic helpers
+    // in PortfolioDataContext keep properties/income/expenses in sync.
     // Keep selectedProperty in sync so PropertyDetail shows updated values
     setSelectedProperty(prev => {
       if (!prev) return null;

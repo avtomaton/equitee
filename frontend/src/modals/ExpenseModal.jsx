@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { INITIAL_OPTIONS } from '../config.js';
-import { createExpense, updateExpense, updatePropertyLoan } from '../api.js';
+import { usePortfolioData } from '../context/PortfolioDataContext.jsx';
+import { updatePropertyLoan } from '../api.js';
 import { ModalOverlay, DateInput, selectOnFocus, today, QUICK_BTN_STYLE, PropertyOptions } from './ModalBase.jsx';
 
 const toFormState_Expense = (expense, property) => expense ? {
@@ -34,6 +35,7 @@ const freqToDays = (freq) => {
 
 export default function ExpenseModal({ expense, properties, property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Expense(expense, property ?? properties[0]));
+  const { addExpense, editExpense } = usePortfolioData();
 
   // loanAmountAfter: the estimated loan balance after this payment.
   // '' means not yet computed / not applicable.
@@ -108,15 +110,18 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
     e.preventDefault();
     try {
       const payload = {
-        propertyId: formData.property_id, expenseDate: formData.expense_date,
-        amount: formData.amount, expenseType: formData.expense_type,
-        expenseCategory: formData.expense_category, notes: formData.notes,
+        propertyId: formData.property_id,
+        expenseDate: formData.expense_date,
+        amount: formData.amount,
+        expenseType: formData.expense_type,
+        expenseCategory: formData.expense_category,
+        notes: formData.notes,
         taxDeductible: formData.tax_deductible,
       };
       if (expense) {
-        await updateExpense(expense.id, payload);
+        await editExpense(expense.id, payload);
       } else {
-        await createExpense(payload);
+        await addExpense(payload);
         // Update the property's loan_amount and log an event when recording a
         // mortgage or principal payment.
         if (isMortgageLike && loanAmountAfter !== '' && formData.property_id) {

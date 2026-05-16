@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { INITIAL_OPTIONS } from '../config.js';
-import { createIncome, updateIncome } from '../api.js';
+import { usePortfolioData } from '../context/PortfolioDataContext.jsx';
 import { ModalOverlay, DateInput, selectOnFocus, today, QUICK_BTN_STYLE, PropertyOptions } from './ModalBase.jsx';
 
 const toFormState_Income = (income, property) => income ? {
@@ -17,6 +17,7 @@ const toFormState_Income = (income, property) => income ? {
 
 export default function IncomeModal({ income, properties, property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Income(income, property ?? properties[0]));
+  const { addIncome, editIncome } = usePortfolioData();
 
   const set = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -36,13 +37,16 @@ export default function IncomeModal({ income, properties, property, onClose, onS
     e.preventDefault();
     try {
       const payload = {
-        propertyId: formData.property_id, incomeDate: formData.income_date,
-        amount: formData.amount, incomeType: formData.income_type, notes: formData.notes,
+        propertyId: formData.property_id,
+        incomeDate: formData.income_date,
+        amount: formData.amount,
+        incomeType: formData.income_type,
+        notes: formData.notes,
       };
       if (income) {
-        await updateIncome(income.id, payload);
+        await editIncome(income.id, payload);
       } else {
-        await createIncome(payload);
+        await addIncome(payload);
       }
       onSave();
     } catch (err) { console.error(err); (onError || alert)('Failed to save income'); }

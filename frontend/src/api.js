@@ -268,6 +268,7 @@ export const clearDefaultGroup     = ()                 => post('/groups/clear-d
 export const getStatistics         = ()                 => get('/statistics');
 export const exportData            = ()                 => get('/export');
 export const importData            = (data)             => post('/import', data);
+export const getMode               = ()                 => get('/mode');
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 

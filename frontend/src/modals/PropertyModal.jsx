@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ModalOverlay, DateInput, selectOnFocus } from './ModalBase.jsx';
 import { PROVINCES, INITIAL_OPTIONS } from '../config.js';
-import { createProperty, updateProperty } from '../api.js';
+import { usePortfolioData } from '../context/PortfolioDataContext.jsx';
 import { formatPostalCode } from '../utils.js';
 
 const toFormState_Property = (p) => p ? {
@@ -40,6 +40,7 @@ const toFormState_Property = (p) => p ? {
 export default function PropertyModal({ property, onClose, onSave, onError }) {
   const [formData, setFormData] = useState(() => toFormState_Property(property));
   const [errors,   setErrors]   = useState({});
+  const { addProperty, editProperty } = usePortfolioData();
 
   const isVacant  = formData.status === 'Vacant';
   const isRented  = formData.status === 'Rented';
@@ -86,9 +87,9 @@ export default function PropertyModal({ property, onClose, onSave, onError }) {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     try {
       if (property) {
-        await updateProperty(property.id, formData);
+        await editProperty(property.id, formData);
       } else {
-        await createProperty(formData);
+        await addProperty(formData);
       }
       onSave();
     } catch (err) {
