@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { tenancy, getMode } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { isSaasMode } from '../components/AuthGuard.jsx';
+import PropertyGroupsView from '../components/PropertyGroupsView.jsx';
 
 export default function SettingsPage({ onNavigate }) {
   const [tenants, setTenants] = useState(null);
@@ -114,28 +115,20 @@ export default function SettingsPage({ onNavigate }) {
     } catch (e) { setError(e.message); }
   };
 
-  // In self-hosted mode, show a simplified settings page
-  const isSelfHosted = !isSaasMode || backendMode === 'single';
-  if (isSelfHosted) {
-    return (
-      <div style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: '2rem' }}>Settings</h1>
-          <button className="btn btn-secondary" onClick={() => onNavigate('dashboard')}>← Back</button>
-        </div>
+   // In self-hosted mode, show a simplified settings page
+   const isSelfHosted = !isSaasMode || backendMode === 'single';
+   if (isSelfHosted) {
+     return (
+       <div style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
+         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+           <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: '2rem' }}>Settings</h1>
+           <button className="btn btn-secondary" onClick={() => onNavigate('dashboard')}>← Back</button>
+         </div>
 
-        <section style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Self-Hosted Mode</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            You're running Equitee in self-hosted mode. All data is stored locally and no authentication is required.
-          </p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <strong>Note:</strong> Multi-tenant features like team management, portfolio switching, and admin controls are only available in SaaS mode.
-          </p>
-        </section>
-      </div>
-    );
-  }
+         <PropertyGroupsView />
+       </div>
+     );
+   }
 
   const hasTenant = tenants?.active_tenant_id != null;
   const tenantList = tenants?.tenants || [];

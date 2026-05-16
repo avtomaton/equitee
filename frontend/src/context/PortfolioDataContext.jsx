@@ -64,15 +64,31 @@ export function PortfolioDataProvider({ children }) {
 
   // Refs to latest state for use inside mutation callbacks without stale closure
   const propsRef = useRef(properties);
-  propsRef.current = properties;
   const incomeRef = useRef(allIncome);
-  incomeRef.current = allIncome;
   const expensesRef = useRef(allExpenses);
-  expensesRef.current = allExpenses;
   const groupsRef = useRef(groups);
-  groupsRef.current = groups;
   const defaultGroupRef = useRef(defaultGroup);
-  defaultGroupRef.current = defaultGroup;
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    propsRef.current = properties;
+  }, [properties]);
+  
+  useEffect(() => {
+    incomeRef.current = allIncome;
+  }, [allIncome]);
+  
+  useEffect(() => {
+    expensesRef.current = allExpenses;
+  }, [allExpenses]);
+  
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+  
+  useEffect(() => {
+    defaultGroupRef.current = defaultGroup;
+  }, [defaultGroup]);
 
   /* ── Full load ────────────────────────────────────────────────────── */
 
@@ -336,19 +352,61 @@ export function PortfolioDataProvider({ children }) {
     }
   }, [refreshEvents]);
 
-  const editGroup = useCallback(async (id, data) => {
-    const prev = groupsRef.current;
-    setGroups(prevG => prevG.map(g => g.id === id ? { ...g, ...data } : g));
-    try {
-      const updated = await updateGroup(id, data);
-      setGroups(prevG => prevG.map(g => g.id === id ? updated : g));
-      refreshEvents();
-      return updated;
-    } catch (err) {
-      setGroups(prev);
-      throw err;
-    }
-  }, [refreshEvents]);
+    const editGroup = useCallback(async (id, data) => {
+      const prev = groupsRef.current;
+      const prevDefaultGroup = defaultGroupRef.current;
+      const wasDefault = prevDefaultGroup?.id === id;
+      const willBeDefault = data.is_default === true;
+      
+      // Optimistically update the group being edited
+      const updatedGroups = prevG => prevG.map(g => {
+        if (g.id === id) {
+          return { ...g, ...data };
+        }
+        // If we're making this group default and there was a different default group, unset it
+        if (willBeDefault && !wasDefault && g.is_default && g.id !== id) {
+          return { ...g, is_default: false };
+        }
+        return g;
+      });
+      
+      setGroups(updatedGroups);
+      // Update defaultGroup state if needed
+      if (wasDefault && !willBeDefault) {
+        setDefaultGroup(null);
+      } else if (!wasDefault && willBeDefault) {
+        setDefaultGroup(prev.find(g => g.id === id) || null);
+      }
+      
+      try {
+        const updated = await updateGroup(id, data);
+        // Update groups with server response, making sure only one group is default
+        const finalGroups = prevG => prevG.map(g => {
+          if (g.id === id) {
+            return updated;
+          }
+          // If the updated group is default, make sure no other group is default
+          if (updated.is_default && g.is_default && g.id !== id) {
+            return { ...g, is_default: false };
+          }
+          return g;
+        });
+        setGroups(finalGroups);
+        // Update defaultGroup state based on server response
+        if (updated.is_default) {
+          setDefaultGroup(updated);
+        } else if (prevDefaultGroup?.id === id) {
+          setDefaultGroup(null);
+        }
+        refreshEvents();
+        return updated;
+      } catch (err) {
+        // Rollback
+        setGroups(prev);
+        setDefaultGroup(prevDefaultGroup);
+        throw err;
+      }
+    }, [refreshEvents]);
 
   const removeGroup = useCallback(async (id) => {
     const prev = groupsRef.current;
