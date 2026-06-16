@@ -1,0 +1,139 @@
+import { useState, type FormEvent } from 'react';
+import { createTenant, updateTenant } from '../api';
+import { ModalOverlay, DateInput, selectOnFocus, today, PropertyOptions } from './ModalBase';
+import type { Property } from '../types';
+
+interface TenantFormData {
+  property_id: string;
+  name: string;
+  phone: string;
+  email: string;
+  notes: string;
+  lease_start: string;
+  lease_end: string;
+  deposit: number;
+  rent_amount: number;
+}
+
+interface TenantModalProps {
+  tenant: Record<string, unknown> | null;
+  properties: Property[];
+  property: Property | null;
+  onClose: () => void;
+  onSave: () => void;
+  onError?: (message: string) => void;
+}
+
+const toFormState = (tenant: Record<string, unknown> | null, property: Property | null): TenantFormData => tenant ? {
+  property_id: String(tenant.property_id ?? ''),
+  name:        String(tenant.name ?? ''),
+  phone:       String(tenant.phone ?? ''),
+  email:       String(tenant.email ?? ''),
+  notes:       String(tenant.notes ?? ''),
+  lease_start: String(tenant.lease_start ?? ''),
+  lease_end:   String(tenant.lease_end ?? ''),
+  deposit:     Number(tenant.deposit ?? 0),
+  rent_amount: Number(tenant.rent_amount ?? 0),
+} : {
+  property_id: property?.id ? String(property.id) : '',
+  name: '', phone: '', email: '', notes: '',
+  lease_start: today(),
+  lease_end: '', deposit: 0, rent_amount: 0,
+};
+
+export default function TenantModal({ tenant, properties, property, onClose, onSave, onError }: TenantModalProps) {
+  const [formData, setFormData] = useState<TenantFormData>(() => toFormState(tenant, property ?? properties[0]));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const set = (field: keyof TenantFormData, value: any) =>
+    setFormData(prev => ({ ...prev, [field]: value }));
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        propertyId: formData.property_id, name: formData.name,
+        phone: formData.phone, email: formData.email, notes: formData.notes,
+        leaseStart: formData.lease_start, leaseEnd: formData.lease_end || null,
+        deposit: formData.deposit, rentAmount: formData.rent_amount,
+      };
+      if (tenant) {
+        await updateTenant(Number(tenant.id), payload);
+      } else {
+        await createTenant(payload);
+      }
+      onSave();
+    } catch (err) { console.error(err); (onError || alert)('Failed to save tenant'); }
+  };
+
+  return (
+    <ModalOverlay onClose={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">{tenant ? 'Edit Tenant' : 'Add New Tenant'}</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Property *</label>
+              <select value={formData.property_id} onChange={e => set('property_id', e.target.value)} required>
+                <PropertyOptions properties={properties} />
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Full Name *</label>
+              <input type="text" value={formData.name} onChange={e => set('name', e.target.value)} required />
+            </div>
+
+            <div className="form-group">
+              <label>Phone</label>
+              <input type="tel" value={formData.phone} onChange={e => set('phone', e.target.value)} placeholder="(555) 555-5555" />
+            </div>
+
+            <div className="form-group">
+              <label>Email</label>
+              <input type="email" value={formData.email} onChange={e => set('email', e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label>Lease Start *</label>
+              <DateInput value={formData.lease_start} onChange={e => set('lease_start', e.target.value)} required />
+            </div>
+
+            <div className="form-group">
+              <label>Lease End <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(leave empty if current)</span></label>
+              <DateInput value={formData.lease_end} onChange={e => set('lease_end', e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label>Deposit ($)</label>
+              <input type="number" step="0.01" min="0" value={formData.deposit}
+                onChange={e => set('deposit', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} />
+            </div>
+
+            <div className="form-group">
+              <label>Rent Amount ($/month)</label>
+              <input type="number" step="0.01" min="0" value={formData.rent_amount}
+                onChange={e => set('rent_amount', parseFloat(e.target.value) || 0)}
+                onFocus={selectOnFocus} />
+            </div>
+
+            <div className="form-group full-width">
+              <label>Notes</label>
+              <textarea rows={3} value={formData.notes as string} onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))} />
+            </div>
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary">{tenant ? 'Update' : 'Add'} Tenant</button>
+          </div>
+        </form>
+      </div>
+    </ModalOverlay>
+  );
+}

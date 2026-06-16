@@ -6,7 +6,7 @@ import globals from 'globals';
 export default [
   js.configs.recommended,
   {
-    files: ['src/**/*.{js,jsx}'],
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
@@ -46,7 +46,7 @@ export default [
     ignores: ['dist/', 'node_modules/', 'vite.config.js', 'vitest.config.js'],
   },
   {
-    files: ['src/__tests__/**/*.{js,jsx}'],
+    files: ['src/__tests__/**/*.{js,jsx,ts,tsx}'],
     languageOptions: {
       globals: {
         ...globals.browser,
