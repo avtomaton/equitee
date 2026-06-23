@@ -8,7 +8,7 @@ import { expGap } from './metrics';
 import { fmt, fPct, fp, fmtPeriod } from './components/uiHelpers';
 
 const CARD_STYLE = { flex: '1 1 150px', minWidth: 140 };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const card = (props: any) => <MetricCard {...props} style={CARD_STYLE} />;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

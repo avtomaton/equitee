@@ -128,7 +128,7 @@ export const auth = {
     post('/auth/refresh', { refresh_token: refreshToken }) as Promise<AuthResponse>,
 
   logout: (): Promise<void> =>
-    post('/auth/logout', {}).then(() => { return; }), // Best-effort; cookies are cleared by server
+    post('/auth/logout', {}).catch(() => { /* best-effort; cookies are cleared by server */ }),
 
   me: (): Promise<{ user: { email: string; tenant_id: string; is_admin?: boolean; id?: number; role?: string; email_verified?: boolean }; tenant?: { id: string; name: string; plan?: string } }> =>
     get('/auth/me') as Promise<{ user: { email: string; tenant_id: string; is_admin?: boolean; id?: number; role?: string; email_verified?: boolean }; tenant?: { id: string; name: string; plan?: string } }>,

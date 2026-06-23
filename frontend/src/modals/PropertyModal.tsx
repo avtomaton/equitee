@@ -54,7 +54,7 @@ interface PropertyModalProps {
   onError?: (message: string) => void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const toFormState_Property = (p: import('../types').Property | null): PropertyFormData => p ? {
   name:                 (p as any).name                 ?? '',
   province:             (p as any).province             ?? '',
@@ -100,7 +100,7 @@ export default function PropertyModal({ property, onClose, onSave, onError }: Pr
   // Rent field is locked to 0 when Vacant
   const rentLocked = isVacant;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const set = (field: keyof PropertyFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors(e => { const n = { ...e }; delete n[field]; return n; });

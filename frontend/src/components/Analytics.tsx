@@ -138,7 +138,7 @@ export default function Analytics({ filtered, allIncome, allExpenses, allEvents 
   );
 
   const ml = monthsLeftInYear();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const m  = usePortfolioMetrics(filtered, avg as any, agg as any, ml) as any;
 
   // ── Analytics-only derived values ─────────────────────────────────────────
@@ -182,7 +182,7 @@ export default function Analytics({ filtered, allIncome, allExpenses, allEvents 
       </div>
 
       {/* ── Income & Expenses ── */}
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      { }
       <FinancialSummaryPanel properties={filtered} allIncome={allIncome as any} allExpenses={allExpenses as any} allEvents={allEvents} scope="filtered" />
 
       {/* ── Monthly Averages & Key Ratios ── */}

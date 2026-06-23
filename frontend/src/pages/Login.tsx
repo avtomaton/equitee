@@ -152,7 +152,7 @@ export default function LoginPage({ onNavigate }: { onNavigate: (view: string) =
         </button>
 
         <div className="auth-footer">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <a href="#/register" onClick={(e) => { e.preventDefault(); onNavigate('register'); }}>
             Create one
           </a>

@@ -46,7 +46,7 @@ export default function IncomeModal({ income, properties, property, onClose, onS
   const [formData, setFormData] = useState<IncomeFormData>(() => toFormState(income, property ?? properties[0]));
   const { addIncome, editIncome } = usePortfolioData();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const set = (field: keyof IncomeFormData, value: any) =>
     setFormData(prev => ({ ...prev, [field]: value }));
 

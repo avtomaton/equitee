@@ -41,6 +41,7 @@ describe('req helper (via auth calls)', () => {
     await auth.me();
 
     expect(mockFetch).toHaveBeenCalledWith('/api/auth/me', {
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer my-token',
@@ -81,6 +82,7 @@ describe('auth API', () => {
     await auth.register('test@example.com', 'password123', 'My Portfolio');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/auth/register', {
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify({
@@ -101,6 +103,7 @@ describe('auth API', () => {
     await auth.login('test@example.com', 'password123');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/auth/login', {
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify({
@@ -120,6 +123,7 @@ describe('auth API', () => {
     await auth.refresh('old-refresh-token');
 
     expect(mockFetch).toHaveBeenCalledWith('/api/auth/refresh', {
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify({ refresh_token: 'old-refresh-token' }),

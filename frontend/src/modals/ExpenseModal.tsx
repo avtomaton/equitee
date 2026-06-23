@@ -54,7 +54,7 @@ export default function ExpenseModal({ expense, properties, property, onClose, o
   const { addExpense, editExpense } = usePortfolioData();
   const [loanAmountAfter, setLoanAmountAfter] = useState<number | ''>('');
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const set = (field: keyof ExpenseFormData, value: any) =>
     setFormData(prev => ({ ...prev, [field]: value }));
 

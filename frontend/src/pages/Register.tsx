@@ -43,7 +43,7 @@ export default function RegisterPage({ onNavigate }: { onNavigate: (view: string
             <div className="auth-success-icon">✉️</div>
             <h2>Check your email</h2>
             <p>
-              We've sent a verification link to <strong>{email}</strong>.
+              We&apos;ve sent a verification link to <strong>{email}</strong>.
             </p>
             <p>
               Please click the link in the email to activate your account.
@@ -51,7 +51,7 @@ export default function RegisterPage({ onNavigate }: { onNavigate: (view: string
             </p>
             {tenantName && (
               <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>
-                Your portfolio request "{tenantName}" has been submitted and will be reviewed by an admin.
+                Your portfolio request &quot;{tenantName}&quot; has been submitted and will be reviewed by an admin.
               </p>
             )}
             <button
@@ -90,7 +90,7 @@ export default function RegisterPage({ onNavigate }: { onNavigate: (view: string
       return;
     }
 
-    if (!/[!@#$%^&*()\-_=+\[\]{}|;:\'",.<>?/\\`~]/.test(password)) {
+    if (!/[!@#$%^&*()\-_=+[\]{}|;:'",.<>?/\\`~]/.test(password)) {
       setError('Password must contain at least one special character');
       return;
     }

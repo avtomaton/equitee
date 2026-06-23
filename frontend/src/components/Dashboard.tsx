@@ -68,7 +68,7 @@ export default function Dashboard({ properties, onPropertyClick }: { properties:
   const npPct = agg.balance !== 0 ? (netPos / Math.abs(agg.balance) * 100) : null;
 
   const ml = monthsLeftInYear();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const m = usePortfolioMetrics(properties, avg as any, agg as any, ml) as any;
 
   const expExpensesVal = agg.expNOI != null ? agg.totalExpectedOpEx + avg.mortgage : null;
@@ -130,7 +130,7 @@ export default function Dashboard({ properties, onPropertyClick }: { properties:
         {cardYearEndBalance(m.runRate, m.budgeted, ml)}
       </div>
 
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      { }
       <FinancialSummaryPanel properties={properties} allIncome={allIncome as any} allExpenses={allExpenses as any} allEvents={allEvents} scope="portfolio" />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem' }}>

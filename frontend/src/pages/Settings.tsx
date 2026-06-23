@@ -183,7 +183,7 @@ export default function SettingsPage({ onNavigate }: SettingsPageProps) {
             <section style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', marginBottom: '2rem' }}>
               <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>Request a Portfolio</h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-                You don't have a portfolio yet. Submit a request and an admin will create one for you.
+                 You don&apos;t have a portfolio yet. Submit a request and an admin will create one for you.
               </p>
               <form onSubmit={handleRequestTenancy} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
                 <div style={{ flex: 1 }}>

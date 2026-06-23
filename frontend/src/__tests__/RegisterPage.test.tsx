@@ -18,6 +18,11 @@ global.fetch = mockFetch;
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // Mock the initial auth.me() call that AuthProvider makes on mount
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ user: null, tenant: null }),
+  });
 });
 
 function renderRegister(overrides = {}) {
@@ -31,18 +36,24 @@ function renderRegister(overrides = {}) {
 }
 
 describe('RegisterPage', () => {
-  it('renders all form fields', () => {
+  it('renders all form fields', async () => {
     renderRegister();
 
-    expect(screen.getByLabelText('Email')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Portfolio Name/)).toBeInTheDocument();
-    expect(screen.getByLabelText('Password')).toBeInTheDocument();
-    expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+      expect(screen.getByLabelText(/Portfolio Name/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Password')).toBeInTheDocument();
+      expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
+    });
   });
 
-  it('navigates to login page when clicking sign in link', () => {
+  it('navigates to login page when clicking sign in link', async () => {
     const { onNavigate } = renderRegister();
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /sign in/i })).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole('link', { name: /sign in/i }));
     expect(onNavigate).toHaveBeenCalledWith('login');
@@ -50,6 +61,10 @@ describe('RegisterPage', () => {
 
   it('shows error when passwords do not match', async () => {
     renderRegister();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'test@example.com' },
@@ -65,11 +80,17 @@ describe('RegisterPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Passwords do not match')).toBeInTheDocument();
     });
-    expect(mockFetch).not.toHaveBeenCalled();
+    // Should not have made any API calls beyond the initial /auth/me
+    const registerCalls = mockFetch.mock.calls.filter(c => c[0] && c[0].includes('/auth/register'));
+    expect(registerCalls).toHaveLength(0);
   });
 
   it('shows error when password is too short', async () => {
     renderRegister();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'test@example.com' },
@@ -85,10 +106,18 @@ describe('RegisterPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Password must be at least 12 characters/)).toBeInTheDocument();
     });
-    expect(mockFetch).not.toHaveBeenCalled();
+    // Should not have made any API calls beyond the initial /auth/me
+    const registerCalls = mockFetch.mock.calls.filter(c => c[0] && c[0].includes('/auth/register'));
+    expect(registerCalls).toHaveLength(0);
   });
 
   it('shows "Check your email" screen after successful registration', async () => {
+    // Mock the initial /auth/me call
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ user: null, tenant: null }),
+    });
+    // Mock the register call
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -99,6 +128,10 @@ describe('RegisterPage', () => {
     });
 
     const { onNavigate } = renderRegister();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'new@example.com' },
@@ -131,6 +164,12 @@ describe('RegisterPage', () => {
   });
 
   it('shows server error on registration failure', async () => {
+    // Mock the initial /auth/me call
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ user: null, tenant: null }),
+    });
+    // Mock the failed registration
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 400,
@@ -138,6 +177,10 @@ describe('RegisterPage', () => {
     });
 
     const { onNavigate } = renderRegister();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'existing@example.com' },
@@ -156,7 +199,13 @@ describe('RegisterPage', () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it('stores tokens after successful registration', async () => {
+  it('shows "Check your email" screen after successful registration', async () => {
+    // Mock the initial /auth/me call
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ user: null, tenant: null }),
+    });
+    // Mock the register call
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -167,6 +216,10 @@ describe('RegisterPage', () => {
     });
 
     renderRegister();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
 
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'new@example.com' },
@@ -179,10 +232,13 @@ describe('RegisterPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
+    // Should show "Check your email" screen (tokens are in httpOnly cookies now)
     await waitFor(() => {
-      expect(localStorage.getItem('access_token')).toBe('jwt-token');
-      expect(localStorage.getItem('refresh_token')).toBe('refresh-token');
+      expect(screen.getByText('Check your email')).toBeInTheDocument();
     });
+
+    // Should show the email address
+    expect(screen.getByText(/new@example\.com/)).toBeInTheDocument();
   });
 });
 

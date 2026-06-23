@@ -277,7 +277,7 @@ function buildBarData(
 // Chart instances are managed via useRef inside the component (no module-level
 // singleton — that would break if two panels were ever mounted simultaneously).
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type ChartInstance = any;
 
 function buildBarChart(canvas: HTMLCanvasElement, labels: string[], data: Record<string, number>[]): ChartInstance {

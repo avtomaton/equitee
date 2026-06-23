@@ -59,6 +59,11 @@ global.fetch = mockFetch;
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // Mock the initial auth.me() call that AuthProvider makes on mount
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ user: null, tenant: null }),
+  });
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -67,8 +72,10 @@ describe('AuthProvider', () => {
   it('starts with no user and not loading', async () => {
     renderWithContext();
 
-    expect(screen.getByTestId('loading').textContent).toBe('false');
-    expect(screen.getByTestId('user').textContent).toBe('null');
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false');
+      expect(screen.getByTestId('user').textContent).toBe('null');
+    });
   });
 
   it('loads user from session on mount', async () => {
@@ -102,6 +109,12 @@ describe('AuthProvider', () => {
   });
 
   it('sets user on login', async () => {
+    // Mock the initial /auth/me call (returns no user)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ user: null, tenant: null }),
+    });
+    // Mock the login call
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -113,6 +126,10 @@ describe('AuthProvider', () => {
 
     renderWithContext();
 
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false');
+    });
+
     screen.getByTestId('login-btn').click();
 
     await waitFor(() => {
@@ -121,6 +138,12 @@ describe('AuthProvider', () => {
   });
 
   it('sets user on register', async () => {
+    // Mock the initial /auth/me call (returns no user)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ user: null, tenant: null }),
+    });
+    // Mock the register call
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -131,6 +154,10 @@ describe('AuthProvider', () => {
     });
 
     renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false');
+    });
 
     screen.getByTestId('register-btn').click();
 
@@ -203,6 +230,11 @@ describe('AuthProvider', () => {
   });
 
   it('calls resend verification API', async () => {
+    // Mock the initial /auth/me call (returns no user)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ user: null, tenant: null }),
+    });
     // Mock resend-verification
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -212,6 +244,10 @@ describe('AuthProvider', () => {
     });
 
     renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false');
+    });
 
     screen.getByTestId('resend-btn').click();
 

@@ -44,7 +44,7 @@ const toFormState = (tenant: Record<string, unknown> | null, property: Property 
 export default function TenantModal({ tenant, properties, property, onClose, onSave, onError }: TenantModalProps) {
   const [formData, setFormData] = useState<TenantFormData>(() => toFormState(tenant, property ?? properties[0]));
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const set = (field: keyof TenantFormData, value: any) =>
     setFormData(prev => ({ ...prev, [field]: value }));
 
